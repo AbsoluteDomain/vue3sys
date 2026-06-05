@@ -1,0 +1,11 @@
+"""${businessName}路由"""
+
+from rest_framework.routers import SimpleRouter
+
+from .views import ${entityName}ViewSet
+
+
+router = SimpleRouter(trailing_slash=False)
+router.register(r"", ${entityName}ViewSet, basename="${entityKebab}")
+
+urlpatterns = router.urls

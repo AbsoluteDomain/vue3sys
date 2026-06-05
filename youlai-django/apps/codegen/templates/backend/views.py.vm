@@ -1,0 +1,59 @@
+"""${businessName}视图"""
+
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from core.viewsets import BaseModelViewSet
+from core.response import error, success
+
+from .models import ${entityName}
+from .serializers import ${entityName}FormSerializer, ${entityName}PageSerializer
+
+
+class ${entityName}ViewSet(BaseModelViewSet):
+    """${businessName}视图集"""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    queryset = ${entityName}.objects.all().order_by("-id")
+
+    def get_serializer_class(self):
+        """根据动作选择序列化器。"""
+        if self.action in ["list", "page"]:
+            return ${entityName}PageSerializer
+        return ${entityName}FormSerializer
+
+    @action(methods=["get"], detail=False, url_path="page")
+    def page(self, request, *args, **kwargs):
+        """分页列表。"""
+        return super().list(request, *args, **kwargs)
+
+    @action(methods=["get"], detail=True, url_path="form")
+    def form(self, request, pk=None, *args, **kwargs):
+        """表单详情。"""
+        instance = self.get_object()
+        serializer = ${entityName}FormSerializer(instance)
+        return success(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        """批量删除。"""
+        ids = kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        if not ids:
+            return error("请指定要删除的ID", status=400)
+
+        try:
+            id_list = [int(i.strip()) for i in str(ids).split(",") if i.strip()]
+        except ValueError:
+            return error("ID格式不正确", status=400)
+
+        if not id_list:
+            return error("请指定要删除的ID", status=400)
+
+        queryset = self.get_queryset().filter(id__in=id_list)
+        deleted_count = queryset.count()
+        if deleted_count == 0:
+            return error("未找到可删除的数据", status=404)
+
+        queryset.delete()
+        return success({}, msg=f"成功删除 {deleted_count} 条数据")

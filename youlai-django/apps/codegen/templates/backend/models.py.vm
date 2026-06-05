@@ -1,0 +1,39 @@
+from django.db import models
+ 
+#set($pound = "#")
+ 
+class ${entityName}(models.Model):
+    """${businessName}模型"""
+ 
+#foreach($f in $fieldConfigs)
+#if($f.columnName == 'id')
+    id = models.BigAutoField(primary_key=True)
+#else
+#if("$!f.fieldComment" != "")
+    $pound ${f.fieldComment}
+#end
+#if($f.javaType == 'Integer')
+    ${f.fieldName} = models.IntegerField(null=True, blank=True)
+#elseif($f.javaType == 'Long')
+    ${f.fieldName} = models.BigIntegerField(null=True, blank=True)
+#elseif($f.javaType == 'BigDecimal')
+    ${f.fieldName} = models.DecimalField(max_digits=19, decimal_places=4, null=True, blank=True)
+#elseif($f.javaType == 'LocalDate')
+    ${f.fieldName} = models.DateField(null=True, blank=True)
+#elseif($f.javaType == 'LocalDateTime')
+    ${f.fieldName} = models.DateTimeField(null=True, blank=True)
+#elseif($f.javaType == 'Boolean')
+    ${f.fieldName} = models.BooleanField(null=True, blank=True)
+#else
+#if($f.maxLength)
+    ${f.fieldName} = models.CharField(max_length=${f.maxLength}, null=True, blank=True)
+#else
+    ${f.fieldName} = models.TextField(null=True, blank=True)
+#end
+#end
+#end
+#end
+ 
+    class Meta:
+        managed = False
+        db_table = "${tableName}"

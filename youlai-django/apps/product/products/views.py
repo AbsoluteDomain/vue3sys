@@ -1,0 +1,382 @@
+# apps/system/users/views.py
+import json
+# 1. 引入 Django 的核心响应类 (相当于 Flask 的 jsonify)
+from django.db.models import F, Q
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from .models import Product
+
+# 安全地引入操作日志模块
+try:
+    from apps.system.operation_logs.services import log_operation
+    from apps.system.operation_logs.utils import compare_changes, format_changes_text
+    from rest_framework_simplejwt.authentication import JWTAuthentication
+    from rest_framework.exceptions import AuthenticationFailed
+    OPERATION_LOGS_AVAILABLE = True
+except ImportError:
+    OPERATION_LOGS_AVAILABLE = False
+
+
+def _get_user_from_request(request):
+    """从请求中获取用户信息"""
+    if not OPERATION_LOGS_AVAILABLE:
+        return None
+    try:
+        jwt_auth = JWTAuthentication()
+        user, token = jwt_auth.authenticate(request)
+        return user
+    except (AuthenticationFailed, Exception):
+        return None
+
+
+def _alert_filter_q():
+    """报警行：报警数量与数量均有值，且报警数量 >= 数量（与前端标红逻辑一致）"""
+    return Q(
+        alert_quantity__isnull=False,
+        quantity__isnull=False,
+        alert_quantity__gte=F("quantity"),
+    )
+# 2. (可选) 引入你自己写的工具函数
+# 假设你在同级目录下写了一个 utils.py，你可以这样引入:
+# from .utils import my_custom_function 
+
+def hello_world(request):
+    """
+    这是一个视图函数
+    request: 相当于 Flask 里的 request 对象
+    """
+    # 模拟业务逻辑
+    user_name = request.GET.get('name', '陌生人')
+    
+    data = {
+        "code": '00000',
+        "msg": f"你好, {user_name}! 这是我在 Django 写的第一个接口。",
+        "data": {"id": 1, "role": "admin"}
+    }
+    
+    # 返回 JSON 响应
+    return JsonResponse(data)
+
+
+def product_list(request):
+    # 1. 读取分页和查询参数
+    try:
+        page_num = int(request.GET.get("pageNum", 1))
+    except (TypeError, ValueError):
+        page_num = 1
+    try:
+        page_size = int(request.GET.get("pageSize", 10))
+    except (TypeError, ValueError):
+        page_size = 10
+    product_id = (request.GET.get("productId", "") or "").strip()
+    product_name = (request.GET.get("productName", "") or "").strip()
+    # 兼容旧参数 keyword（按产品名称搜索）
+    if not product_name:
+        product_name = (request.GET.get("keyword", "") or "").strip()
+    is_alert = (request.GET.get("isAlert", "") or "").strip()
+    sort_prop = (request.GET.get("sortProp", "") or "").strip()
+    sort_order = (request.GET.get("sortOrder", "") or "").strip()
+
+
+    if page_num < 1:
+        page_num = 1
+    if page_size < 1:
+        page_size = 10
+
+    # 2. 组装查询条件
+    products = Product.objects.filter(is_del=0)
+    if product_id:
+        try:
+            products = products.filter(id=int(product_id))
+        except (TypeError, ValueError):
+            products = products.none()
+    if product_name:
+        products = products.filter(name__icontains=product_name)
+    if is_alert == "1":
+        products = products.filter(_alert_filter_q())
+    elif is_alert == "0":
+        products = products.exclude(_alert_filter_q())
+
+    # 3. 处理排序（白名单，防止任意字段注入）
+    sort_field_map = {
+        "id": "id",
+        "name": "name",
+        "type": "type",
+        "quantity": "quantity",
+        "alert_quantity": "alert_quantity",
+        "updated_at": "updated_at",
+    }
+    db_sort_field = sort_field_map.get(sort_prop, "id")
+    # 默认升序；只有前端明确传 descending 才降序
+    db_sort_prefix = "-" if sort_order == "descending" else ""
+    products = products.order_by(f"{db_sort_prefix}{db_sort_field}")
+
+    # 4. 计算分页范围
+    total = products.count()
+    start = (page_num - 1) * page_size
+    end = start + page_size
+    page_items = products[start:end]
+
+    # 5. 将当前页数据转换为 JSON
+    data = []
+    for p in page_items:
+        data.append({
+            "id": p.id,
+            "name": p.name,
+            "type": p.type,
+            "quantity": p.quantity,
+            "unit": p.unit,
+            "location": p.location,
+            "description": p.description,
+            "updated_at": p.updated_at.strftime("%Y-%m-%d %H:%M:%S") if p.updated_at else None,
+            "alert_quantity": p.alert_quantity
+        })
+
+    # 6. 返回分页结构
+    return JsonResponse(
+        {
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "list": data,
+                "total": total,
+                "pageNum": page_num,
+                "pageSize": page_size,
+            },
+        }
+    )
+
+
+# --- 2. 新增产品 ---
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_product(request):
+    try:
+        # 1. 解析前端传来的 JSON 数据
+        body = json.loads(request.body or "{}")
+
+        # 2. 创建对象（主键 id 让数据库自增；仅当前端显式传了 id 才使用）
+        create_kwargs = {
+            "name": body.get("name"),
+            "type": body.get("type"),
+            "quantity": body.get("quantity"),
+            "unit": body.get("unit"),
+            "location": body.get("location"),
+            "description": body.get("description"),
+            "alert_quantity": body.get("alert_quantity"),
+            "is_del": 0,
+        }
+        if body.get("id") is not None:
+            create_kwargs["id"] = body.get("id")
+
+        product = Product.objects.create(**create_kwargs)
+        
+        # 记录操作日志
+        if OPERATION_LOGS_AVAILABLE:
+            user = _get_user_from_request(request)
+            if user:
+                log_operation(
+                    user_id=user.id,
+                    user_name=user.username,
+                    module='product',
+                    operation_type='create',
+                    target_id=product.id,
+                    target_name=product.name,
+                    after_data={"quantity": product.quantity, "type": product.type},
+                    description=f"新增库存：{product.name}",
+                )
+        
+        return JsonResponse({"code": '00000', "msg": "新增成功", "data": {"id": product.id}})
+    except Exception as e:
+        return JsonResponse({"code": '500', "msg": f"新增失败: {str(e)}"})
+
+# --- 3. 修改产品 ---
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_product(request):
+    try:
+        # 1. 解析 JSON
+        body = json.loads(request.body or "{}")
+        product_id = body.get('id') # 前端必须传 id
+
+        # 2. 查找对象
+        product = Product.objects.get(id=product_id, is_del=0)
+        
+        # 保存修改前的数据
+        before_data = {
+            "name": product.name,
+            "type": product.type,
+            "quantity": product.quantity,
+            "unit": product.unit,
+            "location": product.location,
+            "description": product.description,
+            "alert_quantity": product.alert_quantity,
+        }
+
+        # 3. 更新字段
+        product.name = body.get('name')
+        product.type = body.get('type')
+        product.quantity = body.get('quantity')
+        product.unit = body.get('unit')
+        product.location = body.get('location')
+        product.description = body.get('description')
+        product.alert_quantity = body.get('alert_quantity')
+        product.save()
+        
+        # 保存修改后的数据
+        after_data = {
+            "name": product.name,
+            "type": product.type,
+            "quantity": product.quantity,
+            "unit": product.unit,
+            "location": product.location,
+            "description": product.description,
+            "alert_quantity": product.alert_quantity,
+        }
+        
+        # 对比变更
+        description = f"修改库存：{product.name}"
+        if OPERATION_LOGS_AVAILABLE:
+            changes = compare_changes(before_data, after_data)
+            changes_text = format_changes_text(changes)
+            if changes_text:
+                description += f"（{changes_text}）"
+            
+            # 记录操作日志
+            user = _get_user_from_request(request)
+            if user:
+                log_operation(
+                    user_id=user.id,
+                    user_name=user.username,
+                    module='product',
+                    operation_type='update',
+                    target_id=product.id,
+                    target_name=product.name,
+                    before_data=before_data,
+                    after_data=after_data,
+                    description=description,
+                )
+
+        return JsonResponse({"code": '00000', "msg": "更新成功", "data": {"id": product.id}})
+    except Product.DoesNotExist:
+        return JsonResponse({"code": '404', "msg": "产品不存在"})
+    except Exception as e:
+        return JsonResponse({"code": '500', "msg": f"更新失败: {str(e)}"})
+
+# --- 4. 产品出入库 ---
+@csrf_exempt
+@require_http_methods(["POST"])
+def stock_adjust_product(request):
+    """产品出入库：type=in 入库，type=out 出库"""
+    try:
+        body = json.loads(request.body or "{}")
+        product_id = body.get("id")
+        adjust_type = (body.get("type") or "").strip().lower()
+        if not product_id:
+            return JsonResponse({"code": "400", "msg": "缺少产品 ID"})
+        if adjust_type not in ("in", "out"):
+            return JsonResponse({"code": "400", "msg": "type 须为 in（入库）或 out（出库）"})
+        try:
+            delta = int(body.get("quantity"))
+        except (TypeError, ValueError):
+            return JsonResponse({"code": "400", "msg": "数量必须为整数"})
+        if delta < 1:
+            return JsonResponse({"code": "400", "msg": "数量必须大于 0"})
+
+        product = Product.objects.get(id=product_id, is_del=0)
+        current = product.quantity if product.quantity is not None else 0
+        if adjust_type == "out" and current < delta:
+            return JsonResponse(
+                {"code": "400", "msg": f"库存不足：当前 {current}，出库 {delta}"}
+            )
+        
+        # 保存修改前的数据
+        before_data = {"quantity": current}
+        
+        product.quantity = current + delta if adjust_type == "in" else current - delta
+        product.save(update_fields=["quantity", "updated_at"])
+        action = "入库" if adjust_type == "in" else "出库"
+        
+        # 保存修改后的数据
+        after_data = {"quantity": product.quantity}
+        
+        # 记录操作日志
+        if OPERATION_LOGS_AVAILABLE:
+            user = _get_user_from_request(request)
+            if user:
+                log_operation(
+                    user_id=user.id,
+                    user_name=user.username,
+                    module='product',
+                    operation_type='update',
+                    target_id=product.id,
+                    target_name=product.name,
+                    before_data=before_data,
+                    after_data=after_data,
+                    description=f"{action}：{product.name}，数量：{delta}",
+                )
+        
+        return JsonResponse(
+            {
+                "code": "00000",
+                "msg": f"{action}成功",
+                "data": {
+                    "id": product.id,
+                    "quantity": product.quantity,
+                    "type": adjust_type,
+                    "delta": delta,
+                },
+            }
+        )
+    except Product.DoesNotExist:
+        return JsonResponse({"code": "404", "msg": "产品不存在"})
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"操作失败: {str(e)}"})
+
+# --- 5. 删除产品 ---
+@csrf_exempt
+@require_http_methods(["POST"])
+def delete_product(request):
+    try:
+        # 1. 解析 JSON
+        body = json.loads(request.body or "{}")
+        product_id = body.get('id')
+
+        # 2. 删除
+        product = Product.objects.get(id=product_id, is_del=0)
+        
+        # 保存删除前的数据
+        before_data = {
+            "name": product.name,
+            "type": product.type,
+            "quantity": product.quantity,
+            "unit": product.unit,
+            "location": product.location,
+            "description": product.description,
+            "alert_quantity": product.alert_quantity,
+        }
+        
+        product.is_del = 1
+        product.save(update_fields=["is_del", "updated_at"])
+        
+        # 记录操作日志
+        if OPERATION_LOGS_AVAILABLE:
+            user = _get_user_from_request(request)
+            if user:
+                log_operation(
+                    user_id=user.id,
+                    user_name=user.username,
+                    module='product',
+                    operation_type='delete',
+                    target_id=product.id,
+                    target_name=product.name,
+                    before_data=before_data,
+                    description=f"删除库存：{product.name}",
+                )
+
+        return JsonResponse({"code": '00000', "msg": "删除成功", "data": {"id": product_id}})
+    except Product.DoesNotExist:
+        return JsonResponse({"code": '404', "msg": "产品不存在"})
+    except Exception as e:
+        return JsonResponse({"code": '500', "msg": f"删除失败: {str(e)}"})

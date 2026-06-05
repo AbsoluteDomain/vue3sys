@@ -1,0 +1,59 @@
+# ==============================
+# Python / Django
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Django
+*.sqlite3
+db.sqlite3
+local_settings.py
+media/
+staticfiles/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Type check / lint
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# ==============================
+# IDE / Editor
+# ==============================
+.idea/
+.vscode/
+
+# ==============================
+# OS / misc
+# ==============================
+.DS_Store
+Thumbs.db
+.history/
+
+# Logs / runtime
+*.log
+/logs/
+*.pid

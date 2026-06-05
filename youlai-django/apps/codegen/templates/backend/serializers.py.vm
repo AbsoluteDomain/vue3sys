@@ -1,0 +1,41 @@
+"""${businessName}序列化器"""
+
+from core.serializers import StandardModelSerializer
+
+#set($pound = "#")
+
+from .models import ${entityName}
+
+
+class ${entityName}PageSerializer(StandardModelSerializer):
+    """${businessName}分页序列化器"""
+
+    class Meta:
+        model = ${entityName}
+        fields = [
+#foreach($fieldConfig in $fieldConfigs)
+#if($fieldConfig.isShowInList || $fieldConfig.fieldName == "id")
+#if("$!fieldConfig.fieldComment" != "")
+            $pound ${fieldConfig.fieldComment}
+#end
+            "${fieldConfig.fieldName}",
+#end
+#end
+        ]
+
+
+class ${entityName}FormSerializer(StandardModelSerializer):
+    """${businessName}表单序列化器"""
+
+    class Meta:
+        model = ${entityName}
+        fields = [
+#foreach($fieldConfig in $fieldConfigs)
+#if($fieldConfig.isShowInForm || $fieldConfig.fieldName == "id")
+#if("$!fieldConfig.fieldComment" != "")
+            $pound ${fieldConfig.fieldComment}
+#end
+            "${fieldConfig.fieldName}",
+#end
+#end
+        ]
