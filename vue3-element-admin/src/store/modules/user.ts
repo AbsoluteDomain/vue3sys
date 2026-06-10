@@ -58,8 +58,13 @@ export const useUserStore = defineStore("user", () => {
    * 登出
    */
   async function logout(): Promise<void> {
-    await AuthAPI.logout();
-    resetAllState();
+    try {
+      await AuthAPI.logout();
+    } catch {
+      // token 已失效时后端可能无法完成黑名单，仍应本地清理登录态
+    } finally {
+      resetAllState();
+    }
   }
 
   /**

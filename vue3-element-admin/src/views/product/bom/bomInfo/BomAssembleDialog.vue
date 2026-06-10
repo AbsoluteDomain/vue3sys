@@ -19,11 +19,11 @@
           <el-option
             v-for="item in bomOptions"
             :key="item.id"
-            :label="`${item.id} - ${item.bom_name}`"
+            :label="formatBomLabel(item)"
             :value="item.id"
             :disabled="!item.recipe_count"
           >
-            <span>{{ item.id }} - {{ item.bom_name }}</span>
+            <span>{{ formatBomLabel(item) }}</span>
             <span v-if="!item.recipe_count" style="color: #f56c6c; margin-left: 8px">（无明细）</span>
           </el-option>
         </el-select>
@@ -62,8 +62,20 @@
     </div>
 
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">确定组装</el-button>
+      <div class="dialog-footer">
+        <el-button
+          type="success"
+          plain
+          :disabled="!previewLines.length"
+          @click="handleExportExcel"
+        >
+          导出 Excel
+        </el-button>
+        <div class="dialog-footer-actions">
+          <el-button @click="visible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="handleSubmit">确定组装</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -71,6 +83,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ExcelJS from 'exceljs'
 import { getBomList, getBomDetail, assembleBom } from '@/api/bom'
 import { getProductList } from '@/api/product'
 
@@ -93,6 +106,121 @@ const formData = reactive({
 const formRules = {
   bom_id: [{ required: true, message: '请选择 BOM', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入组装数量', trigger: 'blur' }]
+}
+
+const formatBomLabel = (item) => {
+  if (!item) return ''
+  const namePart = item.bom_name ? ` / ${item.bom_name}` : ''
+  return `${item.id} - ${item.bom_model || ''}${namePart}`
+}
+
+const formatBomShortLabel = (item) => {
+  if (!item) return ''
+  if (item.bom_name) return `${item.bom_model}(${item.bom_name})`
+  return item.bom_model || String(item.id)
+}
+
+const getSelectedBom = () => bomOptions.value.find((b) => b.id === formData.bom_id)
+
+const formatNow = () => {
+  const now = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+}
+
+const saveXlsx = (buffer, fileName) => {
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8'
+  })
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = downloadUrl
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(downloadUrl)
+}
+
+const handleExportExcel = async () => {
+  if (!formData.bom_id) {
+    ElMessage.warning('请先选择 BOM')
+    return
+  }
+  if (!previewLines.value.length) {
+    ElMessage.warning('暂无库存消耗明细可导出')
+    return
+  }
+
+  const bom = getSelectedBom()
+  const bomLabel = bom ? `${bom.id}-${bom.bom_model}` : String(formData.bom_id)
+  const qty = formData.quantity || 1
+
+  try {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('组装预览')
+
+    worksheet.addRow(['组装产品预览'])
+    worksheet.addRow(['BOM', bom ? formatBomLabel(bom) : formData.bom_id])
+    if (bom?.bom_model) {
+      worksheet.addRow(['BOM型号', bom.bom_model])
+    }
+    if (bom?.bom_name) {
+      worksheet.addRow(['BOM名称', bom.bom_name])
+    }
+    if (bom?.material_code) {
+      worksheet.addRow(['物料编码', bom.material_code])
+    }
+    if (bom?.type_name) {
+      worksheet.addRow(['BOM类型', bom.type_name])
+    }
+    worksheet.addRow(['组装数量', qty])
+    worksheet.addRow(['导出时间', formatNow()])
+    worksheet.addRow([])
+
+    const headerRow = worksheet.addRow([
+      '产品名称',
+      '类型',
+      '单套用量',
+      '合计消耗',
+      '当前库存',
+      '库存状态'
+    ])
+    headerRow.font = { bold: true }
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5F7FA' }
+    }
+
+    previewLines.value.forEach((row) => {
+      worksheet.addRow([
+        row.product_name,
+        row.product_type === 'raw' ? '原材料' : '组件',
+        row.per_unit,
+        row.required,
+        row.stock,
+        row.stock < row.required ? '库存不足' : '充足'
+      ])
+    })
+
+    worksheet.columns = [
+      { width: 24 },
+      { width: 12 },
+      { width: 12 },
+      { width: 12 },
+      { width: 12 },
+      { width: 12 }
+    ]
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    const safeName = bomLabel.replace(/[\\/:*?"<>|]/g, '_')
+    saveXlsx(buffer, `BOM组装预览_${safeName}_${qty}套.xlsx`)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('导出 Excel 失败')
+  }
 }
 
 const loadBomOptions = () =>
@@ -181,8 +309,8 @@ const handleSubmit = () => {
       return
     }
 
-    const bom = bomOptions.value.find((b) => b.id === formData.bom_id)
-    const bomLabel = bom ? bom.bom_name : formData.bom_id
+    const bom = getSelectedBom()
+    const bomLabel = bom ? formatBomShortLabel(bom) : formData.bom_id
 
     ElMessageBox.confirm(
       `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？将扣减对应零件库存。`,
@@ -197,7 +325,7 @@ const handleSubmit = () => {
         })
       })
       .then(() => {
-        ElMessage.success('组装成功，库存已扣减')
+        ElMessage.success('组装成功，已生成成品并扣减库存')
         emit('success')
         visible.value = false
       })
@@ -220,6 +348,16 @@ defineExpose({ open })
   font-size: 14px;
   font-weight: 600;
   color: #606266;
+}
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.dialog-footer-actions {
+  display: flex;
+  gap: 8px;
 }
 .stock-warn {
   color: #f56c6c;

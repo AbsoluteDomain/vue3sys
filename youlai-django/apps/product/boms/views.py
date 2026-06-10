@@ -7,30 +7,32 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from core.datetime import format_local_datetime
+from core.datetime import format_local_datetime
+from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
 from .models import AssemblyRecipe, BomList
 
+from apps.system.operation_logs.utils import (
+    format_bom_assemble_deduct_description,
+    format_bom_assemble_description,
+    format_bom_recipe_added,
+    format_bom_recipe_quantity_change,
+    format_bom_recipe_removed,
+    format_bom_update_description,
+)
+
 # 安全地引入操作日志模块
 try:
-    from apps.system.operation_logs.services import log_operation
-    from apps.system.operation_logs.utils import compare_changes, format_changes_text
-    from rest_framework_simplejwt.authentication import JWTAuthentication
-    from rest_framework.exceptions import AuthenticationFailed
+    from apps.system.operation_logs.services import log_operation_from_request
     OPERATION_LOGS_AVAILABLE = True
 except ImportError:
     OPERATION_LOGS_AVAILABLE = False
 
 
-def _get_user_from_request(request):
-    """从请求中获取用户信息"""
-    if not OPERATION_LOGS_AVAILABLE:
-        return None
-    try:
-        jwt_auth = JWTAuthentication()
-        user, token = jwt_auth.authenticate(request)
-        return user
-    except (AuthenticationFailed, Exception):
-        return None
+def _log_if_available(request, **kwargs):
+    if OPERATION_LOGS_AVAILABLE:
+        log_operation_from_request(request, **kwargs)
 
 
 def _parse_page_params(request):
@@ -50,7 +52,7 @@ def _parse_page_params(request):
 
 
 def _dt_str(value):
-    return value.strftime("%Y-%m-%d %H:%M:%S") if value else None
+    return format_local_datetime(value)
 
 
 def _recipe_part_info(row):
@@ -80,17 +82,66 @@ def _recipe_part_info(row):
 def _serialize_bom_header(bom, recipe_count=0):
     return {
         "id": bom.id,
-        "bom_name": bom.bom_name,
+        "bom_model": bom.bom_model,
+        "bom_name": bom.bom_name or "",
+        "material_code": bom.material_code or "",
+        "type": bom.type,
+        "type_name": bom.get_type_display(),
         "recipe_count": recipe_count,
     }
 
 
-def _serialize_recipe(row):
+def _bom_display_name(bom):
+    return bom.bom_name or bom.bom_model
+
+
+def _bom_log_label(bom):
+    if bom.bom_name:
+        return f"{bom.bom_model}({bom.bom_name})"
+    return bom.bom_model
+
+
+def _bom_header_snapshot(bom):
+    return {
+        "bom_model": bom.bom_model,
+        "bom_name": bom.bom_name or "",
+        "material_code": bom.material_code or "",
+        "type": bom.type,
+    }
+
+
+def _parse_bom_header_fields(body):
+    bom_model = (body.get("bom_model") or body.get("bomModel") or "").strip()
+    if not bom_model:
+        raise ValueError("BOM型号不能为空")
+    bom_name = (body.get("bom_name") or body.get("bomName") or "").strip() or None
+    material_code = (
+        body.get("material_code") or body.get("materialCode") or ""
+    ).strip() or None
+    return bom_model, bom_name, material_code
+
+
+def _parse_bom_type(value, required=False):
+    if value is None or value == "":
+        if required:
+            raise ValueError("请选择 BOM 类型")
+        return None
+    try:
+        bom_type = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("BOM 类型无效")
+    valid_types = {choice[0] for choice in BomList.TYPE_CHOICES}
+    if bom_type not in valid_types:
+        raise ValueError("BOM 类型无效")
+    return bom_type
+
+
+def _serialize_recipe(row, bom_name=None):
     part = _recipe_part_info(row)
     return {
         "id": row.id,
         "bom_id": row.bom_id,
-        "bom_name": row.bom_name,
+        "bom_name": bom_name,
         "part_product_id": part["product_id"],
         "part_product_name": part["product_name"],
         "part_product_type": part["product_type"],
@@ -126,7 +177,7 @@ def _recipe_fields_from_product(bom, product_id, quantity):
 
     fields = {
         "bom_id": bom.id,
-        "bom_name": bom.bom_name,
+        "product_name": product.name,
         "raw_material_id": None,
         "raw_material_name": None,
         "raw_material_quantity": None,
@@ -186,7 +237,18 @@ def _save_recipes(bom, recipes_body):
 def bom_list(request):
     page_num, page_size = _parse_page_params(request)
     bom_id = (request.GET.get("id", "") or request.GET.get("bom_id", "") or "").strip()
-    bom_name = (request.GET.get("bom_name", "") or "").strip()
+    bom_model = (
+        request.GET.get("bom_model", "") or request.GET.get("bomModel", "") or ""
+    ).strip()
+    bom_name = (
+        request.GET.get("bom_name", "") or request.GET.get("bomName", "") or ""
+    ).strip()
+    material_code = (
+        request.GET.get("material_code", "")
+        or request.GET.get("materialCode", "")
+        or ""
+    ).strip()
+    bom_type = (request.GET.get("type", "") or request.GET.get("bom_type", "") or "").strip()
     sort_prop = (request.GET.get("sort_prop", "") or "").strip()
     sort_order = (request.GET.get("sort_order", "") or "").strip()
 
@@ -197,10 +259,22 @@ def bom_list(request):
             qs = qs.filter(id=int(bom_id))
         except (TypeError, ValueError):
             qs = qs.none()
+    if bom_model:
+        qs = qs.filter(bom_model__icontains=bom_model)
     if bom_name:
         qs = qs.filter(bom_name__icontains=bom_name)
+    if material_code:
+        qs = qs.filter(material_code__icontains=material_code)
+    if bom_type in ("0", "1", "2"):
+        qs = qs.filter(type=int(bom_type))
 
-    sort_field_map = {"id": "id", "bom_name": "bom_name"}
+    sort_field_map = {
+        "id": "id",
+        "bom_model": "bom_model",
+        "bom_name": "bom_name",
+        "material_code": "material_code",
+        "type": "type",
+    }
     db_sort_field = sort_field_map.get(sort_prop, "id")
     db_sort_prefix = "-" if sort_order == "descending" else ""
     qs = qs.order_by(f"{db_sort_prefix}{db_sort_field}")
@@ -247,7 +321,9 @@ def bom_detail(request):
 
     recipes = AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id")
     payload = _serialize_bom_header(bom, recipes.count())
-    payload["recipes"] = [_serialize_recipe(r) for r in recipes]
+    payload["recipes"] = [
+        _serialize_recipe(r, _bom_display_name(bom)) for r in recipes
+    ]
     return JsonResponse({"code": "00000", "msg": "成功", "data": payload})
 
 
@@ -256,12 +332,20 @@ def bom_detail(request):
 def create_bom(request):
     try:
         body = json.loads(request.body or "{}")
-        bom_name = (body.get("bom_name") or "").strip()
-        if not bom_name:
-            return JsonResponse({"code": "400", "msg": "BOM 名称不能为空"})
+        bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+
+        bom_type = _parse_bom_type(body.get("type"))
+        if bom_type is None:
+            bom_type = BomList.TYPE_JOINT
 
         with transaction.atomic():
-            bom = BomList.objects.create(bom_name=bom_name, is_del=0)
+            bom = BomList.objects.create(
+                bom_model=bom_model,
+                bom_name=bom_name,
+                material_code=material_code,
+                is_del=0,
+                type=bom_type,
+            )
             old_recipes, new_recipes = _save_recipes(bom, body.get("recipes"))
         
         # 构建明细描述
@@ -269,24 +353,22 @@ def create_bom(request):
         for recipe in new_recipes:
             part_info = _recipe_part_info(recipe)
             if part_info["product_name"]:
-                recipe_descriptions.append(f"{part_info['product_name']}: {part_info['quantity']}")
-        
-        # 记录操作日志
-        if OPERATION_LOGS_AVAILABLE:
-            user = _get_user_from_request(request)
-            if user:
-                description = f"新增BOM：{bom.bom_name}"
-                if recipe_descriptions:
-                    description += f"（明细：{', '.join(recipe_descriptions)}）"
-                log_operation(
-                    user_id=user.id,
-                    user_name=user.username,
-                    module='productBom',
-                    operation_type='create',
-                    target_id=bom.id,
-                    target_name=bom.bom_name,
-                    description=description,
+                recipe_descriptions.append(
+                    f"{part_info['product_name']}: {part_info['quantity']}"
                 )
+
+        description = f"新增BOM: {_bom_log_label(bom)}"
+        if recipe_descriptions:
+            description += f" (明细: {', '.join(recipe_descriptions)})"
+        _log_if_available(
+            request,
+            module='bom',
+            module_name='产品BOM管理',
+            operation_type='create',
+            target_id=bom.id,
+            target_name=_bom_log_label(bom),
+            description=description,
+        )
 
         return JsonResponse(
             {"code": "00000", "msg": "新增成功", "data": {"id": bom.id}}
@@ -305,104 +387,115 @@ def update_bom(request):
         bom_id = body.get("id")
         if not bom_id:
             return JsonResponse({"code": "400", "msg": "缺少 BOM ID"})
-        bom_name = (body.get("bom_name") or "").strip()
-        if not bom_name:
-            return JsonResponse({"code": "400", "msg": "BOM 名称不能为空"})
+        bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+
+        bom_type = _parse_bom_type(body.get("type"))
+
+        recipes_data = body.get("recipes")
+        print(f"[DEBUG] update_bom: bom_id={bom_id}, recipes_data={recipes_data}")
 
         with transaction.atomic():
             bom = BomList.objects.get(id=int(bom_id), is_del=0)
             
             # 保存修改前的数据
-            before_data = {
-                "bom_name": bom.bom_name,
-            }
-            
-            old_bom_name = bom.bom_name
+            before_data = _bom_header_snapshot(bom)
+
+            bom.bom_model = bom_model
             bom.bom_name = bom_name
-            bom.save(update_fields=["bom_name"])
-            old_recipes, new_recipes = _save_recipes(bom, body.get("recipes"))
+            bom.material_code = material_code
+            update_fields = ["bom_model", "bom_name", "material_code"]
+            if bom_type is not None:
+                bom.type = bom_type
+                update_fields.append("type")
+            bom.save(update_fields=update_fields)
+            old_recipes, new_recipes = _save_recipes(bom, recipes_data)
             
-            # 保存修改后的数据
-            after_data = {
-                "bom_name": bom.bom_name,
-            }
-            
-            # 对比变更
-            description = f"修改BOM：{bom.bom_name}"
-            recipe_changes = []
-            
-            if OPERATION_LOGS_AVAILABLE:
-                changes = compare_changes(before_data, after_data)
-                changes_text = format_changes_text(changes)
-                
-                # 对比配方变更
-                old_products = set()
-                new_products = set()
-                
-                # 获取旧配方的产品
-                for recipe in old_recipes:
-                    part_info = _recipe_part_info(recipe)
-                    old_products.add(part_info["product_id"])
-                
-                # 获取新配方的产品
-                for recipe in new_recipes:
-                    part_info = _recipe_part_info(recipe)
-                    new_products.add(part_info["product_id"])
-                
-                # 找出新增和删除的产品
-                added_products = new_products - old_products
-                removed_products = old_products - new_products
-                
-                # 找出变更的产品
-                common_products = old_products & new_products
-                
-                # 处理新增
-                for product_id in added_products:
-                    recipe = next((r for r in new_recipes if _recipe_part_info(r)["product_id"] == product_id), None)
-                    if recipe:
-                        part_info = _recipe_part_info(recipe)
-                        recipe_changes.append(f"新增{part_info['product_name']}: {part_info['quantity']}")
-                
-                # 处理删除
-                for product_id in removed_products:
-                    recipe = next((r for r in old_recipes if _recipe_part_info(r)["product_id"] == product_id), None)
-                    if recipe:
-                        part_info = _recipe_part_info(recipe)
-                        recipe_changes.append(f"删除{part_info['product_name']}")
-                
-                # 处理变更
-                for product_id in common_products:
-                    old_recipe = next((r for r in old_recipes if _recipe_part_info(r)["product_id"] == product_id), None)
-                    new_recipe = next((r for r in new_recipes if _recipe_part_info(r)["product_id"] == product_id), None)
-                    if old_recipe and new_recipe:
-                        old_info = _recipe_part_info(old_recipe)
-                        new_info = _recipe_part_info(new_recipe)
-                        if old_info["quantity"] != new_info["quantity"]:
-                            recipe_changes.append(f"{new_info['product_name']}: {old_info['quantity']} → {new_info['quantity']}")
-                
-                # 合并所有变更
-                all_changes = []
-                if changes_text:
-                    all_changes.append(changes_text)
-                all_changes.extend(recipe_changes)
-                
-                if all_changes:
-                    description += f"（{'; '.join(all_changes)}）"
-                
-                # 记录操作日志
-                user = _get_user_from_request(request)
-                if user:
-                    log_operation(
-                        user_id=user.id,
-                        user_name=user.username,
-                        module='productBom',
-                        operation_type='update',
-                        target_id=bom.id,
-                        target_name=bom.bom_name,
-                        before_data=before_data,
-                        after_data=after_data,
-                        description=description,
+            # 验证保存结果
+            after_count = AssemblyRecipe.objects.filter(bom_id=bom.id).count()
+            print(f"[DEBUG] After _save_recipes: count={after_count}")
+        
+        # 事务成功提交后的验证
+        final_count = AssemblyRecipe.objects.filter(bom_id=bom.id).count()
+        print(f"[DEBUG] Final count after commit: {final_count}")
+        
+        # 保存修改后的数据
+        after_data = _bom_header_snapshot(bom)
+
+        recipe_changes = []
+        old_products = set()
+        new_products = set()
+
+        for recipe in old_recipes:
+            part_info = _recipe_part_info(recipe)
+            old_products.add(part_info["product_id"])
+
+        for recipe in new_recipes:
+            part_info = _recipe_part_info(recipe)
+            new_products.add(part_info["product_id"])
+
+        added_products = new_products - old_products
+        removed_products = old_products - new_products
+        common_products = old_products & new_products
+
+        for product_id in added_products:
+            recipe = next(
+                (r for r in new_recipes if _recipe_part_info(r)["product_id"] == product_id),
+                None,
+            )
+            if recipe:
+                part_info = _recipe_part_info(recipe)
+                recipe_changes.append(
+                    format_bom_recipe_added(part_info["product_name"], part_info["quantity"])
+                )
+
+        for product_id in removed_products:
+            recipe = next(
+                (r for r in old_recipes if _recipe_part_info(r)["product_id"] == product_id),
+                None,
+            )
+            if recipe:
+                part_info = _recipe_part_info(recipe)
+                recipe_changes.append(format_bom_recipe_removed(part_info["product_name"]))
+
+        for product_id in common_products:
+            old_recipe = next(
+                (r for r in old_recipes if _recipe_part_info(r)["product_id"] == product_id),
+                None,
+            )
+            new_recipe = next(
+                (r for r in new_recipes if _recipe_part_info(r)["product_id"] == product_id),
+                None,
+            )
+            if old_recipe and new_recipe:
+                old_info = _recipe_part_info(old_recipe)
+                new_info = _recipe_part_info(new_recipe)
+                if old_info["quantity"] != new_info["quantity"]:
+                    recipe_changes.append(
+                        format_bom_recipe_quantity_change(
+                            new_info["product_name"],
+                            old_info["quantity"],
+                            new_info["quantity"],
+                        )
                     )
+
+        description = format_bom_update_description(
+            _bom_log_label(bom),
+            before_data,
+            after_data,
+            recipe_changes,
+        )
+
+        _log_if_available(
+            request,
+            module='bom',
+            module_name='产品BOM管理',
+            operation_type='update',
+            target_id=bom.id,
+            target_name=_bom_log_label(bom),
+            before_data=before_data,
+            after_data=after_data,
+            description=description,
+        )
 
         return JsonResponse(
             {"code": "00000", "msg": "更新成功", "data": {"id": bom.id}}
@@ -412,6 +505,7 @@ def update_bom(request):
     except ValueError as e:
         return JsonResponse({"code": "400", "msg": str(e)})
     except Exception as e:
+        print(f"[ERROR] update_bom failed: {str(e)}")
         return JsonResponse({"code": "500", "msg": f"更新失败: {str(e)}"})
 
 
@@ -452,15 +546,20 @@ def assemble_bom(request):
         if assemble_qty is None or assemble_qty < 1:
             return JsonResponse({"code": "400", "msg": "组装数量必须大于 0"})
 
-        with transaction.atomic():
-            bom = BomList.objects.get(id=int(bom_id), is_del=0)
-            recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
-            if not recipes:
-                return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法组装"})
+        # 先检查BOM是否存在
+        bom = BomList.objects.get(id=int(bom_id), is_del=0)
+        recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
+        if not recipes:
+            return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法组装"})
 
+        # 收集日志记录所需数据
+        log_entries = []
+        consumed = []
+        consumed_details = []
+        finish_products_created = []
+
+        with transaction.atomic():
             requirements = _collect_assembly_requirements(recipes, assemble_qty)
-            consumed = []
-            consumed_details = []
 
             for req in requirements:
                 product = Product.objects.select_for_update().get(
@@ -491,38 +590,69 @@ def assemble_bom(request):
                         "remaining": product.quantity,
                     }
                 )
-                consumed_details.append(f"{product.name}: {needed}")
-                
-                # 记录每个零件的库存扣减日志
-                if OPERATION_LOGS_AVAILABLE:
-                    user = _get_user_from_request(request)
-                    if user:
-                        log_operation(
-                            user_id=user.id,
-                            user_name=user.username,
-                            module='product',
-                            operation_type='update',
-                            target_id=product.id,
-                            target_name=product.name,
-                            before_data=before_data,
-                            after_data=after_data,
-                            description=f"BOM组装扣减：{product.name}，数量：{needed}",
-                        )
-            
-            # 记录BOM组装操作日志
-            if OPERATION_LOGS_AVAILABLE:
-                user = _get_user_from_request(request)
-                if user:
-                    log_operation(
-                        user_id=user.id,
-                        user_name=user.username,
-                        module='productBom',
-                        operation_type='update',
-                        target_id=bom.id,
-                        target_name=bom.bom_name,
-                        before_data={"bom_name": bom.bom_name},
-                        description=f"BOM组装：{bom.bom_name}，组装数量：{assemble_qty}，扣减零件：{', '.join(consumed_details)}",
-                    )
+                consumed_details.append(f"{product.name} - {needed}")
+
+                log_entries.append({
+                    "type": "product_update",
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "before_data": before_data,
+                    "after_data": after_data,
+                    "description": format_bom_assemble_deduct_description(product.name, needed),
+                })
+
+            now = timezone.now()
+            for idx in range(assemble_qty):
+                finish_product = FinishProduct.objects.create(
+                    sn_code=None,
+                    bom_id=bom.id,
+                    name=_bom_display_name(bom),
+                    status=FinishProduct.STATUS_UNTESTED,
+                    description="",
+                    inventory_stock=FinishProduct.INVENTORY_NOT_IN,
+                    repair=FinishProduct.REPAIR_NEW,
+                    create_time=now,
+                    update_time=now,
+                )
+                finish_products_created.append(
+                    {
+                        "id": finish_product.id,
+                        "sn_code": finish_product.sn_code,
+                        "bom_id": finish_product.bom_id,
+                        "name": finish_product.name,
+                        "status": finish_product.status,
+                        "create_time": format_local_datetime(finish_product.create_time) or "",
+                    }
+                )
+        
+        # 事务成功后记录操作日志（在事务外执行）
+        for entry in log_entries:
+            _log_if_available(
+                request,
+                module='productStock',
+                module_name='库存',
+                operation_type='update',
+                target_id=entry["product_id"],
+                target_name=entry["product_name"],
+                before_data=entry["before_data"],
+                after_data=entry["after_data"],
+                description=entry["description"],
+            )
+
+        _log_if_available(
+            request,
+            module='bom',
+            module_name='产品BOM管理',
+            operation_type='update',
+            target_id=bom.id,
+            target_name=_bom_log_label(bom),
+            before_data=_bom_header_snapshot(bom),
+            description=format_bom_assemble_description(
+                _bom_log_label(bom),
+                assemble_qty,
+                consumed_details,
+            ),
+        )
 
         return JsonResponse(
             {
@@ -530,9 +660,12 @@ def assemble_bom(request):
                 "msg": "组装成功",
                 "data": {
                     "bom_id": bom.id,
-                    "bom_name": bom.bom_name,
+                    "bom_model": bom.bom_model,
+                    "bom_name": bom.bom_name or "",
+                    "material_code": bom.material_code or "",
                     "assemble_quantity": assemble_qty,
                     "consumed": consumed,
+                    "finish_products": finish_products_created,
                 },
             }
         )
@@ -559,26 +692,23 @@ def delete_bom(request):
             bom = BomList.objects.get(id=int(bom_id), is_del=0)
             
             # 保存删除前的数据
-            before_data = {"bom_name": bom.bom_name}
+            before_data = _bom_header_snapshot(bom)
             
             bom.is_del = 1
             bom.save(update_fields=["is_del"])
             AssemblyRecipe.objects.filter(bom_id=bom.id).delete()
             
             # 记录操作日志
-            if OPERATION_LOGS_AVAILABLE:
-                user = _get_user_from_request(request)
-                if user:
-                    log_operation(
-                        user_id=user.id,
-                        user_name=user.username,
-                        module='productBom',
-                        operation_type='delete',
-                        target_id=bom.id,
-                        target_name=bom.bom_name,
-                        before_data=before_data,
-                        description=f"删除BOM：{bom.bom_name}",
-                    )
+            _log_if_available(
+                request,
+                module='bom',
+                module_name='产品BOM管理',
+                operation_type='delete',
+                target_id=bom.id,
+                target_name=_bom_log_label(bom),
+                before_data=before_data,
+                description=f"删除BOM: {_bom_log_label(bom)}",
+            )
 
         return JsonResponse(
             {"code": "00000", "msg": "删除成功", "data": {"id": bom_id}}

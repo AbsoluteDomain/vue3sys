@@ -7,8 +7,21 @@
     @close="handleClose"
   >
     <el-form ref="formRef" :model="formData" :rules="formRules" label-width="90px">
+      <el-form-item label="BOM型号" prop="bom_model">
+        <el-input v-model="formData.bom_model" placeholder="请输入BOM型号" style="max-width: 400px" />
+      </el-form-item>
       <el-form-item label="BOM名称" prop="bom_name">
-        <el-input v-model="formData.bom_name" placeholder="请输入 BOM 名称" style="max-width: 400px" />
+        <el-input v-model="formData.bom_name" placeholder="请输入BOM名称（可选）" style="max-width: 400px" />
+      </el-form-item>
+      <el-form-item label="物料编码" prop="material_code">
+        <el-input v-model="formData.material_code" placeholder="请输入物料编码（可选）" style="max-width: 400px" />
+      </el-form-item>
+      <el-form-item label="类型" prop="type">
+        <el-radio-group v-model="formData.type">
+          <el-radio :value="0">关节</el-radio>
+          <el-radio :value="1">机械臂</el-radio>
+          <el-radio :value="2">其他</el-radio>
+        </el-radio-group>
       </el-form-item>
     </el-form>
 
@@ -102,11 +115,15 @@ const recipeLines = ref([])
 
 const formData = reactive({
   id: null,
-  bom_name: ''
+  bom_model: '',
+  bom_name: '',
+  material_code: '',
+  type: 0
 })
 
 const formRules = {
-  bom_name: [{ required: true, message: '请输入 BOM 名称', trigger: 'blur' }]
+  bom_model: [{ required: true, message: '请输入BOM型号', trigger: 'blur' }],
+  type: [{ required: true, message: '请选择 BOM 类型', trigger: 'change' }]
 }
 
 const dialogTitle = computed(() => (isEdit.value ? '编辑 BOM' : '新增 BOM'))
@@ -158,7 +175,10 @@ const mapRecipeToLine = (recipe) => ({
 
 const open = async (row = {}) => {
   formData.id = row.id || null
+  formData.bom_model = row.bom_model || ''
   formData.bom_name = row.bom_name || ''
+  formData.material_code = row.material_code || ''
+  formData.type = row.type ?? 0
   recipeLines.value = []
   isEdit.value = !!row.id
 
@@ -167,7 +187,10 @@ const open = async (row = {}) => {
   if (row.id) {
     try {
       const detail = await getBomDetail({ id: row.id })
-      formData.bom_name = detail.bom_name || formData.bom_name
+      formData.bom_model = detail.bom_model || formData.bom_model
+      formData.bom_name = detail.bom_name || ''
+      formData.material_code = detail.material_code || ''
+      formData.type = detail.type ?? 0
       recipeLines.value = (detail.recipes || []).map((r) => {
         const line = mapRecipeToLine(r)
         const p = productOptions.value.find((x) => x.id === line.product_id)
@@ -200,7 +223,10 @@ const handleSubmit = () => {
 
     const payload = {
       id: formData.id,
-      bom_name: formData.bom_name,
+      bom_model: formData.bom_model,
+      bom_name: formData.bom_name || undefined,
+      material_code: formData.material_code || undefined,
+      type: formData.type,
       recipes: lines.map((line) => ({
         product_id: line.product_id,
         quantity: line.quantity

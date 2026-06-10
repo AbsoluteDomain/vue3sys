@@ -53,14 +53,24 @@ const loading = ref(false)
 const bomHeader = ref(null)
 const recipes = ref([])
 
+const formatBomHeaderLabel = (header) => {
+  if (!header) return ''
+  if (header.bom_name) return `${header.bom_model}(${header.bom_name})`
+  return header.bom_model || String(header.id || '')
+}
+
 const dialogTitle = computed(() => {
   if (!bomHeader.value) return 'BOM 装配明细'
-  return `BOM 装配明细 — ${bomHeader.value.bom_name}（共 ${recipes.value.length} 条）`
+  return `BOM 装配明细 — ${formatBomHeaderLabel(bomHeader.value)}（共 ${recipes.value.length} 条）`
 })
 
 const open = (row) => {
   if (!row?.id) return
-  bomHeader.value = { id: row.id, bom_name: row.bom_name }
+  bomHeader.value = {
+    id: row.id,
+    bom_model: row.bom_model,
+    bom_name: row.bom_name
+  }
   recipes.value = []
   visible.value = true
   loading.value = true

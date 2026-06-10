@@ -27,6 +27,8 @@ User = get_user_model()
 class AuthViewSet(ViewSet):
     """平台-认证视图。"""
     permission_classes = [AllowAny]
+    # 认证接口不应强制校验 JWT，否则 token 失效时无法调用 logout 完成黑名单清理
+    authentication_classes = []
 
     @extend_schema(summary="登录")
     def login(self, request, *args, **kwargs):

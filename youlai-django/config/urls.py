@@ -34,4 +34,5 @@ urlpatterns = [
     # 新增的路由
     re_path(r"^api/v1/product/?", include("apps.product.products.urls")),
     re_path(r"^api/v1/bom/?", include("apps.product.boms.urls")),
+    re_path(r"^api/v1/finish-product/?", include("apps.product.finish_products.urls")),
 ]

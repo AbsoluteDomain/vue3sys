@@ -44,7 +44,7 @@
               style="width: 100%; height: 100%; object-fit: cover; object-position: center"
             />
           </div>
-          <span class="user-profile__name">{{ userStore.userInfo.username }}</span>
+          <span class="user-profile__name">{{ userStore.userInfo.nickname }}</span>
         </div>
         <template #dropdown>
           <el-dropdown-menu>

@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <product-nav />
+    <!-- <product-nav /> -->
     <!-- 搜索区域 -->
     <el-card shadow="never" class="search-card">
       <el-form :inline="true" :model="queryParams" class="search-form">
@@ -152,7 +152,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // 1. 引入 Drawer 组件
 import productForm from './productInfo/ProductForm.vue'
 import StockAdjustDialog from './productInfo/StockAdjustDialog.vue'
-import ProductNav from './components/ProductNav.vue'
+// import ProductNav from './components/ProductNav.vue'
 
 // 1. 定义响应式数据
 const queryParams = reactive({

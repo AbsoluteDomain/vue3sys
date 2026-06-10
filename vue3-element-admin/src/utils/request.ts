@@ -47,6 +47,11 @@ http.interceptors.response.use(
       return data;
     }
 
+    // 登出接口失败时不弹错、不触发 refresh，避免 token 失效时循环报错
+    if (response.config.url?.includes("/auth/logout")) {
+      return Promise.reject(new Error(msg || "logout failed"));
+    }
+
     ElMessage.error(msg || "系统出错");
     return Promise.reject(new Error(msg || "系统出错"));
   },
@@ -60,9 +65,10 @@ http.interceptors.response.use(
     }
 
     const { code, msg } = response.data as ApiResponse;
+    const isLogoutRequest = config?.url?.includes("/auth/logout");
 
-    // Token 过期：尝试刷新 token 后自动重试一次
-    if (code === ApiCodeEnum.ACCESS_TOKEN_INVALID) {
+    // Token 过期：尝试刷新 token 后自动重试一次（登出请求除外）
+    if (code === ApiCodeEnum.ACCESS_TOKEN_INVALID && !isLogoutRequest) {
       // 已重试过，直接跳登录
       if (retriedConfigs.has(config)) {
         await redirectToLogin("登录已过期，请重新登录");
@@ -88,9 +94,13 @@ http.interceptors.response.use(
     }
 
     // Refresh token 失效：无法续期，跳转登录
-    if (code === ApiCodeEnum.REFRESH_TOKEN_INVALID) {
+    if (code === ApiCodeEnum.REFRESH_TOKEN_INVALID && !isLogoutRequest) {
       await redirectToLogin("登录已过期，请重新登录");
       return Promise.reject(new Error(msg || "Token Invalid"));
+    }
+
+    if (isLogoutRequest) {
+      return Promise.reject(new Error(msg || "logout failed"));
     }
 
     // 权限不足：刷新权限快照后提示

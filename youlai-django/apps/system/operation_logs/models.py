@@ -13,6 +13,9 @@ class OperationLog(models.Model):
     user_id = models.BigIntegerField(verbose_name="操作用户ID")
     user_name = models.CharField(max_length=100, verbose_name="操作用户名")
     module = models.CharField(max_length=50, verbose_name="操作模块标识")
+    module_name = models.CharField(
+        max_length=100, blank=True, default="", verbose_name="模块显示名"
+    )
     operation_type = models.CharField(max_length=20, choices=OPERATION_TYPES, verbose_name="操作类型")
     target_id = models.BigIntegerField(verbose_name="目标对象ID")
     target_name = models.CharField(max_length=255, verbose_name="目标对象名称")

@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <product-nav />
+    <!-- <product-nav /> -->
 
     <el-card shadow="never" class="search-card">
       <el-form :inline="true" :model="queryParams" class="search-form">
@@ -13,14 +13,46 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="BOM型号">
+          <el-input
+            v-model="queryParams.bomModel"
+            placeholder="BOM型号"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="BOM名称">
           <el-input
             v-model="queryParams.bomName"
-            placeholder="bom_name"
+            placeholder="BOM名称"
             clearable
-            style="width: 200px"
+            style="width: 160px"
             @keyup.enter="handleSearch"
           />
+        </el-form-item>
+        <el-form-item label="物料编码">
+          <el-input
+            v-model="queryParams.materialCode"
+            placeholder="物料编码"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select
+            v-model="queryParams.type"
+            placeholder="全部"
+            clearable
+            style="width: 120px"
+            @change="handleSearch"
+            @clear="handleSearch"
+          >
+            <el-option label="关节" value="0" />
+            <el-option label="机械臂" value="1" />
+            <el-option label="其他" value="2" />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">
@@ -57,7 +89,16 @@
       >
         <el-table-column type="index" label="序号" width="60" align="center" />
         <el-table-column prop="id" label="BOM ID" sortable="custom" width="90" />
-        <el-table-column prop="bom_name" label="BOM名称" sortable="custom" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="bom_model" label="BOM型号" sortable="custom" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="bom_name" label="BOM名称" sortable="custom" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="material_code" label="物料编码" sortable="custom" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="type_name" label="类型" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="bomTypeTagType(row.type)" size="small">
+              {{ row.type_name || '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="recipe_count" label="明细条数" width="100" align="center" />
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
@@ -101,7 +142,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { getBomList, deleteBom } from '@/api/bom'
 import { Search, Refresh, Plus, Edit, Delete, Box } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import ProductNav from '../components/ProductNav.vue'
+// import ProductNav from '../components/ProductNav.vue'
 import BomListForm from './bomInfo/BomListForm.vue'
 import BomRecipeDialog from './bomInfo/BomRecipeDialog.vue'
 import BomAssembleDialog from './bomInfo/BomAssembleDialog.vue'
@@ -110,10 +151,25 @@ const queryParams = reactive({
   pageNum: 1,
   pageSize: 10,
   bomId: '',
+  bomModel: '',
   bomName: '',
+  materialCode: '',
+  type: '',
   sortProp: '',
   sortOrder: ''
 })
+
+const formatBomRowLabel = (row) => {
+  if (!row) return ''
+  if (row.bom_name) return `${row.bom_model}(${row.bom_name})`
+  return row.bom_model || String(row.id)
+}
+
+const bomTypeTagType = (value) => {
+  if (value === 1) return 'primary'
+  if (value === 2) return 'info'
+  return 'success'
+}
 
 const formRef = ref(null)
 const recipeDialogRef = ref(null)
@@ -127,7 +183,11 @@ const getList = () => {
   const params = {
     pageNum: queryParams.pageNum,
     pageSize: queryParams.pageSize,
-    bomName: queryParams.bomName,
+    bomModel: queryParams.bomModel || undefined,
+    bomName: queryParams.bomName || undefined,
+    materialCode: queryParams.materialCode || undefined,
+    type: queryParams.type || undefined,
+    bom_type: queryParams.type || undefined,
     sortProp: queryParams.sortProp,
     sortOrder: queryParams.sortOrder,
     bomId: queryParams.bomId || undefined,
@@ -153,7 +213,10 @@ const handleSearch = () => {
 
 const resetQuery = () => {
   queryParams.bomId = ''
+  queryParams.bomModel = ''
   queryParams.bomName = ''
+  queryParams.materialCode = ''
+  queryParams.type = ''
   queryParams.pageNum = 1
   getList()
 }
@@ -183,7 +246,7 @@ const handleViewRecipes = (row) => recipeDialogRef.value?.open(row)
 const handleRowClick = (row) => recipeDialogRef.value?.open(row)
 
 const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除 BOM「${row.bom_name}」吗？`, '警告', { type: 'warning' })
+  ElMessageBox.confirm(`确定删除 BOM「${formatBomRowLabel(row)}」吗？`, '警告', { type: 'warning' })
     .then(() => deleteBom({ id: row.id }))
     .then(() => {
       ElMessage.success('删除成功')

@@ -1,33 +1,30 @@
 # apps/system/users/views.py
 import json
 # 1. 引入 Django 的核心响应类 (相当于 Flask 的 jsonify)
+from core.datetime import format_local_datetime
 from django.db.models import F, Q
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .models import Product
 
+from apps.system.operation_logs.utils import (
+    format_product_create_description,
+    format_product_update_description,
+    format_stock_adjust_description,
+)
+
 # 安全地引入操作日志模块
 try:
-    from apps.system.operation_logs.services import log_operation
-    from apps.system.operation_logs.utils import compare_changes, format_changes_text
-    from rest_framework_simplejwt.authentication import JWTAuthentication
-    from rest_framework.exceptions import AuthenticationFailed
+    from apps.system.operation_logs.services import log_operation_from_request
     OPERATION_LOGS_AVAILABLE = True
 except ImportError:
     OPERATION_LOGS_AVAILABLE = False
 
 
-def _get_user_from_request(request):
-    """从请求中获取用户信息"""
-    if not OPERATION_LOGS_AVAILABLE:
-        return None
-    try:
-        jwt_auth = JWTAuthentication()
-        user, token = jwt_auth.authenticate(request)
-        return user
-    except (AuthenticationFailed, Exception):
-        return None
+def _log_if_available(request, **kwargs):
+    if OPERATION_LOGS_AVAILABLE:
+        log_operation_from_request(request, **kwargs)
 
 
 def _alert_filter_q():
@@ -129,7 +126,7 @@ def product_list(request):
             "unit": p.unit,
             "location": p.location,
             "description": p.description,
-            "updated_at": p.updated_at.strftime("%Y-%m-%d %H:%M:%S") if p.updated_at else None,
+            "updated_at": format_local_datetime(p.updated_at),
             "alert_quantity": p.alert_quantity
         })
 
@@ -173,19 +170,24 @@ def create_product(request):
         product = Product.objects.create(**create_kwargs)
         
         # 记录操作日志
-        if OPERATION_LOGS_AVAILABLE:
-            user = _get_user_from_request(request)
-            if user:
-                log_operation(
-                    user_id=user.id,
-                    user_name=user.username,
-                    module='product',
-                    operation_type='create',
-                    target_id=product.id,
-                    target_name=product.name,
-                    after_data={"quantity": product.quantity, "type": product.type},
-                    description=f"新增库存：{product.name}",
-                )
+        _log_if_available(
+            request,
+            module='product',
+            module_name='库存管理',
+            operation_type='create',
+            target_id=product.id,
+            target_name=product.name,
+            after_data={
+                "name": product.name,
+                "type": product.type,
+                "quantity": product.quantity,
+                "unit": product.unit,
+                "location": product.location,
+                "description": product.description,
+                "alert_quantity": product.alert_quantity,
+            },
+            description=format_product_create_description(product),
+        )
         
         return JsonResponse({"code": '00000', "msg": "新增成功", "data": {"id": product.id}})
     except Exception as e:
@@ -235,28 +237,19 @@ def update_product(request):
             "alert_quantity": product.alert_quantity,
         }
         
-        # 对比变更
-        description = f"修改库存：{product.name}"
-        if OPERATION_LOGS_AVAILABLE:
-            changes = compare_changes(before_data, after_data)
-            changes_text = format_changes_text(changes)
-            if changes_text:
-                description += f"（{changes_text}）"
-            
-            # 记录操作日志
-            user = _get_user_from_request(request)
-            if user:
-                log_operation(
-                    user_id=user.id,
-                    user_name=user.username,
-                    module='product',
-                    operation_type='update',
-                    target_id=product.id,
-                    target_name=product.name,
-                    before_data=before_data,
-                    after_data=after_data,
-                    description=description,
-                )
+        description = format_product_update_description(product.name, before_data, after_data)
+
+        _log_if_available(
+            request,
+            module='product',
+            module_name='库存管理',
+            operation_type='update',
+            target_id=product.id,
+            target_name=product.name,
+            before_data=before_data,
+            after_data=after_data,
+            description=description,
+        )
 
         return JsonResponse({"code": '00000', "msg": "更新成功", "data": {"id": product.id}})
     except Product.DoesNotExist:
@@ -302,20 +295,17 @@ def stock_adjust_product(request):
         after_data = {"quantity": product.quantity}
         
         # 记录操作日志
-        if OPERATION_LOGS_AVAILABLE:
-            user = _get_user_from_request(request)
-            if user:
-                log_operation(
-                    user_id=user.id,
-                    user_name=user.username,
-                    module='product',
-                    operation_type='update',
-                    target_id=product.id,
-                    target_name=product.name,
-                    before_data=before_data,
-                    after_data=after_data,
-                    description=f"{action}：{product.name}，数量：{delta}",
-                )
+        _log_if_available(
+            request,
+            module='productStock',
+            module_name='库存',
+            operation_type='update',
+            target_id=product.id,
+            target_name=product.name,
+            before_data=before_data,
+            after_data=after_data,
+            description=format_stock_adjust_description(action, product.name, delta),
+        )
         
         return JsonResponse(
             {
@@ -361,19 +351,16 @@ def delete_product(request):
         product.save(update_fields=["is_del", "updated_at"])
         
         # 记录操作日志
-        if OPERATION_LOGS_AVAILABLE:
-            user = _get_user_from_request(request)
-            if user:
-                log_operation(
-                    user_id=user.id,
-                    user_name=user.username,
-                    module='product',
-                    operation_type='delete',
-                    target_id=product.id,
-                    target_name=product.name,
-                    before_data=before_data,
-                    description=f"删除库存：{product.name}",
-                )
+        _log_if_available(
+            request,
+            module='product',
+            module_name='库存管理',
+            operation_type='delete',
+            target_id=product.id,
+            target_name=product.name,
+            before_data=before_data,
+            description=f"删除库存: {product.name}",
+        )
 
         return JsonResponse({"code": '00000', "msg": "删除成功", "data": {"id": product_id}})
     except Product.DoesNotExist:

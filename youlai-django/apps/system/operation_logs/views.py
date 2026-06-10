@@ -1,13 +1,9 @@
 from django.http import JsonResponse
 from django.db.models import Q
-from .models import OperationLog
 
-# 模块名称映射
-MODULE_DISPLAY_NAMES = {
-    "product": "库存",
-    "bom": "BOM",
-    "productBom": "BOM",
-}
+from core.datetime import format_local_datetime
+from .models import OperationLog
+from .services import MODULE_DISPLAY_NAMES
 
 
 def get_module_name(module):
@@ -34,9 +30,13 @@ def operation_log_list(request):
     operation_type = request.GET.get("operationType", "").strip()
     user_name = request.GET.get("userName", "").strip()
     
-    logs = OperationLog.objects.all()
+    logs = OperationLog.objects.all().order_by("-create_time")
     
-    if module:
+    if module == "bom":
+        logs = logs.filter(module__in=["bom", "productBom"])
+    elif module == "product":
+        logs = logs.filter(module__in=["product", "productStock"])
+    elif module:
         logs = logs.filter(module=module)
     if operation_type:
         logs = logs.filter(operation_type=operation_type)
@@ -55,7 +55,7 @@ def operation_log_list(request):
             "userId": log.user_id,
             "userName": log.user_name,
             "module": log.module,
-            "moduleName": get_module_name(log.module),
+            "moduleName": log.module_name or get_module_name(log.module),
             "operationType": log.operation_type,
             "operationTypeName": log.get_operation_type_display(),
             "targetId": log.target_id,
@@ -63,11 +63,7 @@ def operation_log_list(request):
             "description": log.description,
             "ip": log.ip,
         }
-        # 安全地获取时间
-        try:
-            item["createTime"] = log.create_time.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            item["createTime"] = ""
+        item["createTime"] = format_local_datetime(log.create_time) or ""
         
         list_data.append(item)
     
