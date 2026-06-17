@@ -22,3 +22,9 @@ C:\work\vue3sys\vue3-element-admin> pnpm run dev  启动前端环境
 
 
 我的api key： sk-OfPzkKnzhLwEVp73c1v81Gmr6c532qed7oDBqmonlZ4hB26d
+
+
+
+
+
+

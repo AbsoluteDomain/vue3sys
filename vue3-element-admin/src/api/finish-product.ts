@@ -19,6 +19,21 @@ export function getFinishProductDailyStats(params: {
   })
 }
 
+export function getFinishProductBoardDetail(params: {
+  category: string
+  start_date?: string
+  end_date?: string
+  date?: string
+  pageNum?: number
+  pageSize?: number
+}) {
+  return request({
+    url: '/api/v1/finish-product/board-detail/',
+    method: 'get',
+    params
+  })
+}
+
 export function updateFinishProduct(data: {
   id: number
   sn_code?: string

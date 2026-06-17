@@ -346,72 +346,18 @@ import { ref, reactive, onMounted } from 'vue'
 import { Search, Refresh, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFinishProductList, updateFinishProduct, rollbackFinishProduct } from '@/api/finish-product'
+import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
 
-const COLUMN_STORAGE_KEY = 'finish-product-table-columns'
-
-const columnOptions = [
-  { key: 'sn_code', label: 'SN码', defaultVisible: true },
-  { key: 'bom_type', label: 'BOM类型', defaultVisible: true },
-  { key: 'bom_model', label: 'BOM型号', defaultVisible: true },
-  { key: 'bom_name', label: 'BOM名称', defaultVisible: true },
-  { key: 'material_code', label: '物料编码', defaultVisible: false },
-  { key: 'status', label: '测试状态', defaultVisible: true },
-  { key: 'inventory_stock', label: '库存状态', defaultVisible: true },
-  { key: 'repair', label: '返修', defaultVisible: true },
-  { key: 'create_time', label: '创建时间', defaultVisible: false },
-  { key: 'update_time', label: '更新时间', defaultVisible: true },
-  { key: 'description', label: '描述', defaultVisible: false }
-]
-
-const getDefaultVisibleColumns = () =>
-  Object.fromEntries(columnOptions.map((col) => [col.key, col.defaultVisible]))
-
-const getDefaultVisibleColumnKeys = () =>
-  columnOptions.filter((col) => col.defaultVisible).map((col) => col.key)
-
-const visibleColumns = ref(getDefaultVisibleColumns())
-const columnDialogVisible = ref(false)
-const columnDraftKeys = ref([])
-
-const loadColumnSettings = () => {
-  const saved = localStorage.getItem(COLUMN_STORAGE_KEY)
-  if (!saved) {
-    visibleColumns.value = getDefaultVisibleColumns()
-    return
-  }
-  try {
-    const parsed = JSON.parse(saved)
-    visibleColumns.value = Object.fromEntries(
-      columnOptions.map((col) => [col.key, parsed[col.key] ?? col.defaultVisible])
-    )
-  } catch {
-    visibleColumns.value = getDefaultVisibleColumns()
-  }
-}
-
-const isColumnVisible = (key) => visibleColumns.value[key] !== false
-
-const openColumnDialog = () => {
-  columnDraftKeys.value = columnOptions.filter((col) => isColumnVisible(col.key)).map((col) => col.key)
-  columnDialogVisible.value = true
-}
-
-const resetColumnDraft = () => {
-  columnDraftKeys.value = getDefaultVisibleColumnKeys()
-}
-
-const saveColumnSettings = () => {
-  if (!columnDraftKeys.value.length) {
-    ElMessage.warning('请至少勾选一列')
-    return
-  }
-  visibleColumns.value = Object.fromEntries(
-    columnOptions.map((col) => [col.key, columnDraftKeys.value.includes(col.key)])
-  )
-  localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns.value))
-  columnDialogVisible.value = false
-  ElMessage.success('列展示设置已保存')
-}
+const {
+  columnOptions,
+  columnDialogVisible,
+  columnDraftKeys,
+  isColumnVisible,
+  loadColumnSettings,
+  openColumnDialog,
+  resetColumnDraft,
+  saveColumnSettings,
+} = useFinishProductTableColumns()
 
 const queryParams = reactive({
   pageNum: 1,

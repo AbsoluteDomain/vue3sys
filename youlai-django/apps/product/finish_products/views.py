@@ -72,7 +72,9 @@ def _empty_daily_bucket(date_str):
         "passCount": 0,
         "failCount": 0,
         "pendingNewCount": 0,
+        "testingCount": 0,
         "repairCount": 0,
+        "repairTestingCount": 0,
         "repairPassCount": 0,
         "pendingRepairCount": 0,
         "stockInCount": 0,
@@ -139,6 +141,12 @@ def finish_product_daily_stats(request):
         ):
             bucket["pendingNewCount"] += 1
             summary["pendingNewCount"] += 1
+        elif (
+            item.repair == FinishProduct.REPAIR_NEW
+            and item.status == FinishProduct.STATUS_TESTING
+        ):
+            bucket["testingCount"] += 1
+            summary["testingCount"] += 1
 
     update_qs = FinishProduct.objects.filter(
         update_time__isnull=False,
@@ -164,6 +172,9 @@ def finish_product_daily_stats(request):
             elif item.status == FinishProduct.STATUS_UNTESTED:
                 bucket["pendingRepairCount"] += 1
                 summary["pendingRepairCount"] += 1
+            elif item.status == FinishProduct.STATUS_TESTING:
+                bucket["repairTestingCount"] += 1
+                summary["repairTestingCount"] += 1
 
         if item.inventory_stock == FinishProduct.INVENTORY_IN:
             bucket["stockInCount"] += 1
@@ -290,6 +301,135 @@ def _serialize_finish_product(item, bom_map=None):
         "repair": item.repair,
         "repair_name": item.get_repair_display(),
     }
+
+
+BOARD_DETAIL_CATEGORIES = {
+    "newCount",
+    "passCount",
+    "failCount",
+    "pendingNewCount",
+    "testingCount",
+    "repairCount",
+    "repairTestingCount",
+    "repairPassCount",
+    "pendingRepairCount",
+    "stockInCount",
+    "stockOutCount",
+    "currentStockInCount",
+}
+
+
+def _apply_board_category_filter(qs, category):
+    """按看板统计项筛选，规则与 finish_product_daily_stats 一致"""
+    if category == "newCount":
+        return qs
+    if category == "passCount":
+        return qs.filter(status=FinishProduct.STATUS_PASS)
+    if category == "failCount":
+        return qs.filter(status=FinishProduct.STATUS_FAIL)
+    if category == "pendingNewCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_NEW,
+            status=FinishProduct.STATUS_UNTESTED,
+        )
+    if category == "testingCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_NEW,
+            status=FinishProduct.STATUS_TESTING,
+        )
+    if category == "repairCount":
+        return qs.filter(repair=FinishProduct.REPAIR_REPAIRED)
+    if category == "repairTestingCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_REPAIRED,
+            status=FinishProduct.STATUS_TESTING,
+        )
+    if category == "repairPassCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_REPAIRED,
+            status=FinishProduct.STATUS_PASS,
+        )
+    if category == "pendingRepairCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_REPAIRED,
+            status=FinishProduct.STATUS_UNTESTED,
+        )
+    if category == "stockInCount":
+        return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
+    if category == "stockOutCount":
+        return qs.filter(inventory_stock=FinishProduct.INVENTORY_OUT)
+    if category == "currentStockInCount":
+        return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
+    return qs.none()
+
+
+def finish_product_board_detail(request):
+    """看板统计项对应的成品明细列表"""
+    category = (request.GET.get("category") or "").strip()
+    if category not in BOARD_DETAIL_CATEGORIES:
+        return JsonResponse({"code": "400", "msg": "无效的统计类别"})
+
+    page_num, page_size = _parse_page_params(request)
+    end_date = _parse_date_param(
+        request.GET.get("end_date") or request.GET.get("endDate")
+    )
+    start_date = _parse_date_param(
+        request.GET.get("start_date") or request.GET.get("startDate")
+    )
+    single_date = _parse_date_param(request.GET.get("date"))
+
+    if single_date:
+        start_date = end_date = single_date
+    elif category != "currentStockInCount":
+        if not end_date:
+            end_date = timezone.localdate()
+        if not start_date:
+            start_date = end_date - timedelta(days=29)
+        if start_date > end_date:
+            return JsonResponse({"code": "400", "msg": "开始日期不能晚于结束日期"})
+
+    qs = FinishProduct.objects.all()
+    qs = _apply_board_category_filter(qs, category)
+
+    if category == "currentStockInCount":
+        pass
+    elif category in {
+        "newCount",
+        "passCount",
+        "failCount",
+        "pendingNewCount",
+        "testingCount",
+    }:
+        qs = _apply_field_date_range(qs, "create_time", start_date, end_date)
+    else:
+        qs = _apply_field_date_range(qs, "update_time", start_date, end_date)
+
+    total = qs.count()
+    start = (page_num - 1) * page_size
+    page_items = list(qs.order_by("-create_time", "-id")[start : start + page_size])
+
+    bom_ids = {item.bom_id for item in page_items if item.bom_id}
+    bom_map = {}
+    if bom_ids:
+        bom_map = {bom.id: bom for bom in BomList.objects.filter(id__in=bom_ids, is_del=0)}
+
+    return JsonResponse(
+        {
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "list": [
+                    _serialize_finish_product(item, bom_map) for item in page_items
+                ],
+                "total": total,
+                "pageNum": page_num,
+                "pageSize": page_size,
+                "category": category,
+                "startDate": start_date.isoformat() if start_date else None,
+                "endDate": end_date.isoformat() if end_date else None,
+            },
+        }
+    )
 
 
 def finish_product_list(request):

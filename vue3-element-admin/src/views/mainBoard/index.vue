@@ -174,9 +174,14 @@
         </el-form>
       </el-card>
 
-      <el-row :gutter="10" class="mt-2">
+      <el-row :gutter="10" class="mt-2 finish-stat-row finish-stat-row--9">
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.newCount > 0 }"
+            @click="openBoardDetail('newCount', finishSummary.newCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">新增成品</span>
             </template>
@@ -187,7 +192,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.pendingNewCount > 0 }"
+            @click="openBoardDetail('pendingNewCount', finishSummary.pendingNewCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试新品</span>
             </template>
@@ -198,7 +208,28 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.testingCount > 0 }"
+            @click="openBoardDetail('testingCount', finishSummary.testingCount)"
+          >
+            <template #header>
+              <span class="text-xs font-medium text-[--el-text-color-secondary]">新品正在测试</span>
+            </template>
+            <div class="mt-2 flex items-baseline gap-1.5">
+              <span class="text-2xl font-semibold text-sky-600">{{ finishSummary.testingCount }}</span>
+              <span class="text-xs text-[--el-text-color-secondary]">件</span>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.passCount > 0 }"
+            @click="openBoardDetail('passCount', finishSummary.passCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">测试合格</span>
             </template>
@@ -209,7 +240,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.failCount > 0 }"
+            @click="openBoardDetail('failCount', finishSummary.failCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">测试不良</span>
             </template>
@@ -220,7 +256,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.repairCount > 0 }"
+            @click="openBoardDetail('repairCount', finishSummary.repairCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">新增返修</span>
             </template>
@@ -231,7 +272,28 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.repairTestingCount > 0 }"
+            @click="openBoardDetail('repairTestingCount', finishSummary.repairTestingCount)"
+          >
+            <template #header>
+              <span class="text-xs font-medium text-[--el-text-color-secondary]">返修正在测试</span>
+            </template>
+            <div class="mt-2 flex items-baseline gap-1.5">
+              <span class="text-2xl font-semibold text-cyan-600">{{ finishSummary.repairTestingCount }}</span>
+              <span class="text-xs text-[--el-text-color-secondary]">件</span>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.pendingRepairCount > 0 }"
+            @click="openBoardDetail('pendingRepairCount', finishSummary.pendingRepairCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试返修</span>
             </template>
@@ -242,7 +304,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.repairPassCount > 0 }"
+            @click="openBoardDetail('repairPassCount', finishSummary.repairPassCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">返修合格</span>
             </template>
@@ -256,7 +323,12 @@
 
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': currentStockInCount > 0 }"
+            @click="openBoardDetail('currentStockInCount', currentStockInCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">成品库存</span>
             </template>
@@ -267,7 +339,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.stockInCount > 0 }"
+            @click="openBoardDetail('stockInCount', finishSummary.stockInCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">入库数量</span>
             </template>
@@ -278,7 +355,12 @@
           </el-card>
         </el-col>
         <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card shadow="never" class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+          <el-card
+            shadow="never"
+            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            :class="{ 'stat-card--clickable': finishSummary.stockOutCount > 0 }"
+            @click="openBoardDetail('stockOutCount', finishSummary.stockOutCount)"
+          >
             <template #header>
               <span class="text-xs font-medium text-[--el-text-color-secondary]">出库数量</span>
             </template>
@@ -328,37 +410,114 @@
             </template>
             <el-table :data="dailyStatsDisplay" border stripe style="width: 100%" max-height="420px">
               <el-table-column prop="date" label="日期" width="120" align="center" fixed />
-              <el-table-column prop="newCount" label="新增成品" width="100" align="center" />
+              <el-table-column prop="newCount" label="新增成品" width="100" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.newCount > 0"
+                    class="stat-cell-link text-blue-600"
+                    @click.stop="openBoardDetail('newCount', row.newCount, row.date)"
+                  >{{ row.newCount }}</span>
+                  <span v-else>{{ row.newCount }}</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="pendingNewCount" label="待测试新品" width="110" align="center">
                 <template #default="{ row }">
-                  <span class="text-purple-600">{{ row.pendingNewCount }}</span>
+                  <span
+                    v-if="row.pendingNewCount > 0"
+                    class="stat-cell-link text-purple-600"
+                    @click.stop="openBoardDetail('pendingNewCount', row.pendingNewCount, row.date)"
+                  >{{ row.pendingNewCount }}</span>
+                  <span v-else class="text-purple-600">{{ row.pendingNewCount }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="testingCount" label="新品正在测试" width="120" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.testingCount > 0"
+                    class="stat-cell-link text-sky-600"
+                    @click.stop="openBoardDetail('testingCount', row.testingCount, row.date)"
+                  >{{ row.testingCount }}</span>
+                  <span v-else class="text-sky-600">{{ row.testingCount }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="passCount" label="测试合格" width="100" align="center">
                 <template #default="{ row }">
-                  <span class="text-green-600">{{ row.passCount }}</span>
+                  <span
+                    v-if="row.passCount > 0"
+                    class="stat-cell-link text-green-600"
+                    @click.stop="openBoardDetail('passCount', row.passCount, row.date)"
+                  >{{ row.passCount }}</span>
+                  <span v-else class="text-green-600">{{ row.passCount }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="failCount" label="测试不良" width="100" align="center">
                 <template #default="{ row }">
-                  <span class="text-red-600">{{ row.failCount }}</span>
+                  <span
+                    v-if="row.failCount > 0"
+                    class="stat-cell-link text-red-600"
+                    @click.stop="openBoardDetail('failCount', row.failCount, row.date)"
+                  >{{ row.failCount }}</span>
+                  <span v-else class="text-red-600">{{ row.failCount }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="repairCount" label="新增返修" width="100" align="center" />
+              <el-table-column prop="repairCount" label="新增返修" width="100" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.repairCount > 0"
+                    class="stat-cell-link"
+                    @click.stop="openBoardDetail('repairCount', row.repairCount, row.date)"
+                  >{{ row.repairCount }}</span>
+                  <span v-else>{{ row.repairCount }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="repairTestingCount" label="返修正在测试" width="120" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.repairTestingCount > 0"
+                    class="stat-cell-link text-cyan-600"
+                    @click.stop="openBoardDetail('repairTestingCount', row.repairTestingCount, row.date)"
+                  >{{ row.repairTestingCount }}</span>
+                  <span v-else class="text-cyan-600">{{ row.repairTestingCount }}</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="pendingRepairCount" label="待测试返修" width="110" align="center">
                 <template #default="{ row }">
-                  <span class="text-amber-600">{{ row.pendingRepairCount }}</span>
+                  <span
+                    v-if="row.pendingRepairCount > 0"
+                    class="stat-cell-link text-amber-600"
+                    @click.stop="openBoardDetail('pendingRepairCount', row.pendingRepairCount, row.date)"
+                  >{{ row.pendingRepairCount }}</span>
+                  <span v-else class="text-amber-600">{{ row.pendingRepairCount }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="repairPassCount" label="返修合格" width="100" align="center" />
+              <el-table-column prop="repairPassCount" label="返修合格" width="100" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.repairPassCount > 0"
+                    class="stat-cell-link"
+                    @click.stop="openBoardDetail('repairPassCount', row.repairPassCount, row.date)"
+                  >{{ row.repairPassCount }}</span>
+                  <span v-else>{{ row.repairPassCount }}</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="stockInCount" label="入库数量" width="100" align="center">
                 <template #default="{ row }">
-                  <span class="text-violet-600">{{ row.stockInCount }}</span>
+                  <span
+                    v-if="row.stockInCount > 0"
+                    class="stat-cell-link text-violet-600"
+                    @click.stop="openBoardDetail('stockInCount', row.stockInCount, row.date)"
+                  >{{ row.stockInCount }}</span>
+                  <span v-else class="text-violet-600">{{ row.stockInCount }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="stockOutCount" label="出库数量" width="100" align="center">
                 <template #default="{ row }">
-                  <span class="text-slate-600">{{ row.stockOutCount }}</span>
+                  <span
+                    v-if="row.stockOutCount > 0"
+                    class="stat-cell-link text-slate-600"
+                    @click.stop="openBoardDetail('stockOutCount', row.stockOutCount, row.date)"
+                  >{{ row.stockOutCount }}</span>
+                  <span v-else class="text-slate-600">{{ row.stockOutCount }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -366,6 +525,159 @@
         </el-col>
       </el-row>
     </template>
+
+    <el-dialog
+      v-model="detailDialogVisible"
+      :title="detailDialogTitle"
+      width="1080px"
+      destroy-on-close
+      class="finish-detail-dialog"
+    >
+      <div class="detail-table-toolbar">
+        <el-button @click="openColumnDialog">
+          <el-icon><Setting /></el-icon> 列展示
+        </el-button>
+      </div>
+      <el-table
+        :data="detailList"
+        border
+        stripe
+        style="width: 100%"
+        max-height="480px"
+        v-loading="detailLoading"
+      >
+        <el-table-column type="index" label="序号" width="60" align="center" fixed="left" />
+        <el-table-column
+          v-if="isColumnVisible('sn_code')"
+          prop="sn_code"
+          label="SN码"
+          min-width="180"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            <span v-if="row.sn_code">{{ row.sn_code }}</span>
+            <span v-else class="text-muted">待填写</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('bom_type')"
+          prop="bom_type_name"
+          label="BOM类型"
+          width="100"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tag :type="bomTypeTagType(row.bom_type)" size="small">
+              {{ row.bom_type_name || '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('bom_model')"
+          prop="bom_model"
+          label="BOM型号"
+          min-width="120"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('bom_name')"
+          prop="bom_name"
+          label="BOM名称"
+          min-width="120"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('material_code')"
+          prop="material_code"
+          label="物料编码"
+          min-width="110"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('status')"
+          prop="status"
+          label="测试状态"
+          width="100"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)" size="small">
+              {{ row.status_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('inventory_stock')"
+          prop="inventory_stock"
+          label="库存状态"
+          width="100"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tag :type="inventoryTagType(row.inventory_stock)" size="small">
+              {{ row.inventory_stock_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('repair')"
+          prop="repair"
+          label="返修"
+          width="90"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tag :type="row.repair === 1 ? 'warning' : 'info'" size="small">
+              {{ row.repair_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('create_time')"
+          prop="create_time"
+          label="创建时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('update_time')"
+          prop="update_time"
+          label="更新时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('description')"
+          prop="description"
+          label="描述"
+          min-width="140"
+          show-overflow-tooltip
+        />
+      </el-table>
+      <div class="detail-pagination">
+        <el-pagination
+          v-model:current-page="detailPageNum"
+          v-model:page-size="detailPageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          :total="detailTotal"
+          @size-change="fetchBoardDetail"
+          @current-change="fetchBoardDetail"
+        />
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="columnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
+      <div class="column-setting-tip">勾选需要在表格中展示的字段（序号列始终显示）</div>
+      <el-checkbox-group v-model="columnDraftKeys" class="column-checkbox-group">
+        <el-checkbox v-for="col in columnOptions" :key="col.key" :label="col.key">
+          {{ col.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="resetColumnDraft">恢复默认</el-button>
+        <el-button @click="columnDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveColumnSettings">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -374,11 +686,23 @@ defineOptions({
   name: "MainBoard",
 });
 
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { getProductList } from "@/api/product";
-import { getFinishProductDailyStats } from "@/api/finish-product";
+import { getFinishProductDailyStats, getFinishProductBoardDetail } from "@/api/finish-product";
 import ECharts from "@/components/ECharts/index.vue";
-import { InfoFilled } from "@element-plus/icons-vue";
+import { InfoFilled, Setting } from "@element-plus/icons-vue";
+import { useFinishProductTableColumns, FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY } from "@/composables/useFinishProductTableColumns";
+
+const {
+  columnOptions,
+  columnDialogVisible,
+  columnDraftKeys,
+  isColumnVisible,
+  loadColumnSettings,
+  openColumnDialog,
+  resetColumnDraft,
+  saveColumnSettings,
+} = useFinishProductTableColumns(FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY);
 
 type BoardType = "material" | "finish";
 
@@ -388,7 +712,9 @@ interface FinishDailyStat {
   passCount: number;
   failCount: number;
   pendingNewCount: number;
+  testingCount: number;
   repairCount: number;
+  repairTestingCount: number;
   repairPassCount: number;
   pendingRepairCount: number;
   stockInCount: number;
@@ -398,21 +724,42 @@ interface FinishDailyStat {
 const finishChartSeries = [
   { name: "新增成品", key: "newCount", color: "#409EFF" },
   { name: "待测试新品", key: "pendingNewCount", color: "#9333EA" },
+  { name: "新品正在测试", key: "testingCount", color: "#0EA5E9" },
   { name: "测试合格", key: "passCount", color: "#67C23A" },
   { name: "测试不良", key: "failCount", color: "#F56C6C" },
   { name: "新增返修", key: "repairCount", color: "#E6A23C" },
+  { name: "返修正在测试", key: "repairTestingCount", color: "#06B6D4" },
   { name: "待测试返修", key: "pendingRepairCount", color: "#F59E0B" },
   { name: "返修合格", key: "repairPassCount", color: "#13C2C2" },
   { name: "入库数量", key: "stockInCount", color: "#8B5CF6" },
   { name: "出库数量", key: "stockOutCount", color: "#64748B" },
 ] as const;
 
+const boardCategoryLabels: Record<string, string> = {
+  newCount: "新增成品",
+  pendingNewCount: "待测试新品",
+  testingCount: "新品正在测试",
+  passCount: "测试合格",
+  failCount: "测试不良",
+  repairCount: "新增返修",
+  repairTestingCount: "返修正在测试",
+  pendingRepairCount: "待测试返修",
+  repairPassCount: "返修合格",
+  stockInCount: "入库数量",
+  stockOutCount: "出库数量",
+  currentStockInCount: "成品库存",
+};
+
+type BoardCategoryKey = keyof typeof boardCategoryLabels;
+
 const emptyFinishSummary = () => ({
   newCount: 0,
   passCount: 0,
   failCount: 0,
   pendingNewCount: 0,
+  testingCount: 0,
   repairCount: 0,
+  repairTestingCount: 0,
   repairPassCount: 0,
   pendingRepairCount: 0,
   stockInCount: 0,
@@ -433,15 +780,150 @@ const createDefaultFinishDateRange = () => {
   return [formatDate(start), formatDate(end)] as [string, string];
 };
 
+const FINISH_BOARD_DATE_RANGE_STORAGE_KEY = "finish-board-date-range";
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const isValidDateRange = (value: unknown): value is [string, string] => {
+  if (!Array.isArray(value) || value.length !== 2) {
+    return false;
+  }
+  const [start, end] = value;
+  return (
+    typeof start === "string" &&
+    typeof end === "string" &&
+    DATE_PATTERN.test(start) &&
+    DATE_PATTERN.test(end) &&
+    start <= end
+  );
+};
+
+const loadFinishDateRange = (): [string, string] => {
+  const saved = localStorage.getItem(FINISH_BOARD_DATE_RANGE_STORAGE_KEY);
+  if (!saved) {
+    return createDefaultFinishDateRange();
+  }
+  try {
+    const parsed = JSON.parse(saved);
+    if (isValidDateRange(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // ignore invalid saved value
+  }
+  return createDefaultFinishDateRange();
+};
+
+const saveFinishDateRange = (range: [string, string]) => {
+  if (!isValidDateRange(range)) {
+    return;
+  }
+  localStorage.setItem(FINISH_BOARD_DATE_RANGE_STORAGE_KEY, JSON.stringify(range));
+};
+
 const loading = ref(false);
 const boardType = ref<BoardType>("finish");
 const allProducts = ref<any[]>([]);
 const chartProductType = ref("");
-const finishDateRange = ref<[string, string]>(createDefaultFinishDateRange());
+const finishDateRange = ref<[string, string]>(loadFinishDateRange());
+
+watch(finishDateRange, (range) => {
+  saveFinishDateRange(range);
+});
 const finishSummary = ref(emptyFinishSummary());
 const currentStockInCount = ref(0);
 const dailyStats = ref<FinishDailyStat[]>([]);
 const finishDataLoaded = ref(false);
+
+const detailDialogVisible = ref(false);
+const detailDialogTitle = ref("");
+const detailLoading = ref(false);
+const detailList = ref<any[]>([]);
+const detailTotal = ref(0);
+const detailPageNum = ref(1);
+const detailPageSize = ref(10);
+const detailCategory = ref<BoardCategoryKey>("newCount");
+const detailSingleDate = ref<string | null>(null);
+
+const inventoryTagType = (value: number) => {
+  if (value === 1) return "success";
+  if (value === 2) return "danger";
+  return "warning";
+};
+
+const statusTagType = (value: number) => {
+  if (value === 2) return "success";
+  if (value === 3) return "danger";
+  if (value === 1) return "primary";
+  return "warning";
+};
+
+const bomTypeTagType = (value: number | null | undefined) => {
+  if (value === 1) return "primary";
+  if (value === 2) return "info";
+  return "success";
+};
+
+const buildDetailTitle = (category: BoardCategoryKey, singleDate?: string | null) => {
+  const label = boardCategoryLabels[category] || category;
+  if (category === "currentStockInCount") {
+    return `${label} - 明细（当前已入库）`;
+  }
+  if (singleDate) {
+    return `${label} - 明细（${singleDate}）`;
+  }
+  const [start, end] = finishDateRange.value || [];
+  if (start && end) {
+    return start === end ? `${label} - 明细（${start}）` : `${label} - 明细（${start} 至 ${end}）`;
+  }
+  return `${label} - 明细`;
+};
+
+const fetchBoardDetail = async () => {
+  detailLoading.value = true;
+  try {
+    const params: {
+      category: string;
+      start_date?: string;
+      end_date?: string;
+      date?: string;
+      pageNum?: number;
+      pageSize?: number;
+    } = {
+      category: detailCategory.value,
+      pageNum: detailPageNum.value,
+      pageSize: detailPageSize.value,
+    };
+    if (detailCategory.value !== "currentStockInCount") {
+      if (detailSingleDate.value) {
+        params.date = detailSingleDate.value;
+      } else if (finishDateRange.value?.[0] && finishDateRange.value?.[1]) {
+        params.start_date = finishDateRange.value[0];
+        params.end_date = finishDateRange.value[1];
+      }
+    }
+    const res = await getFinishProductBoardDetail(params);
+    detailList.value = res?.list || [];
+    detailTotal.value = res?.total || 0;
+  } catch (error) {
+    console.error("获取成品明细失败", error);
+    detailList.value = [];
+    detailTotal.value = 0;
+  } finally {
+    detailLoading.value = false;
+  }
+};
+
+const openBoardDetail = (category: BoardCategoryKey, count: number, singleDate?: string) => {
+  if (!count || count <= 0) {
+    return;
+  }
+  detailCategory.value = category;
+  detailSingleDate.value = singleDate || null;
+  detailPageNum.value = 1;
+  detailDialogTitle.value = buildDetailTitle(category, singleDate);
+  detailDialogVisible.value = true;
+  fetchBoardDetail();
+};
 
 const materialStats = ref({
   totalCount: 0,
@@ -762,6 +1244,7 @@ const handleBoardTypeChange = () => {
 };
 
 onMounted(() => {
+  loadColumnSettings();
   fetchFinishData();
 });
 </script>
@@ -780,5 +1263,63 @@ onMounted(() => {
 .text-muted {
   color: #909399;
   font-style: italic;
+}
+
+.stat-card--clickable {
+  cursor: pointer;
+}
+
+.finish-stat-row--9 {
+  @media (min-width: 1200px) {
+    flex-wrap: nowrap;
+
+    > .el-col {
+      flex: 0 0 11.111111%;
+      max-width: 11.111111%;
+    }
+  }
+
+  :deep(.el-card__header) {
+    padding: 10px 12px;
+  }
+
+  :deep(.el-card__body) {
+    padding: 12px;
+  }
+}
+
+.stat-cell-link {
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.stat-cell-link:hover {
+  opacity: 0.85;
+}
+
+.detail-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.detail-table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.column-setting-tip {
+  margin-bottom: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.column-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 12px;
 }
 </style>
