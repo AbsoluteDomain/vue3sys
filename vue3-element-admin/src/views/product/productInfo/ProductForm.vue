@@ -21,10 +21,18 @@
         <el-input v-model="formData.name" placeholder="请输入产品名称" />
       </el-form-item>
 
+      <el-form-item label="图号" prop="draw_code">
+        <el-input v-model="formData.draw_code" placeholder="请输入图号（可选）" />
+      </el-form-item>
+
+      <el-form-item label="物料编码" prop="material_code">
+        <el-input v-model="formData.material_code" placeholder="请输入物料编码（可选）" />
+      </el-form-item>
+
       <el-form-item label="类型" prop="type">
         <el-select v-model="formData.type" placeholder="请选择类型" style="width: 100%">
           <el-option label="原材料" value="raw" />
-          <el-option label="组件" value="finished" />
+          <el-option label="组件" value="component" />
         </el-select>
       </el-form-item>
 
@@ -76,6 +84,8 @@ const isEdit = ref(false)  // 标记是新增还是编辑
 const formData = reactive({
   id: null,
   name: '',
+  draw_code: '',
+  material_code: '',
   type: '',
   quantity: 0,
   unit: '',
@@ -99,13 +109,25 @@ const dialogTitle = computed(() => (isEdit.value ? '编辑产品' : '新增产�
 const open = (row = {}) => {
   // 重置表单
   Object.assign(formData, {
-    id: null, name: '', type: '', quantity: 0, unit: '', location: '', alert_quantity: 0, description: ''
+    id: null,
+    name: '',
+    draw_code: '',
+    material_code: '',
+    type: '',
+    quantity: 0,
+    unit: '',
+    location: '',
+    alert_quantity: 0,
+    description: ''
   })
   
   if (row.id) {
     // 如果是编辑，回填数据
     isEdit.value = true
     Object.assign(formData, row)
+    if (formData.type === 'finished') {
+      formData.type = 'component'
+    }
   } else {
     // 新增
     isEdit.value = false

@@ -31,6 +31,10 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
     target: env.VITE_APP_API_URL
   });
   return {
+    // Windows Server 等旧版浏览器不支持 ||= 等 ES2021 语法，开发/构建均降级转译
+    esbuild: {
+      target: "es2020",
+    },
     resolve: {
       alias: {
         "@": pathSrc,
@@ -109,6 +113,9 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
     ] as PluginOption[],
     // 预加载项目必需的组件
     optimizeDeps: {
+      esbuildOptions: {
+        target: "es2020",
+      },
       include: [
         "vue",
         "vue-router",
@@ -210,6 +217,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
     },
     // 构建配置
     build: {
+      target: "es2020",
       chunkSizeWarningLimit: 2000, // 消除打包大小超过500kb警告
       reportCompressedSize: false,
       minify: isProduction ? "terser" : false, // Vite 8 推荐使用 terser 进行生产压缩

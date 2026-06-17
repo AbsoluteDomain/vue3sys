@@ -35,8 +35,15 @@
       <el-table-column prop="updated_at" label="更新时间" width="165" />
     </el-table>
     <template #footer>
-      <el-button @click="visible = false">关闭</el-button>
-      <el-button type="primary" @click="handleEdit">编辑 BOM</el-button>
+      <div class="dialog-footer">
+        <el-button type="success" plain :disabled="!bomHeader" @click="handleExport">
+          导出 Excel
+        </el-button>
+        <div class="dialog-footer-actions">
+          <el-button @click="visible = false">关闭</el-button>
+          <el-button type="primary" @click="handleEdit">编辑 BOM</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -45,6 +52,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getBomDetail } from '@/api/bom'
+import { exportSingleBomToExcel } from './bomExcel'
 
 const emit = defineEmits(['edit'])
 
@@ -95,6 +103,20 @@ const handleEdit = () => {
   }
 }
 
+const handleExport = async () => {
+  if (!bomHeader.value) return
+  try {
+    await exportSingleBomToExcel({
+      ...bomHeader.value,
+      recipes: recipes.value
+    })
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('导出 Excel 失败')
+  }
+}
+
 const handleClosed = () => {
   bomHeader.value = null
   recipes.value = []
@@ -102,3 +124,16 @@ const handleClosed = () => {
 
 defineExpose({ open })
 </script>
+
+<style scoped>
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.dialog-footer-actions {
+  display: flex;
+  gap: 8px;
+}
+</style>

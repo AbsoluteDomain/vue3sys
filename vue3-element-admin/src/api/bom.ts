@@ -16,6 +16,27 @@ export function getBomDetail(params: { id: number }) {
   })
 }
 
+export function getBomExport(params: any) {
+  return request({
+    url: '/api/v1/bom/export/',
+    method: 'get',
+    params
+  })
+}
+
+export function importBomBatch(data: { items: any[] }) {
+  return request({
+    url: '/api/v1/bom/import/',
+    method: 'post',
+    data
+  })
+}
+
+/** 单条导入（兼容） */
+export function importBom(data: { item: any }) {
+  return importBomBatch({ items: [data.item] })
+}
+
 export function createBom(data: any) {
   return request({
     url: '/api/v1/bom/create/',

@@ -56,6 +56,48 @@ def hello_world(request):
     return JsonResponse(data)
 
 
+def _optional_text(value):
+    text = (value or "").strip() if value is not None else ""
+    return text or None
+
+
+def _normalize_product_type(value):
+    product_type = (value or "").strip()
+    if product_type == "finished":
+        return "component"
+    return product_type
+
+
+def _serialize_product(product):
+    return {
+        "id": product.id,
+        "name": product.name,
+        "type": product.type,
+        "draw_code": product.draw_code or "",
+        "material_code": product.material_code or "",
+        "quantity": product.quantity,
+        "unit": product.unit,
+        "location": product.location,
+        "description": product.description,
+        "updated_at": format_local_datetime(product.updated_at),
+        "alert_quantity": product.alert_quantity,
+    }
+
+
+def _product_snapshot(product):
+    return {
+        "name": product.name,
+        "type": product.type,
+        "draw_code": product.draw_code or "",
+        "material_code": product.material_code or "",
+        "quantity": product.quantity,
+        "unit": product.unit,
+        "location": product.location,
+        "description": product.description,
+        "alert_quantity": product.alert_quantity,
+    }
+
+
 def product_list(request):
     # 1. 读取分页和查询参数
     try:
@@ -100,6 +142,8 @@ def product_list(request):
         "id": "id",
         "name": "name",
         "type": "type",
+        "draw_code": "draw_code",
+        "material_code": "material_code",
         "quantity": "quantity",
         "alert_quantity": "alert_quantity",
         "updated_at": "updated_at",
@@ -116,19 +160,7 @@ def product_list(request):
     page_items = products[start:end]
 
     # 5. 将当前页数据转换为 JSON
-    data = []
-    for p in page_items:
-        data.append({
-            "id": p.id,
-            "name": p.name,
-            "type": p.type,
-            "quantity": p.quantity,
-            "unit": p.unit,
-            "location": p.location,
-            "description": p.description,
-            "updated_at": format_local_datetime(p.updated_at),
-            "alert_quantity": p.alert_quantity
-        })
+    data = [_serialize_product(p) for p in page_items]
 
     # 6. 返回分页结构
     return JsonResponse(
@@ -156,7 +188,11 @@ def create_product(request):
         # 2. 创建对象（主键 id 让数据库自增；仅当前端显式传了 id 才使用）
         create_kwargs = {
             "name": body.get("name"),
-            "type": body.get("type"),
+            "type": _normalize_product_type(body.get("type")),
+            "draw_code": _optional_text(body.get("draw_code") or body.get("drawCode")),
+            "material_code": _optional_text(
+                body.get("material_code") or body.get("materialCode")
+            ),
             "quantity": body.get("quantity"),
             "unit": body.get("unit"),
             "location": body.get("location"),
@@ -177,15 +213,7 @@ def create_product(request):
             operation_type='create',
             target_id=product.id,
             target_name=product.name,
-            after_data={
-                "name": product.name,
-                "type": product.type,
-                "quantity": product.quantity,
-                "unit": product.unit,
-                "location": product.location,
-                "description": product.description,
-                "alert_quantity": product.alert_quantity,
-            },
+            after_data=_product_snapshot(product),
             description=format_product_create_description(product),
         )
         
@@ -206,19 +234,15 @@ def update_product(request):
         product = Product.objects.get(id=product_id, is_del=0)
         
         # 保存修改前的数据
-        before_data = {
-            "name": product.name,
-            "type": product.type,
-            "quantity": product.quantity,
-            "unit": product.unit,
-            "location": product.location,
-            "description": product.description,
-            "alert_quantity": product.alert_quantity,
-        }
+        before_data = _product_snapshot(product)
 
         # 3. 更新字段
         product.name = body.get('name')
-        product.type = body.get('type')
+        product.type = _normalize_product_type(body.get('type'))
+        product.draw_code = _optional_text(body.get("draw_code") or body.get("drawCode"))
+        product.material_code = _optional_text(
+            body.get("material_code") or body.get("materialCode")
+        )
         product.quantity = body.get('quantity')
         product.unit = body.get('unit')
         product.location = body.get('location')
@@ -227,15 +251,7 @@ def update_product(request):
         product.save()
         
         # 保存修改后的数据
-        after_data = {
-            "name": product.name,
-            "type": product.type,
-            "quantity": product.quantity,
-            "unit": product.unit,
-            "location": product.location,
-            "description": product.description,
-            "alert_quantity": product.alert_quantity,
-        }
+        after_data = _product_snapshot(product)
         
         description = format_product_update_description(product.name, before_data, after_data)
 
@@ -337,15 +353,7 @@ def delete_product(request):
         product = Product.objects.get(id=product_id, is_del=0)
         
         # 保存删除前的数据
-        before_data = {
-            "name": product.name,
-            "type": product.type,
-            "quantity": product.quantity,
-            "unit": product.unit,
-            "location": product.location,
-            "description": product.description,
-            "alert_quantity": product.alert_quantity,
-        }
+        before_data = _product_snapshot(product)
         
         product.is_del = 1
         product.save(update_fields=["is_del", "updated_at"])

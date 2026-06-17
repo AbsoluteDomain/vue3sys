@@ -607,7 +607,12 @@ const fetchMaterialData = async () => {
 const updateMaterialCharts = () => {
   let filteredProducts = allProducts.value;
   if (chartProductType.value) {
-    filteredProducts = allProducts.value.filter((p) => p.type === chartProductType.value);
+    filteredProducts = allProducts.value.filter((p) => {
+      if (chartProductType.value === "component") {
+        return p.type === "component" || p.type === "finished";
+      }
+      return p.type === chartProductType.value;
+    });
   }
 
   const alertCount = filteredProducts.filter(isMaterialAlert).length;

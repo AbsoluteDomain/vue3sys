@@ -72,6 +72,8 @@
         <!-- ⚠️ 这里对应后端的字段名 -->
         <el-table-column prop="id" label="产品ID" sortable="custom" width="100" />
         <el-table-column prop="name" label="产品名称" sortable="custom" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="draw_code" label="图号" sortable="custom" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="material_code" label="物料编码" sortable="custom" min-width="120" show-overflow-tooltip />
         <el-table-column
           prop="type"
           class-name="col-product-type"

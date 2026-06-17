@@ -68,7 +68,7 @@ def _recipe_part_info(row):
         return {
             "product_id": row.component_id,
             "product_name": row.component_name or "",
-            "product_type": "finished",
+            "product_type": "component",
             "quantity": row.component_quantity,
         }
     return {
@@ -138,12 +138,18 @@ def _parse_bom_type(value, required=False):
 
 def _serialize_recipe(row, bom_name=None):
     part = _recipe_part_info(row)
+    part_material_code = ""
+    if part["product_id"]:
+        product = Product.objects.filter(id=part["product_id"], is_del=0).first()
+        if product:
+            part_material_code = product.material_code or ""
     return {
         "id": row.id,
         "bom_id": row.bom_id,
         "bom_name": bom_name,
         "part_product_id": part["product_id"],
         "part_product_name": part["product_name"],
+        "part_material_code": part_material_code,
         "part_product_type": part["product_type"],
         "part_quantity": part["quantity"],
         "raw_material_id": row.raw_material_id,
@@ -234,8 +240,7 @@ def _save_recipes(bom, recipes_body):
     return old_recipes, new_recipes
 
 
-def bom_list(request):
-    page_num, page_size = _parse_page_params(request)
+def _build_bom_queryset(request):
     bom_id = (request.GET.get("id", "") or request.GET.get("bom_id", "") or "").strip()
     bom_model = (
         request.GET.get("bom_model", "") or request.GET.get("bomModel", "") or ""
@@ -249,8 +254,16 @@ def bom_list(request):
         or ""
     ).strip()
     bom_type = (request.GET.get("type", "") or request.GET.get("bom_type", "") or "").strip()
-    sort_prop = (request.GET.get("sort_prop", "") or "").strip()
-    sort_order = (request.GET.get("sort_order", "") or "").strip()
+    sort_prop = (
+        request.GET.get("sort_prop", "")
+        or request.GET.get("sortProp", "")
+        or ""
+    ).strip()
+    sort_order = (
+        request.GET.get("sort_order", "")
+        or request.GET.get("sortOrder", "")
+        or ""
+    ).strip()
 
     qs = BomList.objects.filter(is_del=0)
 
@@ -277,7 +290,36 @@ def bom_list(request):
     }
     db_sort_field = sort_field_map.get(sort_prop, "id")
     db_sort_prefix = "-" if sort_order == "descending" else ""
-    qs = qs.order_by(f"{db_sort_prefix}{db_sort_field}")
+    return qs.order_by(f"{db_sort_prefix}{db_sort_field}")
+
+
+def _export_row_from_bom_recipe(bom, recipe=None):
+    if recipe:
+        part = _recipe_part_info(recipe)
+    else:
+        part = {
+            "product_id": None,
+            "product_name": "",
+            "product_type": "",
+            "quantity": None,
+        }
+    return {
+        "bom_id": bom.id,
+        "bom_model": bom.bom_model,
+        "bom_name": bom.bom_name or "",
+        "material_code": bom.material_code or "",
+        "type": bom.type,
+        "type_name": bom.get_type_display(),
+        "part_product_id": part["product_id"] or "",
+        "part_product_name": part["product_name"],
+        "part_product_type": part["product_type"],
+        "part_quantity": part["quantity"] if part["quantity"] is not None else "",
+    }
+
+
+def bom_list(request):
+    page_num, page_size = _parse_page_params(request)
+    qs = _build_bom_queryset(request)
 
     total = qs.count()
     start = (page_num - 1) * page_size
@@ -308,6 +350,239 @@ def bom_list(request):
             },
         }
     )
+
+
+def _serialize_bom_export_item(bom):
+    recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
+    recipe_items = []
+    for recipe in recipes:
+        part = _recipe_part_info(recipe)
+        part_material_code = ""
+        if part["product_id"]:
+            product = Product.objects.filter(id=part["product_id"], is_del=0).first()
+            if product:
+                part_material_code = product.material_code or ""
+        recipe_items.append(
+            {
+                "part_product_id": part["product_id"],
+                "part_product_name": part["product_name"],
+                "part_material_code": part_material_code,
+                "part_product_type": part["product_type"],
+                "part_quantity": part["quantity"],
+            }
+        )
+    return {
+        "id": bom.id,
+        "bom_model": bom.bom_model,
+        "bom_name": bom.bom_name or "",
+        "material_code": bom.material_code or "",
+        "type": bom.type,
+        "type_name": bom.get_type_display(),
+        "recipes": recipe_items,
+    }
+
+
+def _resolve_product_for_import(product_id=None, material_code=None):
+    """导入零件：仅支持产品 ID 或物料编码（二者在库中均为唯一）。"""
+    pid = product_id
+    code = (material_code or "").strip()
+
+    if pid not in (None, ""):
+        try:
+            product = Product.objects.get(id=int(pid), is_del=0)
+        except (Product.DoesNotExist, TypeError, ValueError):
+            raise ValueError(f"产品不存在（ID={pid}）")
+        if code and (product.material_code or "").strip() != code:
+            raise ValueError(f"产品 ID={pid} 与物料编码「{code}」不匹配")
+        return product
+
+    if code:
+        try:
+            return Product.objects.get(is_del=0, material_code=code)
+        except Product.DoesNotExist:
+            raise ValueError(f"未找到物料编码为「{code}」的产品")
+        except Product.MultipleObjectsReturned:
+            raise ValueError(f"物料编码「{code}」匹配到多个产品")
+
+    raise ValueError("零件明细需填写产品ID或物料编码")
+
+
+def _normalize_import_recipes(recipes_data):
+    if not isinstance(recipes_data, list) or not recipes_data:
+        raise ValueError("BOM 至少需绑定一条零件明细")
+
+    normalized = []
+    seen_product_ids = set()
+    for index, item in enumerate(recipes_data, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"第 {index} 条零件明细格式错误")
+
+        product = _resolve_product_for_import(
+            product_id=item.get("product_id") or item.get("part_product_id"),
+            material_code=item.get("material_code")
+            or item.get("part_material_code"),
+        )
+        if product.id in seen_product_ids:
+            raise ValueError(f"同一 BOM 不能重复绑定产品「{product.name}」")
+        seen_product_ids.add(product.id)
+
+        qty = _int_or_none(item.get("quantity") or item.get("part_quantity"), "用量")
+        if qty is None or qty < 1:
+            raise ValueError(f"产品「{product.name}」的用量必须大于 0")
+
+        normalized.append({"product_id": product.id, "quantity": qty})
+    return normalized
+
+
+def bom_export(request):
+    """导出 BOM 清单（结构化：主表 + 零件明细）"""
+    qs = _build_bom_queryset(request)
+    items = [_serialize_bom_export_item(bom) for bom in qs]
+
+    return JsonResponse(
+        {
+            "code": "00000",
+            "msg": "成功",
+            "data": {"items": items, "total": len(items)},
+        }
+    )
+
+
+def _assert_bom_not_exists_for_import(bom_model, material_code):
+    if BomList.objects.filter(is_del=0, bom_model=bom_model).exists():
+        raise ValueError(f"BOM型号「{bom_model}」已存在，不允许重复导入")
+    if material_code and BomList.objects.filter(is_del=0, material_code=material_code).exists():
+        raise ValueError(f"BOM物料编码「{material_code}」已存在，不允许重复导入")
+
+
+def _create_bom_from_import_item(item):
+    if item.get("id"):
+        raise ValueError("导入仅支持新增 BOM，请勿填写 BOM ID")
+
+    body = {
+        "bom_model": item.get("bom_model"),
+        "bom_name": item.get("bom_name"),
+        "material_code": item.get("material_code"),
+        "type": item.get("type"),
+        "recipes": item.get("recipes") or [],
+    }
+    bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+    _assert_bom_not_exists_for_import(bom_model, material_code)
+
+    bom_type = _parse_bom_type(body.get("type"))
+    if bom_type is None:
+        bom_type = BomList.TYPE_JOINT
+
+    recipes_data = _normalize_import_recipes(body.get("recipes"))
+
+    with transaction.atomic():
+        bom = BomList.objects.create(
+            bom_model=bom_model,
+            bom_name=bom_name,
+            material_code=material_code,
+            is_del=0,
+            type=bom_type,
+        )
+        _save_recipes(bom, recipes_data)
+    return bom
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def import_bom_batch(request):
+    """批量导入 BOM（仅新增，逐条提交，部分成功）"""
+    try:
+        body = json.loads(request.body or "{}")
+        items = body.get("items")
+        if items is None and isinstance(body.get("item"), dict):
+            items = [body.get("item")]
+        if not isinstance(items, list) or not items:
+            return JsonResponse({"code": "400", "msg": "导入数据不能为空"})
+
+        success_count = 0
+        fail_list = []
+        seen_models = set()
+        seen_codes = set()
+
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                fail_list.append({"index": index, "bom_model": "", "msg": "数据格式错误"})
+                continue
+
+            bom_model = (item.get("bom_model") or "").strip()
+            material_code = (item.get("material_code") or "").strip()
+
+            if bom_model in seen_models:
+                fail_list.append(
+                    {
+                        "index": index,
+                        "bom_model": bom_model,
+                        "msg": f"Excel 中 BOM型号「{bom_model}」重复",
+                    }
+                )
+                continue
+            if material_code and material_code in seen_codes:
+                fail_list.append(
+                    {
+                        "index": index,
+                        "bom_model": bom_model,
+                        "msg": f"Excel 中 BOM物料编码「{material_code}」重复",
+                    }
+                )
+                continue
+
+            try:
+                bom = _create_bom_from_import_item(item)
+                seen_models.add(bom_model)
+                if material_code:
+                    seen_codes.add(material_code)
+                success_count += 1
+            except ValueError as e:
+                fail_list.append(
+                    {
+                        "index": index,
+                        "bom_model": bom_model,
+                        "msg": str(e),
+                    }
+                )
+            except Exception as e:
+                fail_list.append(
+                    {
+                        "index": index,
+                        "bom_model": bom_model,
+                        "msg": f"导入失败: {str(e)}",
+                    }
+                )
+
+        msg = f"导入完成：成功 {success_count} 条"
+        if fail_list:
+            msg += f"，失败 {len(fail_list)} 条"
+
+        if success_count:
+            _log_if_available(
+                request,
+                module="bom",
+                module_name="产品BOM管理",
+                operation_type="create",
+                target_name="BOM批量导入",
+                description=msg,
+            )
+
+        return JsonResponse(
+            {
+                "code": "00000",
+                "msg": msg,
+                "data": {
+                    "success_count": success_count,
+                    "fail_count": len(fail_list),
+                    "fail_list": fail_list,
+                },
+            }
+        )
+    except json.JSONDecodeError:
+        return JsonResponse({"code": "400", "msg": "请求体不是合法 JSON"})
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"导入失败: {str(e)}"})
 
 
 def bom_detail(request):

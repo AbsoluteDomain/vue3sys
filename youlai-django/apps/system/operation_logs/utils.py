@@ -1,6 +1,8 @@
 PRODUCT_FIELD_LABELS = {
     "name": "名称",
     "type": "类型",
+    "draw_code": "图号",
+    "material_code": "物料编码",
     "quantity": "数量",
     "unit": "单位",
     "location": "位置",
@@ -23,7 +25,8 @@ BOM_TYPE_LABELS = {
 
 PRODUCT_TYPE_LABELS = {
     "raw": "原材料",
-    "finished": "成品",
+    "component": "组件",
+    "finished": "组件",
 }
 
 

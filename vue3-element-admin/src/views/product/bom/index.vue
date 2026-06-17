@@ -73,6 +73,12 @@
         <el-button type="warning" @click="handleAssemble">
           <el-icon><Box /></el-icon> 组装产品
         </el-button>
+        <el-button type="primary" plain :loading="exporting" @click="handleExportExcel">
+          <el-icon><Download /></el-icon> 导出 Excel
+        </el-button>
+        <el-button type="primary" plain @click="handleImportExcel">
+          <el-icon><Upload /></el-icon> 导入 Excel
+        </el-button>
       </div>
 
       <el-table
@@ -100,10 +106,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="recipe_count" label="明细条数" width="100" align="center" />
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click.stop="handleViewRecipes(row)">
               查看明细
+            </el-button>
+            <el-button link type="success" size="small" @click.stop="handleExportRow(row)">
+              导出
             </el-button>
             <el-button link type="warning" size="small" @click.stop="handleAssembleRow(row)">
               组装
@@ -121,6 +130,7 @@
       <bom-list-form ref="formRef" @success="getList" />
       <bom-recipe-dialog ref="recipeDialogRef" @edit="handleEdit" />
       <bom-assemble-dialog ref="assembleDialogRef" @success="getList" />
+      <bom-import-dialog ref="importDialogRef" @success="getList" />
 
       <div class="pagination-container">
         <el-pagination
@@ -139,13 +149,15 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getBomList, deleteBom } from '@/api/bom'
-import { Search, Refresh, Plus, Edit, Delete, Box } from '@element-plus/icons-vue'
+import { getBomList, getBomExport, getBomDetail, deleteBom } from '@/api/bom'
+import { Search, Refresh, Plus, Edit, Delete, Box, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // import ProductNav from '../components/ProductNav.vue'
 import BomListForm from './bomInfo/BomListForm.vue'
 import BomRecipeDialog from './bomInfo/BomRecipeDialog.vue'
 import BomAssembleDialog from './bomInfo/BomAssembleDialog.vue'
+import BomImportDialog from './bomInfo/BomImportDialog.vue'
+import { exportBomItemsToExcel, exportSingleBomToExcel, formatNowForFileName } from './bomInfo/bomExcel'
 
 const queryParams = reactive({
   pageNum: 1,
@@ -174,26 +186,29 @@ const bomTypeTagType = (value) => {
 const formRef = ref(null)
 const recipeDialogRef = ref(null)
 const assembleDialogRef = ref(null)
+const importDialogRef = ref(null)
 const tableData = ref([])
 const loading = ref(false)
+const exporting = ref(false)
 const total = ref(0)
+
+const buildQueryParams = () => ({
+  pageNum: queryParams.pageNum,
+  pageSize: queryParams.pageSize,
+  bomModel: queryParams.bomModel || undefined,
+  bomName: queryParams.bomName || undefined,
+  materialCode: queryParams.materialCode || undefined,
+  type: queryParams.type || undefined,
+  bom_type: queryParams.type || undefined,
+  sortProp: queryParams.sortProp,
+  sortOrder: queryParams.sortOrder,
+  bomId: queryParams.bomId || undefined,
+  id: queryParams.bomId || undefined
+})
 
 const getList = () => {
   loading.value = true
-  const params = {
-    pageNum: queryParams.pageNum,
-    pageSize: queryParams.pageSize,
-    bomModel: queryParams.bomModel || undefined,
-    bomName: queryParams.bomName || undefined,
-    materialCode: queryParams.materialCode || undefined,
-    type: queryParams.type || undefined,
-    bom_type: queryParams.type || undefined,
-    sortProp: queryParams.sortProp,
-    sortOrder: queryParams.sortOrder,
-    bomId: queryParams.bomId || undefined,
-    id: queryParams.bomId || undefined
-  }
-  getBomList(params)
+  getBomList(buildQueryParams())
     .then((response) => {
       tableData.value = response?.list || []
       total.value = response?.total || 0
@@ -253,6 +268,41 @@ const handleDelete = (row) => {
       getList()
     })
     .catch(() => {})
+}
+
+const handleExportRow = async (row) => {
+  if (!row?.id) return
+  try {
+    const detail = await getBomDetail({ id: row.id })
+    await exportSingleBomToExcel(detail)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('导出 Excel 失败')
+  }
+}
+
+const handleExportExcel = async () => {
+  exporting.value = true
+  try {
+    const data = await getBomExport(buildQueryParams())
+    const items = data?.items || []
+    if (!items.length) {
+      ElMessage.warning('当前筛选条件下没有可导出的 BOM 数据')
+      return
+    }
+    await exportBomItemsToExcel(items, `BOM清单_${formatNowForFileName()}.xlsx`)
+    ElMessage.success(`导出成功，共 ${items.length} 条 BOM`)
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('导出 Excel 失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
+const handleImportExcel = () => {
+  importDialogRef.value?.open()
 }
 
 onMounted(() => getList())

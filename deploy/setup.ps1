@@ -1,7 +1,7 @@
 # vue3sys deploy menu (ASCII-only for Windows Server / GBK)
 
 param(
-    [ValidateSet('', 'all', 'prereq', 'check', 'configure', 'install', 'import', 'verify', 'start', 'fresh')]
+    [ValidateSet('', 'all', 'prereq', 'check', 'configure', 'install', 'import', 'verify', 'start', 'update', 'fresh')]
     [string]$Action = ''
 )
 
@@ -25,6 +25,7 @@ function Show-Menu {
     Write-Host '  7. Start all services      -> start-all.ps1'
     Write-Host '  8. Deploy steps 3-5        -> config + deps + import'
     Write-Host '  9. Full fresh deploy       -> prereq + steps 3-5'
+    Write-Host '  u. Update from GitHub      -> pull + deps + migrate + restart'
     Write-Host '  r. Recreate venv           -> after copy from another PC'
     Write-Host '  0. Exit'
     Write-Host ""
@@ -83,6 +84,7 @@ if ($Action -eq 'import') {
 }
 if ($Action -eq 'verify') { Invoke-Step 'verify-services.ps1'; exit 0 }
 if ($Action -eq 'start') { Invoke-Step 'start-all.ps1'; exit 0 }
+if ($Action -eq 'update') { Invoke-Step 'update.ps1'; exit 0 }
 
 while ($true) {
     Show-Menu
@@ -97,6 +99,8 @@ while ($true) {
         '7' { Invoke-Step 'start-all.ps1' }
         '8' { Run-DeployCore }
         '9' { Run-FreshDeploy }
+        'u' { Invoke-Step 'update.ps1' }
+        'U' { Invoke-Step 'update.ps1' }
         'r' { Invoke-Step 'recreate-venv.ps1' }
         'R' { Invoke-Step 'recreate-venv.ps1' }
         '0' { break }

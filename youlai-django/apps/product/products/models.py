@@ -15,6 +15,19 @@ class Product(models.Model):
     # 3. type: varchar(255), 非空
     type = models.CharField(max_length=255, null=False, verbose_name="产品类型")
 
+    draw_code = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name="图号",
+    )
+    material_code = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name="物料编码",
+    )
+
     # 4. quantity: int, 允许空
     # 注意：数据库中允许空，Django中对应 null=True。
     # 如果要在表单中也允许为空，通常加上 blank=True。
