@@ -1,0 +1,39 @@
+{
+  "winget": {
+    "python": {
+      "id": "Python.Python.3.12",
+      "name": "Python 3.12",
+      "required": true,
+      "manualUrl": "https://www.python.org/downloads/windows/"
+    },
+    "nodejs": {
+      "id": "OpenJS.NodeJS.LTS",
+      "name": "Node.js LTS",
+      "required": true,
+      "manualUrl": "https://nodejs.org/"
+    },
+    "mysql": {
+      "id": "Oracle.MySQL",
+      "name": "MySQL Server 8",
+      "required": true,
+      "manualUrl": "https://dev.mysql.com/downloads/installer/",
+      "serviceNames": ["MySQL80", "MySQL", "MySQL84"]
+    },
+    "vcredist": {
+      "id": "Microsoft.VCRedist.2015+.x64",
+      "name": "VC++ 运行库",
+      "required": false,
+      "manualUrl": "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"
+    }
+  },
+  "mysqlBinPaths": [
+    "C:\\Program Files\\MySQL\\MySQL Server 8.4\\bin",
+    "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin",
+    "C:\\Program Files\\MySQL\\MySQL Server 8.3\\bin",
+    "D:\\Program Files\\MySQL\\MySQL Server 8.4\\bin",
+    "D:\\Program Files\\MySQL\\MySQL Server 8.0\\bin",
+    "D:\\Program Files\\MySQL\\MySQL Server 8.3\\bin"
+  ],
+  "pythonMinVersion": [3, 10],
+  "pythonMaxVersion": [3, 14]
+}

@@ -6,7 +6,9 @@ dist/
 dist-ssr/
 stats.html
 
-# Local env files
+# Local env files（模板见 deploy/templates/）
+.env.development
+.env.production
 *.local
 .env.local
 .env.*.local

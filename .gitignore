@@ -1,0 +1,63 @@
+# ==============================
+# 环境配置（各机器独立，勿提交）
+# ==============================
+youlai-django/.env
+vue3-element-admin/.env.development
+vue3-element-admin/.env.production
+.env
+.env.local
+.env.*.local
+
+# ==============================
+# 依赖与构建产物
+# ==============================
+youlai-django/venv/
+youlai-django/.venv/
+vue3-element-admin/node_modules/
+vue3-element-admin/dist/
+vue3-element-admin/dist-ssr/
+
+# ==============================
+# Python / Node 缓存
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.eslintcache
+.stylelintcache
+
+# ==============================
+# Redis 运行时（二进制与数据，各机器独立配置）
+# ==============================
+Redis/*.exe
+Redis/*.pdb
+Redis/*.dll
+Redis/dump.rdb
+Redis/redis.windows.conf
+Redis/redis.windows-service.conf
+
+# ==============================
+# 数据库备份（含业务数据，勿提交；首次部署用 deploy/import-database.ps1）
+# ==============================
+youlai_admin_django.sql
+*.sql.bak
+
+# ==============================
+# 日志与本地运行时
+# ==============================
+deploy/logs/
+*.log
+*.pid
+
+# ==============================
+# IDE / OS
+# ==============================
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.history/
