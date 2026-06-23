@@ -50,8 +50,8 @@
               :value="p.id"
             >
               <span>{{ p.id }} - {{ p.name }}</span>
-              <el-tag :type="p.type === 'raw' ? 'success' : 'info'" size="small" style="margin-left: 8px">
-                {{ p.type === 'raw' ? '原材料' : '组件' }}
+              <el-tag :type="productTypeTagType(p.type)" size="small" style="margin-left: 8px">
+                {{ p.type_name || formatProductTypeLabel(p.type) }}
               </el-tag>
             </el-option>
           </el-select>
@@ -59,8 +59,12 @@
       </el-table-column>
       <el-table-column label="类型" width="90" align="center">
         <template #default="{ row }">
-          <el-tag v-if="row.product_type" :type="row.product_type === 'raw' ? 'success' : 'info'" size="small">
-            {{ row.product_type === 'raw' ? '原材料' : '组件' }}
+          <el-tag
+            v-if="row.product_type !== null && row.product_type !== undefined && row.product_type !== ''"
+            :type="productTypeTagType(row.product_type)"
+            size="small"
+          >
+            {{ row.product_type_name || formatProductTypeLabel(row.product_type) }}
           </el-tag>
           <span v-else class="text-muted">—</span>
         </template>
@@ -103,6 +107,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getProductList } from '@/api/product'
 import { getBomDetail, createBom, updateBom } from '@/api/bom'
+import { formatProductTypeLabel, productTypeTagType } from '../../productInfo/productType'
 
 const emit = defineEmits(['success'])
 
@@ -131,7 +136,8 @@ const dialogTitle = computed(() => (isEdit.value ? '编辑 BOM' : '新增 BOM'))
 const emptyLine = () => ({
   product_id: null,
   product_name: '',
-  product_type: '',
+  product_type: null,
+  product_type_name: '',
   unit: '',
   quantity: 1
 })
@@ -153,6 +159,7 @@ const onProductChange = (row, productId) => {
   if (product) {
     row.product_name = product.name
     row.product_type = product.type
+    row.product_type_name = product.type_name || ''
     row.unit = product.unit || ''
   }
 }
@@ -168,7 +175,8 @@ const removeRecipeLine = (index) => {
 const mapRecipeToLine = (recipe) => ({
   product_id: recipe.part_product_id || recipe.product_id,
   product_name: recipe.part_product_name || '',
-  product_type: recipe.part_product_type || '',
+  product_type: recipe.part_product_type ?? null,
+  product_type_name: recipe.part_product_type_name || '',
   unit: '',
   quantity: recipe.part_quantity ?? 1
 })
@@ -194,7 +202,11 @@ const open = async (row = {}) => {
       recipeLines.value = (detail.recipes || []).map((r) => {
         const line = mapRecipeToLine(r)
         const p = productOptions.value.find((x) => x.id === line.product_id)
-        if (p) line.unit = p.unit || ''
+        if (p) {
+          line.unit = p.unit || ''
+          line.product_type = p.type
+          line.product_type_name = p.type_name || ''
+        }
         return line
       })
     } catch {

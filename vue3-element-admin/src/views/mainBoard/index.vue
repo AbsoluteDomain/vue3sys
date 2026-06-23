@@ -98,8 +98,9 @@
                   </div>
                   <el-select v-model="chartProductType" size="small" style="width: 120px" @change="updateMaterialCharts">
                     <el-option label="全部" value="" />
-                    <el-option label="原材料" value="raw" />
-                    <el-option label="组件" value="component" />
+                    <el-option label="自制" :value="0" />
+                    <el-option label="外协" :value="1" />
+                    <el-option label="外购" :value="2" />
                   </el-select>
                 </div>
               </div>
@@ -1088,13 +1089,10 @@ const fetchMaterialData = async () => {
 
 const updateMaterialCharts = () => {
   let filteredProducts = allProducts.value;
-  if (chartProductType.value) {
-    filteredProducts = allProducts.value.filter((p) => {
-      if (chartProductType.value === "component") {
-        return p.type === "component" || p.type === "finished";
-      }
-      return p.type === chartProductType.value;
-    });
+  if (chartProductType.value !== "" && chartProductType.value !== null) {
+    filteredProducts = allProducts.value.filter(
+      (p) => Number(p.type) === Number(chartProductType.value)
+    );
   }
 
   const alertCount = filteredProducts.filter(isMaterialAlert).length;

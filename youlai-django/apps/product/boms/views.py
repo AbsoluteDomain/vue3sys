@@ -11,6 +11,7 @@ from core.datetime import format_local_datetime
 from core.datetime import format_local_datetime
 from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
+from apps.product.products.constants import product_type_label
 from .models import AssemblyRecipe, BomList
 
 from apps.system.operation_logs.utils import (
@@ -53,6 +54,27 @@ def _parse_page_params(request):
 
 def _dt_str(value):
     return format_local_datetime(value)
+
+
+def _lookup_product_part_meta(product_id):
+    if not product_id:
+        return {
+            "part_product_type": None,
+            "part_product_type_name": "",
+            "part_material_code": "",
+        }
+    product = Product.objects.filter(id=product_id, is_del=0).first()
+    if not product:
+        return {
+            "part_product_type": None,
+            "part_product_type_name": "",
+            "part_material_code": "",
+        }
+    return {
+        "part_product_type": product.type,
+        "part_product_type_name": product_type_label(product.type),
+        "part_material_code": product.material_code or "",
+    }
 
 
 def _recipe_part_info(row):
@@ -138,19 +160,16 @@ def _parse_bom_type(value, required=False):
 
 def _serialize_recipe(row, bom_name=None):
     part = _recipe_part_info(row)
-    part_material_code = ""
-    if part["product_id"]:
-        product = Product.objects.filter(id=part["product_id"], is_del=0).first()
-        if product:
-            part_material_code = product.material_code or ""
+    meta = _lookup_product_part_meta(part["product_id"])
     return {
         "id": row.id,
         "bom_id": row.bom_id,
         "bom_name": bom_name,
         "part_product_id": part["product_id"],
         "part_product_name": part["product_name"],
-        "part_material_code": part_material_code,
-        "part_product_type": part["product_type"],
+        "part_material_code": meta["part_material_code"],
+        "part_product_type": meta["part_product_type"],
+        "part_product_type_name": meta["part_product_type_name"],
         "part_quantity": part["quantity"],
         "raw_material_id": row.raw_material_id,
         "raw_material_name": row.raw_material_name,
@@ -187,18 +206,10 @@ def _recipe_fields_from_product(bom, product_id, quantity):
         "raw_material_id": None,
         "raw_material_name": None,
         "raw_material_quantity": None,
-        "component_id": None,
-        "component_name": None,
-        "component_quantity": None,
+        "component_id": product.id,
+        "component_name": product.name,
+        "component_quantity": qty,
     }
-    if product.type == "raw":
-        fields["raw_material_id"] = product.id
-        fields["raw_material_name"] = product.name
-        fields["raw_material_quantity"] = qty
-    else:
-        fields["component_id"] = product.id
-        fields["component_name"] = product.name
-        fields["component_quantity"] = qty
     return fields
 
 
@@ -296,13 +307,14 @@ def _build_bom_queryset(request):
 def _export_row_from_bom_recipe(bom, recipe=None):
     if recipe:
         part = _recipe_part_info(recipe)
+        meta = _lookup_product_part_meta(part["product_id"])
     else:
         part = {
             "product_id": None,
             "product_name": "",
-            "product_type": "",
             "quantity": None,
         }
+        meta = _lookup_product_part_meta(None)
     return {
         "bom_id": bom.id,
         "bom_model": bom.bom_model,
@@ -312,7 +324,8 @@ def _export_row_from_bom_recipe(bom, recipe=None):
         "type_name": bom.get_type_display(),
         "part_product_id": part["product_id"] or "",
         "part_product_name": part["product_name"],
-        "part_product_type": part["product_type"],
+        "part_product_type": meta["part_product_type"],
+        "part_product_type_name": meta["part_product_type_name"],
         "part_quantity": part["quantity"] if part["quantity"] is not None else "",
     }
 
@@ -357,17 +370,14 @@ def _serialize_bom_export_item(bom):
     recipe_items = []
     for recipe in recipes:
         part = _recipe_part_info(recipe)
-        part_material_code = ""
-        if part["product_id"]:
-            product = Product.objects.filter(id=part["product_id"], is_del=0).first()
-            if product:
-                part_material_code = product.material_code or ""
+        meta = _lookup_product_part_meta(part["product_id"])
         recipe_items.append(
             {
                 "part_product_id": part["product_id"],
                 "part_product_name": part["product_name"],
-                "part_material_code": part_material_code,
-                "part_product_type": part["product_type"],
+                "part_material_code": meta["part_material_code"],
+                "part_product_type": meta["part_product_type"],
+                "part_product_type_name": meta["part_product_type_name"],
                 "part_quantity": part["quantity"],
             }
         )
@@ -382,29 +392,43 @@ def _serialize_bom_export_item(bom):
     }
 
 
-def _resolve_product_for_import(product_id=None, material_code=None):
-    """导入零件：仅支持产品 ID 或物料编码（二者在库中均为唯一）。"""
+def _resolve_product_for_import(product_id=None, material_code=None, product_name=None):
+    """导入零件：通过产品 ID、产品名称、物料编码组合匹配（各字段可空，非空则须一致）。"""
     pid = product_id
     code = (material_code or "").strip()
+    name = (product_name or "").strip()
+
+    if pid in (None, "") and not code and not name:
+        raise ValueError("零件明细需填写产品ID、产品名称或物料编码至少一项")
+
+    qs = Product.objects.filter(is_del=0)
 
     if pid not in (None, ""):
         try:
-            product = Product.objects.get(id=int(pid), is_del=0)
-        except (Product.DoesNotExist, TypeError, ValueError):
-            raise ValueError(f"产品不存在（ID={pid}）")
-        if code and (product.material_code or "").strip() != code:
-            raise ValueError(f"产品 ID={pid} 与物料编码「{code}」不匹配")
-        return product
+            qs = qs.filter(id=int(pid))
+        except (TypeError, ValueError):
+            raise ValueError(f"产品ID无效（ID={pid}）")
 
     if code:
-        try:
-            return Product.objects.get(is_del=0, material_code=code)
-        except Product.DoesNotExist:
-            raise ValueError(f"未找到物料编码为「{code}」的产品")
-        except Product.MultipleObjectsReturned:
-            raise ValueError(f"物料编码「{code}」匹配到多个产品")
+        qs = qs.filter(material_code=code)
 
-    raise ValueError("零件明细需填写产品ID或物料编码")
+    if name:
+        qs = qs.filter(name=name)
+
+    count = qs.count()
+    if count == 0:
+        criteria = []
+        if pid not in (None, ""):
+            criteria.append(f"ID={pid}")
+        if name:
+            criteria.append(f"名称「{name}」")
+        if code:
+            criteria.append(f"物料编码「{code}」")
+        raise ValueError(f"未找到匹配的产品（{'、'.join(criteria)}）")
+    if count > 1:
+        raise ValueError("匹配到多个产品，请补充更精确的匹配条件")
+
+    return qs.first()
 
 
 def _normalize_import_recipes(recipes_data):
@@ -421,6 +445,8 @@ def _normalize_import_recipes(recipes_data):
             product_id=item.get("product_id") or item.get("part_product_id"),
             material_code=item.get("material_code")
             or item.get("part_material_code"),
+            product_name=item.get("product_name")
+            or item.get("part_product_name"),
         )
         if product.id in seen_product_ids:
             raise ValueError(f"同一 BOM 不能重复绑定产品「{product.name}」")
@@ -564,6 +590,7 @@ def import_bom_batch(request):
                 module="bom",
                 module_name="产品BOM管理",
                 operation_type="create",
+                target_id=0,
                 target_name="BOM批量导入",
                 description=msg,
             )
@@ -799,10 +826,12 @@ def _collect_assembly_requirements(recipes, assemble_qty):
         if product_id in requirements:
             requirements[product_id]["required"] += needed
         else:
+            meta = _lookup_product_part_meta(product_id)
             requirements[product_id] = {
                 "product_id": product_id,
                 "product_name": part["product_name"],
-                "product_type": part["product_type"],
+                "product_type": meta["part_product_type"],
+                "product_type_name": meta["part_product_type_name"],
                 "required": needed,
             }
     return list(requirements.values())
@@ -861,6 +890,7 @@ def assemble_bom(request):
                         "product_id": product.id,
                         "product_name": product.name,
                         "product_type": product.type,
+                        "product_type_name": product_type_label(product.type),
                         "consumed": needed,
                         "remaining": product.quantity,
                     }

@@ -82,8 +82,8 @@
           width="100"
         >
           <template #default="{ row }">
-            <el-tag :type="row.type === 'raw' ? 'success' : 'info'" size="small">
-              {{ row.type === 'raw' ? '原材料' : '组件' }}
+            <el-tag :type="productTypeTagType(row.type)" size="small">
+              {{ row.type_name || formatProductTypeLabel(row.type) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -154,6 +154,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // 1. 引入 Drawer 组件
 import productForm from './productInfo/ProductForm.vue'
 import StockAdjustDialog from './productInfo/StockAdjustDialog.vue'
+import { formatProductTypeLabel, productTypeTagType } from './productInfo/productType'
 // import ProductNav from './components/ProductNav.vue'
 
 // 1. 定义响应式数据

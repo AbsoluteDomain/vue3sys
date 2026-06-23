@@ -49,13 +49,17 @@ def log_operation_from_request(request, **kwargs):
     """从 HTTP 请求解析操作用户并写入日志。"""
     from .request_user import get_client_ip, get_request_operator
 
-    operator = get_request_operator(request)
-    if not operator:
-        return
-    user_id, user_name = operator
-    log_operation(
-        user_id=user_id,
-        user_name=user_name,
-        ip=get_client_ip(request),
-        **kwargs,
-    )
+    try:
+        operator = get_request_operator(request)
+        if not operator:
+            return
+        user_id, user_name = operator
+        kwargs.setdefault("target_id", 0)
+        log_operation(
+            user_id=user_id,
+            user_name=user_name,
+            ip=get_client_ip(request),
+            **kwargs,
+        )
+    except Exception as e:
+        logger.error(f"记录操作日志失败: {str(e)}")

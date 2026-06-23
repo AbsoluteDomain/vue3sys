@@ -1,5 +1,8 @@
 from django.db import models
 
+from .constants import PRODUCT_TYPE_CHOICES, PRODUCT_TYPE_SELF_MADE
+
+
 class Product(models.Model):
     """
     产品表 (对应数据库表: products)
@@ -12,8 +15,12 @@ class Product(models.Model):
     # 2. name: varchar(255), 非空
     name = models.CharField(max_length=255, null=False, verbose_name="产品名称")
 
-    # 3. type: varchar(255), 非空
-    type = models.CharField(max_length=255, null=False, verbose_name="产品类型")
+    # 3. type: int, 0=自制 1=外协 2=外购
+    type = models.IntegerField(
+        choices=PRODUCT_TYPE_CHOICES,
+        default=PRODUCT_TYPE_SELF_MADE,
+        verbose_name="产品类型",
+    )
 
     draw_code = models.CharField(
         max_length=255,

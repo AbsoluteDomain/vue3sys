@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .models import Product
+from .constants import normalize_product_type, product_type_label
 
 from apps.system.operation_logs.utils import (
     format_product_create_description,
@@ -61,18 +62,12 @@ def _optional_text(value):
     return text or None
 
 
-def _normalize_product_type(value):
-    product_type = (value or "").strip()
-    if product_type == "finished":
-        return "component"
-    return product_type
-
-
 def _serialize_product(product):
     return {
         "id": product.id,
         "name": product.name,
         "type": product.type,
+        "type_name": product_type_label(product.type),
         "draw_code": product.draw_code or "",
         "material_code": product.material_code or "",
         "quantity": product.quantity,
@@ -186,9 +181,13 @@ def create_product(request):
         body = json.loads(request.body or "{}")
 
         # 2. 创建对象（主键 id 让数据库自增；仅当前端显式传了 id 才使用）
+        product_type = normalize_product_type(body.get("type"))
+        if product_type is None:
+            return JsonResponse({"code": "400", "msg": "请选择产品类型"})
+
         create_kwargs = {
             "name": body.get("name"),
-            "type": _normalize_product_type(body.get("type")),
+            "type": product_type,
             "draw_code": _optional_text(body.get("draw_code") or body.get("drawCode")),
             "material_code": _optional_text(
                 body.get("material_code") or body.get("materialCode")
@@ -218,6 +217,8 @@ def create_product(request):
         )
         
         return JsonResponse({"code": '00000', "msg": "新增成功", "data": {"id": product.id}})
+    except ValueError as e:
+        return JsonResponse({"code": "400", "msg": str(e)})
     except Exception as e:
         return JsonResponse({"code": '500', "msg": f"新增失败: {str(e)}"})
 
@@ -238,7 +239,10 @@ def update_product(request):
 
         # 3. 更新字段
         product.name = body.get('name')
-        product.type = _normalize_product_type(body.get('type'))
+        product_type = normalize_product_type(body.get('type'))
+        if product_type is None:
+            return JsonResponse({"code": "400", "msg": "请选择产品类型"})
+        product.type = product_type
         product.draw_code = _optional_text(body.get("draw_code") or body.get("drawCode"))
         product.material_code = _optional_text(
             body.get("material_code") or body.get("materialCode")
@@ -270,6 +274,8 @@ def update_product(request):
         return JsonResponse({"code": '00000', "msg": "更新成功", "data": {"id": product.id}})
     except Product.DoesNotExist:
         return JsonResponse({"code": '404', "msg": "产品不存在"})
+    except ValueError as e:
+        return JsonResponse({"code": "400", "msg": str(e)})
     except Exception as e:
         return JsonResponse({"code": '500', "msg": f"更新失败: {str(e)}"})
 

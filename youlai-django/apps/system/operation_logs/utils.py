@@ -24,9 +24,9 @@ BOM_TYPE_LABELS = {
 }
 
 PRODUCT_TYPE_LABELS = {
-    "raw": "原材料",
-    "component": "组件",
-    "finished": "组件",
+    0: "自制",
+    1: "外协",
+    2: "外购",
 }
 
 
@@ -83,7 +83,10 @@ def format_target_update(prefix, target_name, before_data, after_data,
 def format_product_type(value):
     if value is None or value == "":
         return "空"
-    return PRODUCT_TYPE_LABELS.get(value, value)
+    try:
+        return PRODUCT_TYPE_LABELS.get(int(value), value)
+    except (TypeError, ValueError):
+        return value
 
 
 def format_product_update_description(product_name, before_data, after_data):

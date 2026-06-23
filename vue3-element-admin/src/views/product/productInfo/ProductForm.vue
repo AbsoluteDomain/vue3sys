@@ -31,8 +31,12 @@
 
       <el-form-item label="类型" prop="type">
         <el-select v-model="formData.type" placeholder="请选择类型" style="width: 100%">
-          <el-option label="原材料" value="raw" />
-          <el-option label="组件" value="component" />
+          <el-option
+            v-for="item in PRODUCT_TYPE_OPTIONS"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
         </el-select>
       </el-form-item>
 
@@ -75,6 +79,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { createProduct, editProduct } from '@/api/product'
+import { PRODUCT_TYPE_OPTIONS } from './productType'
 const emit = defineEmits(['success']) // 用于通知父组件刷新列表
 const formRef = ref(null)
 const visible = ref(false) // 控制抽屉显示
@@ -86,7 +91,7 @@ const formData = reactive({
   name: '',
   draw_code: '',
   material_code: '',
-  type: '',
+  type: 0,
   quantity: 0,
   unit: '',
   location: '',
@@ -113,7 +118,7 @@ const open = (row = {}) => {
     name: '',
     draw_code: '',
     material_code: '',
-    type: '',
+    type: 0,
     quantity: 0,
     unit: '',
     location: '',
@@ -122,12 +127,9 @@ const open = (row = {}) => {
   })
   
   if (row.id) {
-    // 如果是编辑，回填数据
     isEdit.value = true
     Object.assign(formData, row)
-    if (formData.type === 'finished') {
-      formData.type = 'component'
-    }
+    formData.type = Number(row.type ?? 0)
   } else {
     // 新增
     isEdit.value = false

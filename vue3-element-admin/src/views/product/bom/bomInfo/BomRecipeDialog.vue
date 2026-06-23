@@ -20,11 +20,11 @@
       <el-table-column label="零件类型" width="90" align="center">
         <template #default="{ row }">
           <el-tag
-            v-if="row.part_product_type"
-            :type="row.part_product_type === 'raw' ? 'success' : 'info'"
+            v-if="row.part_product_type !== null && row.part_product_type !== undefined && row.part_product_type !== ''"
+            :type="productTypeTagType(row.part_product_type)"
             size="small"
           >
-            {{ row.part_product_type === 'raw' ? '原材料' : '组件' }}
+            {{ row.part_product_type_name || formatProductTypeLabel(row.part_product_type) }}
           </el-tag>
           <span v-else>—</span>
         </template>
@@ -53,6 +53,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getBomDetail } from '@/api/bom'
 import { exportSingleBomToExcel } from './bomExcel'
+import { formatProductTypeLabel, productTypeTagType } from '../../productInfo/productType'
 
 const emit = defineEmits(['edit'])
 

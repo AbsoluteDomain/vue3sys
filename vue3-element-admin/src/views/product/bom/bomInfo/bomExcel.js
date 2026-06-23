@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { formatProductTypeLabel } from '../../productInfo/productType'
 
 export const BOM_EXCEL_SHEET_NAME = 'BOM清单'
 
@@ -30,6 +31,7 @@ const PART_EXPORT_COLUMNS = [
 
 const PART_IMPORT_COLUMNS = [
   { header: '产品ID', key: 'part_product_id' },
+  { header: '产品名称', key: 'part_product_name' },
   { header: '物料编码', key: 'part_material_code' },
   { header: '数量', key: 'part_quantity' }
 ]
@@ -86,14 +88,6 @@ export const formatBomTypeLabel = (type) => {
   return cellText(type)
 }
 
-export const formatProductTypeLabel = (type) => {
-  const text = cellText(type)
-  if (!text) return ''
-  if (text === 'raw' || text === '原材料') return '原材料'
-  if (text === 'component' || text === 'finished' || text === '组件') return '组件'
-  return text
-}
-
 const normalizeExportItem = (bom) => ({
   id: bom.id ?? '',
   bom_model: bom.bom_model ?? '',
@@ -105,7 +99,9 @@ const normalizeExportItem = (bom) => ({
     part_product_id: recipe.part_product_id ?? recipe.product_id ?? '',
     part_product_name: recipe.part_product_name ?? '',
     part_material_code: recipe.part_material_code ?? recipe.material_code ?? '',
-    part_product_type: formatProductTypeLabel(recipe.part_product_type ?? ''),
+    part_product_type: formatProductTypeLabel(
+      recipe.part_product_type_name ?? recipe.part_product_type ?? ''
+    ),
     part_quantity: recipe.part_quantity ?? recipe.quantity ?? ''
   }))
 })
@@ -200,8 +196,8 @@ export const downloadBomImportTemplate = async () => {
       material_code: 'BOM-MAT-001',
       type: 0,
       recipes: [
-        { part_product_id: 101, part_material_code: 'PART-001', part_quantity: 2 },
-        { part_product_id: '', part_material_code: 'PART-002', part_quantity: 1 }
+        { part_product_id: 101, part_product_name: '示例零件A', part_material_code: 'PART-001', part_quantity: 2 },
+        { part_product_id: '', part_product_name: '示例零件B', part_material_code: 'PART-002', part_quantity: 1 }
       ]
     },
     {
@@ -210,8 +206,8 @@ export const downloadBomImportTemplate = async () => {
       material_code: 'BOM-MAT-002',
       type: 1,
       recipes: [
-        { part_product_id: 205, part_material_code: '', part_quantity: 3 },
-        { part_product_id: '', part_material_code: 'PART-010', part_quantity: 2 }
+        { part_product_id: 205, part_product_name: '示例零件C', part_material_code: '', part_quantity: 3 },
+        { part_product_id: '', part_product_name: '', part_material_code: 'PART-010', part_quantity: 2 }
       ]
     }
   ]
@@ -228,7 +224,7 @@ export const downloadBomImportTemplate = async () => {
   noteSheet.addRow(['1. 每个 BOM 由「BOM基本信息」+「零件明细」组成，多个 BOM 之间空一行分隔'])
   noteSheet.addRow(['2. 字段与新增 BOM 一致：BOM型号（必填）、BOM名称、物料编码、类型'])
   noteSheet.addRow(['3. 类型可填 关节/机械臂/其他 或 0/1/2'])
-  noteSheet.addRow(['4. 零件只需填写 产品ID 或 物料编码（至少一项），数量必填'])
+  noteSheet.addRow(['4. 零件通过 产品ID、产品名称、物料编码 组合匹配（各字段可空，非空则须一致），数量必填'])
   noteSheet.addRow(['5. 产品必须在库存中存在；BOM型号/物料编码不能与已有 BOM 重复'])
   noteSheet.addRow(['6. 不支持填写 BOM ID，不支持更新已有 BOM'])
   noteSheet.addRow(['7. 导入时逐条提交，成功的会入库，失败的可在结果中查看原因'])
@@ -304,12 +300,13 @@ const parsePartTable = (worksheet, startRow) => {
   headerRow.eachCell((cell, colNumber) => {
     const text = cellText(cell.value)
     if (text.includes('产品ID') || text === 'ID') columnMap.part_product_id = colNumber
+    if (text.includes('产品名称')) columnMap.part_product_name = colNumber
     if (text.includes('物料编码')) columnMap.part_material_code = colNumber
     if (text === '数量' || text.includes('用量')) columnMap.part_quantity = colNumber
   })
 
-  if (!columnMap.part_product_id && !columnMap.part_material_code) {
-    throw new Error('未找到零件明细表头（产品ID、物料编码）')
+  if (!columnMap.part_product_id && !columnMap.part_product_name && !columnMap.part_material_code) {
+    throw new Error('未找到零件明细表头（产品ID、产品名称、物料编码）')
   }
 
   rowIndex += 1
@@ -335,17 +332,20 @@ const parsePartTable = (worksheet, startRow) => {
     }
 
     const productIdText = getCell('part_product_id')
+    const productName = getCell('part_product_name')
+    const materialCode = getCell('part_material_code')
     const recipe = {
       product_id: productIdText ? Number(productIdText) : undefined,
-      material_code: getCell('part_material_code'),
+      product_name: productName || undefined,
+      material_code: materialCode || undefined,
       quantity: getCell('part_quantity')
     }
 
-    const hasPart = recipe.product_id || recipe.material_code
+    const hasPart = recipe.product_id || recipe.product_name || recipe.material_code
     const hasQty = recipe.quantity !== ''
     if (hasPart || hasQty) {
       if (!hasPart) {
-        throw new Error(`第 ${rowIndex} 行：请填写产品ID或物料编码`)
+        throw new Error(`第 ${rowIndex} 行：请填写产品ID、产品名称或物料编码至少一项`)
       }
       if (!hasQty) {
         throw new Error(`第 ${rowIndex} 行：请填写数量`)
@@ -384,6 +384,7 @@ const validateImportItem = (item) => {
     type: item.type ?? 0,
     recipes: item.recipes.map((recipe) => ({
       product_id: recipe.product_id,
+      product_name: cellText(recipe.product_name) || undefined,
       material_code: cellText(recipe.material_code) || undefined,
       quantity: Number(recipe.quantity)
     }))

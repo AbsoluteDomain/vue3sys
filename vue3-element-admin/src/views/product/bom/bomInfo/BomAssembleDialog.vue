@@ -46,8 +46,8 @@
         <el-table-column prop="product_name" label="产品名称" min-width="140" show-overflow-tooltip />
         <el-table-column label="类型" width="80" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.product_type === 'raw' ? 'success' : 'info'" size="small">
-              {{ row.product_type === 'raw' ? '原材料' : '组件' }}
+            <el-tag :type="productTypeTagType(row.product_type)" size="small">
+              {{ row.product_type_name || formatProductTypeLabel(row.product_type) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -86,6 +86,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ExcelJS from 'exceljs'
 import { getBomList, getBomDetail, assembleBom } from '@/api/bom'
 import { getProductList } from '@/api/product'
+import { formatProductTypeLabel, productTypeTagType } from '../../productInfo/productType'
 
 const emit = defineEmits(['success'])
 
@@ -196,7 +197,7 @@ const handleExportExcel = async () => {
     previewLines.value.forEach((row) => {
       worksheet.addRow([
         row.product_name,
-        row.product_type === 'raw' ? '原材料' : '组件',
+        row.product_type_name || formatProductTypeLabel(row.product_type),
         row.per_unit,
         row.required,
         row.stock,
@@ -252,6 +253,7 @@ const buildPreview = () => {
         product_id: pid,
         product_name: r.part_product_name,
         product_type: r.part_product_type,
+        product_type_name: r.part_product_type_name || '',
         per_unit: perUnit,
         required,
         stock: productStockMap.value[pid] ?? 0
