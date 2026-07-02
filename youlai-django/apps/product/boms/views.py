@@ -254,7 +254,7 @@ def _recipe_fields_from_product(bom, product_id, quantity):
 
     fields = {
         "bom_id": bom.id,
-        "product_name": product.name,
+        "product_name": "",
         "raw_material_id": None,
         "raw_material_name": None,
         "raw_material_quantity": None,
@@ -961,6 +961,7 @@ def assemble_bom(request):
                     repair=FinishProduct.REPAIR_NEW,
                     create_time=now,
                     update_time=now,
+                    test_time=now,
                 )
                 finish_products_created.append(
                     {

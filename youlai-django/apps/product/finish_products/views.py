@@ -83,8 +83,78 @@ def _empty_daily_bucket(date_str):
     }
 
 
+def _parse_optional_datetime(body, field_keys, field_label):
+    """解析可清空的日期时间字段，支持 snake_case / camelCase。"""
+    present_key = next((key for key in field_keys if key in body), None)
+    if present_key is None:
+        return None, False
+
+    raw_value = body.get(present_key)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None, True
+
+    parsed = parse_local_datetime_text(raw_value)
+    if parsed is None:
+        raise ValueError(f"{field_label}格式无效，请使用 YYYY-MM-DD HH:MM:SS")
+    return make_local_aware(parsed), True
+
+
+def _increment_daily_count(daily_map, summary, day, count_key):
+    bucket = daily_map.get(day)
+    if not bucket:
+        return
+    bucket[count_key] += 1
+    summary[count_key] += 1
+
+
+TEST_TIME_STAT_CATEGORIES = {
+    "passCount",
+    "failCount",
+    "pendingNewCount",
+    "testingCount",
+    "repairTestingCount",
+    "repairPassCount",
+    "pendingRepairCount",
+}
+
+
+def _accumulate_test_time_stats(item, daily_map, summary):
+    """按测试状态修改时间与状态/返修标记累计测试相关统计。"""
+    day = local_date_key(item.test_time)
+    if not day:
+        return
+    bucket = daily_map.get(day)
+    if not bucket:
+        return
+
+    if item.status == FinishProduct.STATUS_PASS:
+        bucket["passCount"] += 1
+        summary["passCount"] += 1
+    elif item.status == FinishProduct.STATUS_FAIL:
+        bucket["failCount"] += 1
+        summary["failCount"] += 1
+
+    if item.repair == FinishProduct.REPAIR_NEW:
+        if item.status == FinishProduct.STATUS_UNTESTED:
+            bucket["pendingNewCount"] += 1
+            summary["pendingNewCount"] += 1
+        elif item.status == FinishProduct.STATUS_TESTING:
+            bucket["testingCount"] += 1
+            summary["testingCount"] += 1
+    elif item.repair == FinishProduct.REPAIR_REPAIRED:
+        if item.status == FinishProduct.STATUS_PASS:
+            bucket["repairPassCount"] += 1
+            summary["repairPassCount"] += 1
+        elif item.status == FinishProduct.STATUS_UNTESTED:
+            bucket["pendingRepairCount"] += 1
+            summary["pendingRepairCount"] += 1
+        elif item.status == FinishProduct.STATUS_TESTING:
+            bucket["repairTestingCount"] += 1
+            summary["repairTestingCount"] += 1
+
+
 def finish_product_daily_stats(request):
-    """按日期统计成品数据：新品/测试按创建时间，返修/库存按更新时间"""
+    """按日期统计成品：新品按创建时间，测试按测试状态修改时间，返修按更新时间，入库/出库按各自时间"""
     end_date = _parse_date_param(
         request.GET.get("end_date") or request.GET.get("endDate")
     )
@@ -129,25 +199,13 @@ def finish_product_daily_stats(request):
         bucket["newCount"] += 1
         summary["newCount"] += 1
 
-        if item.status == FinishProduct.STATUS_PASS:
-            bucket["passCount"] += 1
-            summary["passCount"] += 1
-        elif item.status == FinishProduct.STATUS_FAIL:
-            bucket["failCount"] += 1
-            summary["failCount"] += 1
-
-        if (
-            item.repair == FinishProduct.REPAIR_NEW
-            and item.status == FinishProduct.STATUS_UNTESTED
-        ):
-            bucket["pendingNewCount"] += 1
-            summary["pendingNewCount"] += 1
-        elif (
-            item.repair == FinishProduct.REPAIR_NEW
-            and item.status == FinishProduct.STATUS_TESTING
-        ):
-            bucket["testingCount"] += 1
-            summary["testingCount"] += 1
+    test_qs = FinishProduct.objects.filter(
+        test_time__isnull=False,
+        test_time__gte=start_dt,
+        test_time__lte=end_dt,
+    )
+    for item in test_qs:
+        _accumulate_test_time_stats(item, daily_map, summary)
 
     update_qs = FinishProduct.objects.filter(
         update_time__isnull=False,
@@ -167,22 +225,23 @@ def finish_product_daily_stats(request):
             bucket["repairCount"] += 1
             summary["repairCount"] += 1
 
-            if item.status == FinishProduct.STATUS_PASS:
-                bucket["repairPassCount"] += 1
-                summary["repairPassCount"] += 1
-            elif item.status == FinishProduct.STATUS_UNTESTED:
-                bucket["pendingRepairCount"] += 1
-                summary["pendingRepairCount"] += 1
-            elif item.status == FinishProduct.STATUS_TESTING:
-                bucket["repairTestingCount"] += 1
-                summary["repairTestingCount"] += 1
+    stock_in_qs = FinishProduct.objects.filter(
+        stock_in_time__isnull=False,
+        stock_in_time__gte=start_dt,
+        stock_in_time__lte=end_dt,
+    )
+    for item in stock_in_qs:
+        day = local_date_key(item.stock_in_time)
+        _increment_daily_count(daily_map, summary, day, "stockInCount")
 
-        if item.inventory_stock == FinishProduct.INVENTORY_IN:
-            bucket["stockInCount"] += 1
-            summary["stockInCount"] += 1
-        elif item.inventory_stock == FinishProduct.INVENTORY_OUT:
-            bucket["stockOutCount"] += 1
-            summary["stockOutCount"] += 1
+    stock_out_qs = FinishProduct.objects.filter(
+        stock_out_time__isnull=False,
+        stock_out_time__gte=start_dt,
+        stock_out_time__lte=end_dt,
+    )
+    for item in stock_out_qs:
+        day = local_date_key(item.stock_out_time)
+        _increment_daily_count(daily_map, summary, day, "stockOutCount")
 
     current_stock_in_count = FinishProduct.objects.filter(
         inventory_stock=FinishProduct.INVENTORY_IN
@@ -297,6 +356,9 @@ def _serialize_finish_product(item, bom_map=None):
         "description": item.description or "",
         "create_time": format_local_datetime(item.create_time) or "",
         "update_time": format_local_datetime(item.update_time) or "",
+        "test_time": format_local_datetime(item.test_time) or "",
+        "stock_in_time": format_local_datetime(item.stock_in_time) or "",
+        "stock_out_time": format_local_datetime(item.stock_out_time) or "",
         "inventory_stock": item.inventory_stock,
         "inventory_stock_name": item.get_inventory_stock_display(),
         "repair": item.repair,
@@ -324,6 +386,8 @@ def _apply_board_category_filter(qs, category):
     """按看板统计项筛选，规则与 finish_product_daily_stats 一致"""
     if category == "newCount":
         return qs
+    if category in TEST_TIME_STAT_CATEGORIES:
+        qs = qs.filter(test_time__isnull=False)
     if category == "passCount":
         return qs.filter(status=FinishProduct.STATUS_PASS)
     if category == "failCount":
@@ -356,9 +420,9 @@ def _apply_board_category_filter(qs, category):
             status=FinishProduct.STATUS_UNTESTED,
         )
     if category == "stockInCount":
-        return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
+        return qs.filter(stock_in_time__isnull=False)
     if category == "stockOutCount":
-        return qs.filter(inventory_stock=FinishProduct.INVENTORY_OUT)
+        return qs.filter(stock_out_time__isnull=False)
     if category == "currentStockInCount":
         return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
     return qs.none()
@@ -394,20 +458,28 @@ def finish_product_board_detail(request):
 
     if category == "currentStockInCount":
         pass
-    elif category in {
-        "newCount",
-        "passCount",
-        "failCount",
-        "pendingNewCount",
-        "testingCount",
-    }:
+    elif category == "newCount":
         qs = _apply_field_date_range(qs, "create_time", start_date, end_date)
+    elif category in TEST_TIME_STAT_CATEGORIES:
+        qs = _apply_field_date_range(qs, "test_time", start_date, end_date)
+    elif category == "stockInCount":
+        qs = _apply_field_date_range(qs, "stock_in_time", start_date, end_date)
+    elif category == "stockOutCount":
+        qs = _apply_field_date_range(qs, "stock_out_time", start_date, end_date)
     else:
         qs = _apply_field_date_range(qs, "update_time", start_date, end_date)
 
+    order_fields = ["-create_time", "-id"]
+    if category in TEST_TIME_STAT_CATEGORIES:
+        order_fields = ["-test_time", "-id"]
+    elif category == "stockInCount":
+        order_fields = ["-stock_in_time", "-id"]
+    elif category == "stockOutCount":
+        order_fields = ["-stock_out_time", "-id"]
+
     total = qs.count()
     start = (page_num - 1) * page_size
-    page_items = list(qs.order_by("-create_time", "-id")[start : start + page_size])
+    page_items = list(qs.order_by(*order_fields)[start : start + page_size])
 
     bom_ids = {item.bom_id for item in page_items if item.bom_id}
     bom_map = {}
@@ -524,6 +596,9 @@ def update_finish_product(request):
             status = int(body.get("status"))
             if status not in VALID_STATUS:
                 return JsonResponse({"code": "400", "msg": "测试状态值无效"})
+            if status != item.status:
+                if "test_time" not in body and "testTime" not in body:
+                    item.test_time = timezone.now()
             item.status = status
 
         if "inventory_stock" in body:
@@ -552,6 +627,19 @@ def update_finish_product(request):
                 if parsed is None:
                     return JsonResponse({"code": "400", "msg": "创建时间格式无效，请使用 YYYY-MM-DD HH:MM:SS"})
                 item.create_time = make_local_aware(parsed)
+
+        datetime_fields = (
+            ("test_time", ("test_time", "testTime"), "测试状态修改时间"),
+            ("stock_in_time", ("stock_in_time", "stockInTime"), "入库时间"),
+            ("stock_out_time", ("stock_out_time", "stockOutTime"), "出库时间"),
+        )
+        for model_field, body_keys, field_label in datetime_fields:
+            try:
+                parsed_value, should_update = _parse_optional_datetime(body, body_keys, field_label)
+            except ValueError as exc:
+                return JsonResponse({"code": "400", "msg": str(exc)})
+            if should_update:
+                setattr(item, model_field, parsed_value)
 
         item.update_time = timezone.now()
         item.save()

@@ -229,6 +229,24 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="isColumnVisible('test_time')"
+          prop="test_time"
+          label="测试状态修改时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('stock_in_time')"
+          prop="stock_in_time"
+          label="入库时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('stock_out_time')"
+          prop="stock_out_time"
+          label="出库时间"
+          width="170"
+        />
+        <el-table-column
           v-if="isColumnVisible('create_time')"
           prop="create_time"
           label="创建时间"
@@ -268,8 +286,14 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="编辑成品" width="520px" destroy-on-close>
-      <el-form ref="formRef" :model="formData" :rules="formRules" label-width="90px">
+    <el-dialog v-model="dialogVisible" title="编辑成品" width="720px" destroy-on-close>
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-width="132px"
+        class="finish-edit-form"
+      >
         <el-form-item label="SN码" prop="sn_code">
           <el-input
             v-model="formData.sn_code"
@@ -278,24 +302,47 @@
             placeholder="请填写产品 SN 码"
           />
         </el-form-item>
-        <el-form-item label="BOM型号">
-          <el-input v-model="formData.bom_model" disabled />
-        </el-form-item>
-        <el-form-item label="BOM名称">
-          <el-input v-model="formData.bom_name" disabled />
-        </el-form-item>
-        <el-form-item label="创建时间" prop="create_time">
-          <el-date-picker
-            v-model="formData.create_time"
-            type="datetime"
-            placeholder="选择创建时间"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            format="YYYY-MM-DD HH:mm:ss"
-            style="width: 100%"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="测试状态">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="BOM型号">
+              <el-input v-model="formData.bom_model" disabled />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="BOM名称">
+              <el-input v-model="formData.bom_name" disabled />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="创建时间" prop="create_time">
+              <el-date-picker
+                v-model="formData.create_time"
+                type="datetime"
+                placeholder="选择创建时间"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                clearable
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="测试状态修改时间">
+              <el-date-picker
+                v-model="formData.test_time"
+                type="datetime"
+                placeholder="选择测试状态修改时间"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                clearable
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="测试状态" class="finish-edit-form__radio-row">
           <el-radio-group v-model="formData.status">
             <el-radio :value="0">未测试</el-radio>
             <el-radio :value="1">测试中</el-radio>
@@ -303,14 +350,42 @@
             <el-radio :value="3">测试不良</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="库存状态">
+        <el-form-item label="库存状态" class="finish-edit-form__radio-row">
           <el-radio-group v-model="formData.inventory_stock">
             <el-radio :value="0">未入库</el-radio>
             <el-radio :value="1">入库</el-radio>
             <el-radio :value="2">出库</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="返修">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="入库时间">
+              <el-date-picker
+                v-model="formData.stock_in_time"
+                type="datetime"
+                placeholder="选择入库时间"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                clearable
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="出库时间">
+              <el-date-picker
+                v-model="formData.stock_out_time"
+                type="datetime"
+                placeholder="选择出库时间"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                clearable
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="返修" class="finish-edit-form__radio-row">
           <el-radio-group v-model="formData.repair">
             <el-radio :value="0">新品</el-radio>
             <el-radio :value="1">返修品</el-radio>
@@ -425,6 +500,9 @@ const formData = reactive({
   inventory_stock: 0,
   repair: 0,
   create_time: '',
+  test_time: '',
+  stock_in_time: '',
+  stock_out_time: '',
   description: ''
 })
 
@@ -499,6 +577,9 @@ const handleEdit = (row) => {
   formData.inventory_stock = row.inventory_stock
   formData.repair = row.repair
   formData.create_time = row.create_time || ''
+  formData.test_time = row.test_time || ''
+  formData.stock_in_time = row.stock_in_time || ''
+  formData.stock_out_time = row.stock_out_time || ''
   formData.description = row.description || ''
   dialogVisible.value = true
 }
@@ -514,7 +595,10 @@ const handleSubmit = () => {
       inventory_stock: formData.inventory_stock,
       repair: formData.repair,
       description: formData.description,
-      create_time: formData.create_time || null
+      create_time: formData.create_time || null,
+      test_time: formData.test_time || null,
+      stock_in_time: formData.stock_in_time || null,
+      stock_out_time: formData.stock_out_time || null
     })
       .then(() => {
         ElMessage.success('保存成功')
@@ -597,5 +681,17 @@ onMounted(() => {
 .text-muted {
   color: #909399;
   font-style: italic;
+}
+.finish-edit-form :deep(.el-form-item__label) {
+  white-space: nowrap;
+}
+.finish-edit-form__radio-row :deep(.el-radio-group) {
+  flex-wrap: nowrap;
+}
+.finish-edit-form__radio-row :deep(.el-radio) {
+  margin-right: 16px;
+}
+.finish-edit-form__radio-row :deep(.el-radio:last-child) {
+  margin-right: 0;
 }
 </style>

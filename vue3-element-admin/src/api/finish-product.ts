@@ -42,6 +42,9 @@ export function updateFinishProduct(data: {
   repair?: number
   description?: string
   create_time?: string | null
+  test_time?: string | null
+  stock_in_time?: string | null
+  stock_out_time?: string | null
 }) {
   return request({
     url: '/api/v1/finish-product/update/',

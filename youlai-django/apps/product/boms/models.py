@@ -98,7 +98,11 @@ class AssemblyRecipe(models.Model):
 
     bom_id = models.IntegerField(null=True, blank=True, verbose_name="BOM ID")
 
-    product_name = models.TextField(verbose_name="成品名称")
+    product_name = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="成品名称（遗留字段，不再使用）",
+    )
 
     raw_material_id = models.IntegerField(null=True, blank=True, verbose_name="原材料ID")
 
@@ -130,6 +134,9 @@ class AssemblyRecipe(models.Model):
 
     def __str__(self):
 
-        return f"{self.product_name}#{self.id}"
+        part = self.component_name or self.raw_material_name or ""
+        if part:
+            return f"{part}#{self.id}"
+        return f"recipe#{self.id}"
 
 

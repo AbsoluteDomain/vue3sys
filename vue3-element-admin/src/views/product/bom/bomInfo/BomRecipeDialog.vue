@@ -16,7 +16,6 @@
     >
       <el-table-column type="index" label="序号" width="60" align="center" />
       <el-table-column prop="id" label="明细ID" width="80" />
-      <el-table-column prop="product_name" label="成品名称" min-width="120" show-overflow-tooltip />
       <el-table-column label="零件类型" width="90" align="center">
         <template #default="{ row }">
           <el-tag

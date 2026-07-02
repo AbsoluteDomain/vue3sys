@@ -380,7 +380,7 @@
               <div class="flex items-center gap-2">
                 <span class="font-semibold">每日成品趋势</span>
                 <el-tooltip
-                  content="新品/测试按创建时间统计；返修、入库/出库按更新时间统计。成品库存为当前已入库总数，不受日期筛选影响"
+                  :content="finishTrendTooltipHint"
                   placement="top"
                 >
                   <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
@@ -396,7 +396,12 @@
         <el-col :xs="24" class="mb-3">
           <el-card>
             <template #header>
-              <span class="font-semibold">每日统计对比</span>
+              <div class="flex items-center gap-2">
+                <span class="font-semibold">每日统计对比</span>
+                <el-tooltip :content="finishTrendTooltipHint" placement="top">
+                  <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </div>
             </template>
             <ECharts :options="dailyBarChartOptions" height="420px" />
           </el-card>
@@ -640,6 +645,24 @@
           width="170"
         />
         <el-table-column
+          v-if="isColumnVisible('test_time')"
+          prop="test_time"
+          label="测试状态修改时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('stock_in_time')"
+          prop="stock_in_time"
+          label="入库时间"
+          width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('stock_out_time')"
+          prop="stock_out_time"
+          label="出库时间"
+          width="170"
+        />
+        <el-table-column
           v-if="isColumnVisible('update_time')"
           prop="update_time"
           label="更新时间"
@@ -723,18 +746,41 @@ interface FinishDailyStat {
 }
 
 const finishChartSeries = [
-  { name: "新增成品", key: "newCount", color: "#409EFF" },
-  { name: "待测试新品", key: "pendingNewCount", color: "#9333EA" },
-  { name: "新品正在测试", key: "testingCount", color: "#0EA5E9" },
-  { name: "测试合格", key: "passCount", color: "#67C23A" },
-  { name: "测试不良", key: "failCount", color: "#F56C6C" },
-  { name: "新增返修", key: "repairCount", color: "#E6A23C" },
-  { name: "返修正在测试", key: "repairTestingCount", color: "#06B6D4" },
-  { name: "待测试返修", key: "pendingRepairCount", color: "#F59E0B" },
-  { name: "返修合格", key: "repairPassCount", color: "#13C2C2" },
-  { name: "入库数量", key: "stockInCount", color: "#8B5CF6" },
-  { name: "出库数量", key: "stockOutCount", color: "#64748B" },
+  { name: "新增成品", key: "newCount", color: "#409EFF", timeField: "创建时间" },
+  { name: "待测试新品", key: "pendingNewCount", color: "#9333EA", timeField: "测试状态修改时间" },
+  { name: "新品正在测试", key: "testingCount", color: "#0EA5E9", timeField: "测试状态修改时间" },
+  { name: "测试合格", key: "passCount", color: "#67C23A", timeField: "测试状态修改时间" },
+  { name: "测试不良", key: "failCount", color: "#F56C6C", timeField: "测试状态修改时间" },
+  { name: "新增返修", key: "repairCount", color: "#E6A23C", timeField: "更新时间" },
+  { name: "返修正在测试", key: "repairTestingCount", color: "#06B6D4", timeField: "测试状态修改时间" },
+  { name: "待测试返修", key: "pendingRepairCount", color: "#F59E0B", timeField: "测试状态修改时间" },
+  { name: "返修合格", key: "repairPassCount", color: "#13C2C2", timeField: "测试状态修改时间" },
+  { name: "入库数量", key: "stockInCount", color: "#8B5CF6", timeField: "入库时间" },
+  { name: "出库数量", key: "stockOutCount", color: "#64748B", timeField: "出库时间" },
 ] as const;
+
+const finishChartTimeFieldMap = Object.fromEntries(
+  finishChartSeries.map((item) => [item.name, item.timeField])
+) as Record<string, string>;
+
+const finishTrendTooltipHint =
+  "新增成品按创建时间；测试相关按测试状态修改时间；新增返修按更新时间；入库/出库按各自时间。时间为空的不计入统计。成品库存为当前在库总数，不受日期筛选影响。";
+
+const buildFinishChartTooltipFormatter = () => {
+  return (params: any) => {
+    const items = Array.isArray(params) ? params : [params];
+    if (!items.length) {
+      return "";
+    }
+    const lines = [`${items[0].axisValue ?? ""}`];
+    items.forEach((item) => {
+      const timeField = finishChartTimeFieldMap[item.seriesName] || "";
+      const suffix = timeField ? `（${timeField}）` : "";
+      lines.push(`${item.marker}${item.seriesName}${suffix}：${item.value ?? 0}`);
+    });
+    return lines.join("<br/>");
+  };
+};
 
 const boardCategoryLabels: Record<string, string> = {
   newCount: "新增成品",
@@ -1015,7 +1061,10 @@ const updateFinishDailyCharts = () => {
     }));
 
   dailyLineChartOptions.value = {
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      formatter: buildFinishChartTooltipFormatter(),
+    },
     legend: {
       data: legendData,
       top: 0,
@@ -1035,7 +1084,11 @@ const updateFinishDailyCharts = () => {
   };
 
   dailyBarChartOptions.value = {
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: buildFinishChartTooltipFormatter(),
+    },
     legend: {
       data: legendData,
       top: 0,

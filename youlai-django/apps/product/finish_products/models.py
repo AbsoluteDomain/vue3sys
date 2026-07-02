@@ -62,6 +62,21 @@ class FinishProduct(models.Model):
         null=True,
         verbose_name="更新时间",
     )
+    test_time = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="测试状态修改时间",
+    )
+    stock_in_time = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="入库时间",
+    )
+    stock_out_time = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="出库时间",
+    )
     inventory_stock = models.IntegerField(
         default=INVENTORY_NOT_IN,
         choices=INVENTORY_STOCK_CHOICES,
