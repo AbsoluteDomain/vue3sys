@@ -41,6 +41,7 @@ export function updateFinishProduct(data: {
   inventory_stock?: number
   repair?: number
   description?: string
+  create_time?: string | null
 }) {
   return request({
     url: '/api/v1/finish-product/update/',

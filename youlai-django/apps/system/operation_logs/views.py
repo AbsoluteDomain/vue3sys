@@ -36,6 +36,8 @@ def operation_log_list(request):
         logs = logs.filter(module__in=["bom", "productBom"])
     elif module == "product":
         logs = logs.filter(module__in=["product", "productStock"])
+    elif module == "finishProduct":
+        logs = logs.filter(module="finishProduct")
     elif module:
         logs = logs.filter(module=module)
     if operation_type:

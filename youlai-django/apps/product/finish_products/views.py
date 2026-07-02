@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods
 from apps.product.boms.models import AssemblyRecipe, BomList
 from apps.product.products.models import Product
 from core.datetime import format_local_datetime, local_date_key, local_day_range_datetimes
+from core.datetime import make_local_aware, parse_local_datetime_text
 
 from apps.system.operation_logs.utils import format_finish_product_rollback_description
 
@@ -542,6 +543,16 @@ def update_finish_product(request):
         if "description" in body:
             item.description = (body.get("description") or "").strip() or None
 
+        if "create_time" in body or "createTime" in body:
+            create_time_raw = body.get("create_time", body.get("createTime"))
+            if create_time_raw is None or str(create_time_raw).strip() == "":
+                item.create_time = None
+            else:
+                parsed = parse_local_datetime_text(create_time_raw)
+                if parsed is None:
+                    return JsonResponse({"code": "400", "msg": "创建时间格式无效，请使用 YYYY-MM-DD HH:MM:SS"})
+                item.create_time = make_local_aware(parsed)
+
         item.update_time = timezone.now()
         item.save()
 
@@ -570,9 +581,9 @@ def rollback_finish_product(request):
         if not item_id:
             return JsonResponse({"code": "400", "msg": "缺少成品 ID"})
 
-        log_entries = []
         item_snapshot = None
         restored_details = []
+        restored_items = []
 
         with transaction.atomic():
             item = FinishProduct.objects.select_for_update().get(id=int(item_id))
@@ -605,39 +616,27 @@ def rollback_finish_product(request):
                 product.save(update_fields=["quantity", "updated_at"])
 
                 restored_details.append(f"{product.name} +{per_unit}")
-                log_entries.append(
+                restored_items.append(
                     {
                         "product_id": product.id,
                         "product_name": product.name,
-                        "before_data": {"quantity": before_qty},
-                        "after_data": {"quantity": product.quantity},
-                        "description": f"成品回退恢复: {product.name}, 数量: +{per_unit}",
+                        "before_quantity": before_qty,
+                        "after_quantity": product.quantity,
+                        "delta": per_unit,
                     }
                 )
 
             item.delete()
 
-        for entry in log_entries:
-            _log_if_available(
-                request,
-                module="productStock",
-                module_name="库存",
-                operation_type="update",
-                target_id=entry["product_id"],
-                target_name=entry["product_name"],
-                before_data=entry["before_data"],
-                after_data=entry["after_data"],
-                description=entry["description"],
-            )
-
         _log_if_available(
             request,
             module="finishProduct",
             module_name="成品管理",
-            operation_type="delete",
+            operation_type="rollback",
             target_id=item_snapshot["id"],
             target_name=item_snapshot["name"],
             before_data=item_snapshot,
+            after_data={"restored": restored_items},
             description=format_finish_product_rollback_description(
                 item_snapshot["name"],
                 item_snapshot["sn_code"],

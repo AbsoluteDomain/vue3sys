@@ -9,7 +9,10 @@ MODULE_DISPLAY_NAMES = {
     "productStock": "库存",
     "bom": "产品BOM管理",
     "productBom": "产品BOM管理",
+    "finishProduct": "成品管理",
 }
+
+DESCRIPTION_MAX_LENGTH = 500
 
 
 def log_operation(user_id, user_name, module, operation_type, target_id, target_name, 
@@ -21,6 +24,9 @@ def log_operation(user_id, user_name, module, operation_type, target_id, target_
             return
         
         # 构建日志数据
+        if description and len(description) > DESCRIPTION_MAX_LENGTH:
+            description = description[: DESCRIPTION_MAX_LENGTH - 3] + "..."
+
         log_data = {
             "user_id": user_id,
             "user_name": user_name,
@@ -52,6 +58,10 @@ def log_operation_from_request(request, **kwargs):
     try:
         operator = get_request_operator(request)
         if not operator:
+            logger.warning(
+                "跳过操作日志：无法解析操作用户 path=%s",
+                getattr(request, "path", ""),
+            )
             return
         user_id, user_name = operator
         kwargs.setdefault("target_id", 0)

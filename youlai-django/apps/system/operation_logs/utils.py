@@ -138,13 +138,11 @@ def format_bom_recipe_removed(product_name):
     return f"删除{product_name}"
 
 
-def format_bom_assemble_description(bom_name, assemble_qty, consumed_details):
-    parts_text = ", ".join(consumed_details)
+def format_bom_assemble_description(bom_name, assemble_qty, consumed_details, deduct_materials=True):
+    if not deduct_materials:
+        return f"BOM组装: {bom_name}, 组装数量: {assemble_qty}, 未扣减物料"
+    parts_text = ", ".join(consumed_details) if consumed_details else "无"
     return f"BOM组装: {bom_name}, 组装数量: {assemble_qty}, 扣减零件: {parts_text}"
-
-
-def format_bom_assemble_deduct_description(product_name, quantity):
-    return f"BOM组装扣减: {product_name}, 数量: {quantity}"
 
 
 def format_finish_product_rollback_description(finish_name, sn_code, restored_details):

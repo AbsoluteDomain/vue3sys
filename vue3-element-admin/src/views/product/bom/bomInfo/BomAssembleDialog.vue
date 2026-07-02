@@ -38,10 +38,17 @@
           @change="loadPreview"
         />
       </el-form-item>
+      <el-form-item label="扣减物料">
+        <el-checkbox v-model="formData.deduct_materials">
+          组装时扣除对应零件库存
+        </el-checkbox>
+      </el-form-item>
     </el-form>
 
     <div v-if="previewLines.length" class="preview-block">
-      <div class="preview-title">将消耗以下库存：</div>
+      <div class="preview-title">
+        {{ formData.deduct_materials ? '将消耗以下库存：' : 'BOM 零件明细（不扣减库存）：' }}
+      </div>
       <el-table :data="previewLines" border stripe size="small" max-height="280">
         <el-table-column prop="product_name" label="产品名称" min-width="140" show-overflow-tooltip />
         <el-table-column label="类型" width="80" align="center">
@@ -101,7 +108,8 @@ const currentRecipes = ref([])
 
 const formData = reactive({
   bom_id: null,
-  quantity: 1
+  quantity: 1,
+  deduct_materials: true
 })
 
 const formRules = {
@@ -279,6 +287,7 @@ const loadPreview = async () => {
 const open = async (row = null) => {
   formData.bom_id = row?.id || null
   formData.quantity = 1
+  formData.deduct_materials = true
   bomLocked.value = !!row?.id
   previewLines.value = []
   currentRecipes.value = []
@@ -293,6 +302,7 @@ const handleClosed = () => {
   formRef.value?.resetFields()
   formData.bom_id = null
   formData.quantity = 1
+  formData.deduct_materials = true
   bomLocked.value = false
   previewLines.value = []
   currentRecipes.value = []
@@ -301,33 +311,40 @@ const handleClosed = () => {
 const handleSubmit = () => {
   formRef.value.validate((valid) => {
     if (!valid) return
-    if (!previewLines.value.length) {
-      ElMessage.warning('该 BOM 没有可组装的零件明细')
-      return
-    }
-    const insufficient = previewLines.value.filter((l) => l.stock < l.required)
-    if (insufficient.length) {
-      ElMessage.warning(`「${insufficient[0].product_name}」库存不足，无法组装`)
-      return
+
+    if (formData.deduct_materials) {
+      if (!previewLines.value.length) {
+        ElMessage.warning('该 BOM 没有可组装的零件明细')
+        return
+      }
+      const insufficient = previewLines.value.filter((l) => l.stock < l.required)
+      if (insufficient.length) {
+        ElMessage.warning(`「${insufficient[0].product_name}」库存不足，无法组装`)
+        return
+      }
     }
 
     const bom = getSelectedBom()
     const bomLabel = bom ? formatBomShortLabel(bom) : formData.bom_id
+    const confirmMsg = formData.deduct_materials
+      ? `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？将扣减对应零件库存。`
+      : `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？本次不扣减零件库存，仅生成成品。`
 
-    ElMessageBox.confirm(
-      `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？将扣减对应零件库存。`,
-      '确认组装',
-      { type: 'warning' }
-    )
+    ElMessageBox.confirm(confirmMsg, '确认组装', { type: 'warning' })
       .then(() => {
         submitting.value = true
         return assembleBom({
           bom_id: formData.bom_id,
-          quantity: formData.quantity
+          quantity: formData.quantity,
+          deduct_materials: formData.deduct_materials
         })
       })
       .then(() => {
-        ElMessage.success('组装成功，已生成成品并扣减库存')
+        ElMessage.success(
+          formData.deduct_materials
+            ? '组装成功，已生成成品并扣减库存'
+            : '组装成功，已生成成品（未扣减物料）'
+        )
         emit('success')
         visible.value = false
       })

@@ -284,8 +284,16 @@
         <el-form-item label="BOM名称">
           <el-input v-model="formData.bom_name" disabled />
         </el-form-item>
-        <el-form-item label="创建时间">
-          <el-input v-model="formData.create_time" disabled />
+        <el-form-item label="创建时间" prop="create_time">
+          <el-date-picker
+            v-model="formData.create_time"
+            type="datetime"
+            placeholder="选择创建时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="测试状态">
           <el-radio-group v-model="formData.status">
@@ -505,7 +513,8 @@ const handleSubmit = () => {
       status: formData.status,
       inventory_stock: formData.inventory_stock,
       repair: formData.repair,
-      description: formData.description
+      description: formData.description,
+      create_time: formData.create_time || null
     })
       .then(() => {
         ElMessage.success('保存成功')

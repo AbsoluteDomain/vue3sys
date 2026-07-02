@@ -15,7 +15,6 @@ from apps.product.products.constants import product_type_label
 from .models import AssemblyRecipe, BomList
 
 from apps.system.operation_logs.utils import (
-    format_bom_assemble_deduct_description,
     format_bom_assemble_description,
     format_bom_recipe_added,
     format_bom_recipe_quantity_change,
@@ -54,6 +53,46 @@ def _parse_page_params(request):
 
 def _dt_str(value):
     return format_local_datetime(value)
+
+
+def _build_product_meta_map(product_ids):
+    ids = [pid for pid in product_ids if pid]
+    if not ids:
+        return {}
+    products = Product.objects.filter(id__in=ids, is_del=0)
+    return {
+        p.id: {
+            "part_product_type": p.type,
+            "part_product_type_name": product_type_label(p.type),
+            "part_material_code": p.material_code or "",
+            "unit": p.unit or "",
+            "name": p.name,
+        }
+        for p in products
+    }
+
+
+def _product_meta_from_map(product_meta_map, product_id):
+    if not product_id:
+        return {
+            "part_product_type": None,
+            "part_product_type_name": "",
+            "part_material_code": "",
+            "unit": "",
+            "name": "",
+        }
+    if product_meta_map is not None:
+        return product_meta_map.get(
+            product_id,
+            {
+                "part_product_type": None,
+                "part_product_type_name": "",
+                "part_material_code": "",
+                "unit": "",
+                "name": "",
+            },
+        )
+    return _lookup_product_part_meta(product_id)
 
 
 def _lookup_product_part_meta(product_id):
@@ -158,18 +197,19 @@ def _parse_bom_type(value, required=False):
     return bom_type
 
 
-def _serialize_recipe(row, bom_name=None):
+def _serialize_recipe(row, bom_name=None, product_meta_map=None):
     part = _recipe_part_info(row)
-    meta = _lookup_product_part_meta(part["product_id"])
+    meta = _product_meta_from_map(product_meta_map, part["product_id"])
     return {
         "id": row.id,
         "bom_id": row.bom_id,
         "bom_name": bom_name,
         "part_product_id": part["product_id"],
-        "part_product_name": part["product_name"],
+        "part_product_name": part["product_name"] or meta.get("name") or "",
         "part_material_code": meta["part_material_code"],
         "part_product_type": meta["part_product_type"],
         "part_product_type_name": meta["part_product_type_name"],
+        "part_unit": meta.get("unit") or "",
         "part_quantity": part["quantity"],
         "raw_material_id": row.raw_material_id,
         "raw_material_name": row.raw_material_name,
@@ -189,6 +229,18 @@ def _int_or_none(value, field_name="数值"):
         return int(value)
     except (TypeError, ValueError):
         raise ValueError(f"{field_name}必须为整数")
+
+
+def _bool_param(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false", "no", "")
+    return bool(value)
 
 
 def _recipe_fields_from_product(bom, product_id, quantity):
@@ -367,14 +419,16 @@ def bom_list(request):
 
 def _serialize_bom_export_item(bom):
     recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
+    product_ids = [_recipe_part_info(r)["product_id"] for r in recipes]
+    meta_map = _build_product_meta_map(product_ids)
     recipe_items = []
     for recipe in recipes:
         part = _recipe_part_info(recipe)
-        meta = _lookup_product_part_meta(part["product_id"])
+        meta = _product_meta_from_map(meta_map, part["product_id"])
         recipe_items.append(
             {
                 "part_product_id": part["product_id"],
-                "part_product_name": part["product_name"],
+                "part_product_name": part["product_name"] or meta.get("name") or "",
                 "part_material_code": meta["part_material_code"],
                 "part_product_type": meta["part_product_type"],
                 "part_product_type_name": meta["part_product_type_name"],
@@ -621,10 +675,12 @@ def bom_detail(request):
     except (BomList.DoesNotExist, TypeError, ValueError):
         return JsonResponse({"code": "404", "msg": "BOM 不存在"})
 
-    recipes = AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id")
-    payload = _serialize_bom_header(bom, recipes.count())
+    recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
+    product_ids = [_recipe_part_info(r)["product_id"] for r in recipes]
+    meta_map = _build_product_meta_map(product_ids)
+    payload = _serialize_bom_header(bom, len(recipes))
     payload["recipes"] = [
-        _serialize_recipe(r, _bom_display_name(bom)) for r in recipes
+        _serialize_recipe(r, _bom_display_name(bom), meta_map) for r in recipes
     ]
     return JsonResponse({"code": "00000", "msg": "成功", "data": payload})
 
@@ -840,7 +896,7 @@ def _collect_assembly_requirements(recipes, assemble_qty):
 @csrf_exempt
 @require_http_methods(["POST"])
 def assemble_bom(request):
-    """按 BOM 组装产品，扣减关联零件库存"""
+    """按 BOM 组装产品，可选是否扣减关联零件库存"""
     try:
         body = json.loads(request.body or "{}")
         bom_id = body.get("bom_id") or body.get("id")
@@ -849,62 +905,49 @@ def assemble_bom(request):
         assemble_qty = _int_or_none(body.get("quantity"), "组装数量")
         if assemble_qty is None or assemble_qty < 1:
             return JsonResponse({"code": "400", "msg": "组装数量必须大于 0"})
+        deduct_materials = _bool_param(
+            body.get("deduct_materials", body.get("deductMaterials")),
+            default=True,
+        )
 
-        # 先检查BOM是否存在
         bom = BomList.objects.get(id=int(bom_id), is_del=0)
         recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
-        if not recipes:
+        if deduct_materials and not recipes:
             return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法组装"})
 
-        # 收集日志记录所需数据
-        log_entries = []
         consumed = []
         consumed_details = []
         finish_products_created = []
 
         with transaction.atomic():
-            requirements = _collect_assembly_requirements(recipes, assemble_qty)
+            if deduct_materials:
+                requirements = _collect_assembly_requirements(recipes, assemble_qty)
 
-            for req in requirements:
-                product = Product.objects.select_for_update().get(
-                    id=req["product_id"], is_del=0
-                )
-                current = product.quantity if product.quantity is not None else 0
-                needed = req["required"]
-                if current < needed:
-                    raise ValueError(
-                        f"「{product.name}」库存不足：需要 {needed}，当前 {current}"
+                for req in requirements:
+                    product = Product.objects.select_for_update().get(
+                        id=req["product_id"], is_del=0
                     )
-                
-                # 保存修改前的数据
-                before_data = {"quantity": current}
-                
-                product.quantity = current - needed
-                product.save(update_fields=["quantity", "updated_at"])
-                
-                # 保存修改后的数据
-                after_data = {"quantity": product.quantity}
-                
-                consumed.append(
-                    {
-                        "product_id": product.id,
-                        "product_name": product.name,
-                        "product_type": product.type,
-                        "product_type_name": product_type_label(product.type),
-                        "consumed": needed,
-                        "remaining": product.quantity,
-                    }
-                )
-                consumed_details.append(f"{product.name} - {needed}")
+                    current = product.quantity if product.quantity is not None else 0
+                    needed = req["required"]
+                    if current < needed:
+                        raise ValueError(
+                            f"「{product.name}」库存不足：需要 {needed}，当前 {current}"
+                        )
 
-                log_entries.append({
-                    "type": "product_update",
-                    "product_id": product.id,
-                    "product_name": product.name,
-                    "before_data": before_data,
-                    "after_data": after_data,
-                    "description": format_bom_assemble_deduct_description(product.name, needed),
-                })
+                    product.quantity = current - needed
+                    product.save(update_fields=["quantity", "updated_at"])
+
+                    consumed.append(
+                        {
+                            "product_id": product.id,
+                            "product_name": product.name,
+                            "product_type": product.type,
+                            "product_type_name": product_type_label(product.type),
+                            "consumed": needed,
+                            "remaining": product.quantity,
+                        }
+                    )
+                    consumed_details.append(f"{product.name} - {needed}")
 
             now = timezone.now()
             for idx in range(assemble_qty):
@@ -929,46 +972,44 @@ def assemble_bom(request):
                         "create_time": format_local_datetime(finish_product.create_time) or "",
                     }
                 )
-        
-        # 事务成功后记录操作日志（在事务外执行）
-        for entry in log_entries:
-            _log_if_available(
-                request,
-                module='productStock',
-                module_name='库存',
-                operation_type='update',
-                target_id=entry["product_id"],
-                target_name=entry["product_name"],
-                before_data=entry["before_data"],
-                after_data=entry["after_data"],
-                description=entry["description"],
-            )
 
         _log_if_available(
             request,
             module='bom',
             module_name='产品BOM管理',
-            operation_type='update',
+            operation_type='assemble',
             target_id=bom.id,
             target_name=_bom_log_label(bom),
-            before_data=_bom_header_snapshot(bom),
+            after_data={
+                "consumed": consumed,
+                "assemble_quantity": assemble_qty,
+                "deduct_materials": deduct_materials,
+            },
             description=format_bom_assemble_description(
                 _bom_log_label(bom),
                 assemble_qty,
                 consumed_details,
+                deduct_materials=deduct_materials,
             ),
         )
+
+        msg = "组装成功，已生成成品"
+        if deduct_materials:
+            msg += "并扣减库存"
+        else:
+            msg += "（未扣减物料）"
 
         return JsonResponse(
             {
                 "code": "00000",
-                "msg": "组装成功",
+                "msg": msg,
                 "data": {
                     "bom_id": bom.id,
                     "bom_model": bom.bom_model,
                     "bom_name": bom.bom_name or "",
                     "material_code": bom.material_code or "",
                     "assemble_quantity": assemble_qty,
+                    "deduct_materials": deduct_materials,
                     "consumed": consumed,
                     "finish_products": finish_products_created,
                 },

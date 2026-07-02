@@ -13,6 +13,7 @@
           >
             <el-option label="库存" value="product" />
             <el-option label="BOM" value="bom" />
+            <el-option label="成品" value="finishProduct" />
           </el-select>
         </el-form-item>
         <el-form-item label="操作类型">
@@ -30,6 +31,7 @@
             <el-option label="入库" value="stock_in" />
             <el-option label="出库" value="stock_out" />
             <el-option label="组装" value="assemble" />
+            <el-option label="回退" value="rollback" />
           </el-select>
         </el-form-item>
         <el-form-item label="操作人">

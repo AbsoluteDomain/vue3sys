@@ -50,4 +50,33 @@ def get_request_operator(request):
         if user.id and username:
             return user.id, username
 
+    auth_header = request.META.get("HTTP_AUTHORIZATION") or ""
+    if not auth_header and hasattr(request, "headers"):
+        auth_header = request.headers.get("Authorization") or ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        if token:
+            try:
+                from rest_framework_simplejwt.backends import TokenBackend
+
+                jwt_settings = getattr(settings, "SIMPLE_JWT", {})
+                token_backend = TokenBackend(
+                    algorithm=jwt_settings.get("ALGORITHM", "HS256"),
+                    signing_key=jwt_settings.get("SIGNING_KEY", settings.SECRET_KEY),
+                )
+                token_data = token_backend.decode(token, verify=True)
+                user_id = token_data.get("user_id")
+                if user_id:
+                    db_user = (
+                        User.objects.filter(id=user_id)
+                        .only("id", "username", "nickname")
+                        .first()
+                    )
+                    if db_user:
+                        username = db_user.username or db_user.nickname
+                        if username:
+                            return db_user.id, username
+            except Exception as exc:
+                logger.debug("JWT fallback 解析操作用户失败: %s", exc)
+
     return None

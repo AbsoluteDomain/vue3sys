@@ -8,6 +8,10 @@ class OperationLog(models.Model):
         ('create', '新增'),
         ('update', '修改'),
         ('delete', '删除'),
+        ('assemble', '组装'),
+        ('rollback', '回退'),
+        ('stock_in', '入库'),
+        ('stock_out', '出库'),
     ]
     
     user_id = models.BigIntegerField(verbose_name="操作用户ID")

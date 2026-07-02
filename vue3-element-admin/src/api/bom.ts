@@ -61,7 +61,11 @@ export function deleteBom(data: { id: number }) {
   })
 }
 
-export function assembleBom(data: { bom_id: number; quantity: number }) {
+export function assembleBom(data: {
+  bom_id: number
+  quantity: number
+  deduct_materials?: boolean
+}) {
   return request({
     url: '/api/v1/bom/assemble/',
     method: 'post',

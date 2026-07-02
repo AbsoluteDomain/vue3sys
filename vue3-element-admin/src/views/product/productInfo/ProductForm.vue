@@ -26,7 +26,7 @@
       </el-form-item>
 
       <el-form-item label="物料编码" prop="material_code">
-        <el-input v-model="formData.material_code" placeholder="请输入物料编码（可选）" />
+        <el-input v-model="formData.material_code" placeholder="请输入物料编码" />
       </el-form-item>
 
       <el-form-item label="类型" prop="type">
@@ -102,6 +102,7 @@ const formData = reactive({
 // 表单校验规则
 const formRules = {
   name: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
+  material_code: [{ required: true, message: '请输入物料编码', trigger: 'blur' }],
   type: [{ required: true, message: '请选择类型', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
   unit: [{ required: true, message: '请输入单位', trigger: 'blur' }]
@@ -160,7 +161,7 @@ const handleSubmit = () => {
         })
         .catch((error) => {
           console.error(error)
-          ElMessage.error(`${actionName}失败，请联系管理员`)
+          ElMessage.error(error?.message || `${actionName}失败，请联系管理员`)
         })
     }
   })

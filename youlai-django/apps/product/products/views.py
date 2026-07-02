@@ -62,6 +62,34 @@ def _optional_text(value):
     return text or None
 
 
+def _validate_product_uniqueness(name, material_code, product_id=None, exclude_id=None):
+    """校验物料编码、产品 ID 在未删除记录中唯一；产品名称允许重复。"""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("产品名称不能为空")
+
+    material_code = (material_code or "").strip()
+    if not material_code:
+        raise ValueError("物料编码不能为空")
+
+    active_qs = Product.objects.filter(is_del=0)
+    if exclude_id is not None:
+        active_qs = active_qs.exclude(id=exclude_id)
+
+    if active_qs.filter(material_code=material_code).exists():
+        raise ValueError(f"物料编码「{material_code}」已存在")
+
+    if product_id is not None and exclude_id is None:
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            raise ValueError("产品ID无效")
+        if Product.objects.filter(id=pid).exists():
+            raise ValueError(f"产品ID「{pid}」已存在")
+
+    return name, material_code
+
+
 def _serialize_product(product):
     return {
         "id": product.id,
@@ -108,6 +136,17 @@ def product_list(request):
     # 兼容旧参数 keyword（按产品名称搜索）
     if not product_name:
         product_name = (request.GET.get("keyword", "") or "").strip()
+    material_code = (
+        request.GET.get("materialCode", "")
+        or request.GET.get("material_code", "")
+        or ""
+    ).strip()
+    product_type = (
+        request.GET.get("type", "")
+        if request.GET.get("type", "") != ""
+        else request.GET.get("productType", "")
+    )
+    product_type = str(product_type).strip() if product_type != "" and product_type is not None else ""
     is_alert = (request.GET.get("isAlert", "") or "").strip()
     sort_prop = (request.GET.get("sortProp", "") or "").strip()
     sort_order = (request.GET.get("sortOrder", "") or "").strip()
@@ -127,6 +166,10 @@ def product_list(request):
             products = products.none()
     if product_name:
         products = products.filter(name__icontains=product_name)
+    if material_code:
+        products = products.filter(material_code__icontains=material_code)
+    if product_type in ("0", "1", "2"):
+        products = products.filter(type=int(product_type))
     if is_alert == "1":
         products = products.filter(_alert_filter_q())
     elif is_alert == "0":
@@ -185,13 +228,18 @@ def create_product(request):
         if product_type is None:
             return JsonResponse({"code": "400", "msg": "请选择产品类型"})
 
+        material_code_raw = body.get("material_code") or body.get("materialCode")
+        name, material_code = _validate_product_uniqueness(
+            body.get("name"),
+            material_code_raw,
+            product_id=body.get("id"),
+        )
+
         create_kwargs = {
-            "name": body.get("name"),
+            "name": name,
             "type": product_type,
             "draw_code": _optional_text(body.get("draw_code") or body.get("drawCode")),
-            "material_code": _optional_text(
-                body.get("material_code") or body.get("materialCode")
-            ),
+            "material_code": material_code,
             "quantity": body.get("quantity"),
             "unit": body.get("unit"),
             "location": body.get("location"),
@@ -238,15 +286,21 @@ def update_product(request):
         before_data = _product_snapshot(product)
 
         # 3. 更新字段
-        product.name = body.get('name')
         product_type = normalize_product_type(body.get('type'))
         if product_type is None:
             return JsonResponse({"code": "400", "msg": "请选择产品类型"})
+
+        material_code_raw = body.get("material_code") or body.get("materialCode")
+        name, material_code = _validate_product_uniqueness(
+            body.get("name"),
+            material_code_raw,
+            exclude_id=product.id,
+        )
+
+        product.name = name
         product.type = product_type
         product.draw_code = _optional_text(body.get("draw_code") or body.get("drawCode"))
-        product.material_code = _optional_text(
-            body.get("material_code") or body.get("materialCode")
-        )
+        product.material_code = material_code
         product.quantity = body.get('quantity')
         product.unit = body.get('unit')
         product.location = body.get('location')
@@ -321,7 +375,7 @@ def stock_adjust_product(request):
             request,
             module='productStock',
             module_name='库存',
-            operation_type='update',
+            operation_type='stock_in' if adjust_type == 'in' else 'stock_out',
             target_id=product.id,
             target_name=product.name,
             before_data=before_data,

@@ -24,6 +24,33 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="物料编码">
+          <el-input
+            v-model="queryParams.materialCode"
+            placeholder="物料编码"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select
+            v-model="queryParams.type"
+            placeholder="全部"
+            clearable
+            style="width: 120px"
+            @change="handleSearch"
+            @clear="handleSearch"
+          >
+            <el-option
+              v-for="item in PRODUCT_TYPE_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="是否报警">
           <el-select
             v-model="queryParams.isAlert"
@@ -154,7 +181,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // 1. 引入 Drawer 组件
 import productForm from './productInfo/ProductForm.vue'
 import StockAdjustDialog from './productInfo/StockAdjustDialog.vue'
-import { formatProductTypeLabel, productTypeTagType } from './productInfo/productType'
+import { formatProductTypeLabel, productTypeTagType, PRODUCT_TYPE_OPTIONS } from './productInfo/productType'
 // import ProductNav from './components/ProductNav.vue'
 
 // 1. 定义响应式数据
@@ -163,6 +190,8 @@ const queryParams = reactive({
   pageSize: 10,
   productId: '',
   productName: '',
+  materialCode: '',
+  type: '',
   isAlert: '',
   sortProp: '',
   sortOrder: ''
@@ -220,6 +249,8 @@ const handleSearch = () => {
 const resetQuery = () => {
   queryParams.productId = ''
   queryParams.productName = ''
+  queryParams.materialCode = ''
+  queryParams.type = ''
   queryParams.isAlert = ''
   queryParams.pageNum = 1
   getList()
