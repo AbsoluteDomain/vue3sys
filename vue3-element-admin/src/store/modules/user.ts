@@ -9,6 +9,7 @@ import { usePermissionStoreHook } from "@/store/modules/permission";
 import { useDictStoreHook } from "@/store/modules/dict";
 import { useTagsViewStore } from "@/store";
 import { cleanupWebSocket } from "@/composables";
+import { useReleaseLoginPopup } from "@/components/ReleaseDropdown/useReleaseLoginPopup";
 
 export const useUserStore = defineStore("user", () => {
   // 用户信息
@@ -83,6 +84,9 @@ export const useUserStore = defineStore("user", () => {
 
     // 3. 清理 WebSocket 连接
     cleanupWebSocket();
+
+    // 4. 重置版本更新弹窗检查状态
+    useReleaseLoginPopup().resetReleaseLoginCheck();
   }
 
   /**

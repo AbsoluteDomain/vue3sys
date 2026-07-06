@@ -27,6 +27,11 @@
         <NoticeDropdown />
       </div>
 
+      <!-- 版本更新 -->
+      <div class="navbar-actions__item">
+        <ReleaseDropdown />
+      </div>
+
       <!-- 租户选择（如果启用多租户）-->
       <div v-if="showTenantSwitcher" class="navbar-actions__item">
         <TenantSwitcher @change="handleTenantChange" />
@@ -79,6 +84,7 @@ import Fullscreen from "@/components/Fullscreen/index.vue";
 import SizeSelect from "@/components/SizeSelect/index.vue";
 import LangSelect from "@/components/LangSelect/index.vue";
 import NoticeDropdown from "@/components/NoticeDropdown/index.vue";
+import ReleaseDropdown from "@/components/ReleaseDropdown/index.vue";
 import TenantSwitcher from "@/components/TenantSwitcher/index.vue";
 import { useTenantStoreHook } from "@/store/modules/tenant";
 

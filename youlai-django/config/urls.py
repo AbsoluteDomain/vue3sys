@@ -31,6 +31,7 @@ urlpatterns = [
     re_path(r"^api/v1/logs/?", include("apps.system.logs.urls")),
     re_path(r"^api/v1/statistics/?", include("apps.system.statistics.urls")),
     re_path(r"^api/v1/operation-logs/?", include("apps.system.operation_logs.urls")),
+    re_path(r"^api/v1/releases/?", include("apps.system.releases.urls")),
     # 新增的路由
     re_path(r"^api/v1/product/?", include("apps.product.products.urls")),
     re_path(r"^api/v1/bom/?", include("apps.product.boms.urls")),

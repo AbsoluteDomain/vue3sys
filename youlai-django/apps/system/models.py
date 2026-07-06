@@ -7,6 +7,7 @@ from apps.system.dicts.models import Dictionary, DictionaryItem
 from apps.system.logs.models import Log
 from apps.system.menus.models import Menu
 from apps.system.notices.models import Notice, UserNotice
+from apps.system.releases.models import Release, ReleaseItem, UserReleaseRead
 from apps.system.operation_logs.models import OperationLog
 from apps.system.roles.models import Role, RoleMenu
 from apps.system.users.models import User, UserRole
@@ -21,10 +22,13 @@ __all__ = [
     "Menu",
     "Notice",
     "OperationLog",
+    "Release",
+    "ReleaseItem",
     "Role",
     "RoleMenu",
     "SysConfig",
     "User",
     "UserNotice",
+    "UserReleaseRead",
     "UserRole",
 ]

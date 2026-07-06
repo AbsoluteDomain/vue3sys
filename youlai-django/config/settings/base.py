@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'apps.product.boms',
     'apps.product.finish_products',
     'apps.system.operation_logs',
+    'apps.system.releases',
 ]
 
 MIDDLEWARE = [
