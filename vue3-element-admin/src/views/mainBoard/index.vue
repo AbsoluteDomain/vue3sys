@@ -155,220 +155,384 @@
     <!-- 成品看板 -->
     <template v-else>
       <el-card shadow="never" class="mb-3">
-        <el-form :inline="true" class="search-form">
-          <el-form-item label="统计日期">
-            <el-date-picker
-              v-model="finishDateRange"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              :clearable="false"
-              style="width: 260px"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="fetchFinishData">查询</el-button>
-            <el-button @click="resetFinishDateRange">近30天</el-button>
-          </el-form-item>
-        </el-form>
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-[--el-text-color-regular]">统计周期：</span>
+            <el-select v-model="periodType" placeholder="选择周期" style="width: 140px" @change="onPeriodChange">
+              <el-option label="今日" value="today" />
+              <el-option label="本周" value="week" />
+              <el-option label="本月" value="month" />
+              <el-option label="本年" value="year" />
+              <el-option label="近7天" value="7d" />
+              <el-option label="近30天" value="30d" />
+            </el-select>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-[--el-text-color-regular]">BOM类型：</span>
+            <el-select v-model="bomType" placeholder="全部" style="width: 120px" @change="fetchFinishData">
+              <el-option label="全部" value="" />
+              <el-option label="机械臂" value="arm" />
+              <el-option label="关节" value="joint" />
+            </el-select>
+          </div>
+          <el-button type="primary" :icon="Refresh" @click="fetchFinishData">刷新</el-button>
+        </div>
       </el-card>
 
-      <el-row :gutter="10" class="mt-2 finish-stat-row finish-stat-row--9">
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.newCount > 0 }"
-            @click="openBoardDetail('newCount', finishSummary.newCount)"
-          >
+      <el-row :gutter="10" class="mt-2">
+        <el-col :xs="24" :lg="12" class="mb-3">
+          <el-card shadow="never" class="h-full">
             <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">新增成品</span>
+              <div class="flex items-center gap-2">
+                <span class="font-semibold">新品相关</span>
+              </div>
             </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-blue-600">{{ finishSummary.newCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
+            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.newCount > 0 }"
+                  @click="openBoardDetail('newCount', finishSummary.newCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">新增成品</span>
+                      <el-tooltip content="按产品创建时间统计指定周期内新创建的成品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-blue-600">{{ finishSummary.newCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.pendingNewCount > 0 }"
+                  @click="openBoardDetail('pendingNewCount', finishSummary.pendingNewCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试新品</span>
+                      <el-tooltip content="按测试状态修改时间统计，状态为未测试且为新品的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-purple-600">{{ finishSummary.pendingNewCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.testingCount > 0 }"
+                  @click="openBoardDetail('testingCount', finishSummary.testingCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">新品正在测试</span>
+                      <el-tooltip content="按测试状态修改时间统计，状态为测试中且为新品的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-sky-600">{{ finishSummary.testingCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.passCount > 0 }"
+                  @click="openBoardDetail('passCount', finishSummary.passCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">新品测试合格</span>
+                      <el-tooltip content="按测试状态修改时间统计，测试状态为合格的数量（含新品和返修）" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-green-600">{{ finishSummary.passCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.failCount > 0 }"
+                  @click="openBoardDetail('failCount', finishSummary.failCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">新品测试不良</span>
+                      <el-tooltip content="按测试状态修改时间统计，测试状态为不良的数量（含新品和返修）" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-red-600">{{ finishSummary.failCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
             </div>
+            <ECharts :options="newProductPassRateOptions" height="260px" class="mt-2" />
           </el-card>
         </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.pendingNewCount > 0 }"
-            @click="openBoardDetail('pendingNewCount', finishSummary.pendingNewCount)"
-          >
+
+        <el-col :xs="24" :lg="12" class="mb-3">
+          <el-card shadow="never" class="h-full">
             <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试新品</span>
+              <div class="flex items-center gap-2">
+                <span class="font-semibold">返修品相关</span>
+              </div>
             </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-purple-600">{{ finishSummary.pendingNewCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
+            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.repairCount > 0 }"
+                  @click="openBoardDetail('repairCount', finishSummary.repairCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">新增返修</span>
+                      <el-tooltip content="按产品更新时间统计，标记为返修品的产品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-orange-600">{{ finishSummary.repairCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.pendingRepairCount > 0 }"
+                  @click="openBoardDetail('pendingRepairCount', finishSummary.pendingRepairCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试返修</span>
+                      <el-tooltip content="按测试状态修改时间统计，状态为未测试且为返修品的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-amber-600">{{ finishSummary.pendingRepairCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.repairTestingCount > 0 }"
+                  @click="openBoardDetail('repairTestingCount', finishSummary.repairTestingCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">返修正在测试</span>
+                      <el-tooltip content="按测试状态修改时间统计，状态为测试中且为返修品的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-cyan-600">{{ finishSummary.repairTestingCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.repairPassCount > 0 }"
+                  @click="openBoardDetail('repairPassCount', finishSummary.repairPassCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">返修测试合格</span>
+                      <el-tooltip content="按测试状态修改时间统计，返修品测试状态为合格的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-teal-600">{{ finishSummary.repairPassCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.repairFailCount > 0 }"
+                  @click="openBoardDetail('repairFailCount', finishSummary.repairFailCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">返修测试不良</span>
+                      <el-tooltip content="按测试状态修改时间统计，返修品测试状态为不良的数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-red-600">{{ finishSummary.repairFailCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
             </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.testingCount > 0 }"
-            @click="openBoardDetail('testingCount', finishSummary.testingCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">新品正在测试</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-sky-600">{{ finishSummary.testingCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.passCount > 0 }"
-            @click="openBoardDetail('passCount', finishSummary.passCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">测试合格</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-green-600">{{ finishSummary.passCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.failCount > 0 }"
-            @click="openBoardDetail('failCount', finishSummary.failCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">测试不良</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-red-600">{{ finishSummary.failCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.repairCount > 0 }"
-            @click="openBoardDetail('repairCount', finishSummary.repairCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">新增返修</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-orange-600">{{ finishSummary.repairCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.repairTestingCount > 0 }"
-            @click="openBoardDetail('repairTestingCount', finishSummary.repairTestingCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">返修正在测试</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-cyan-600">{{ finishSummary.repairTestingCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.pendingRepairCount > 0 }"
-            @click="openBoardDetail('pendingRepairCount', finishSummary.pendingRepairCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试返修</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-amber-600">{{ finishSummary.pendingRepairCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.repairPassCount > 0 }"
-            @click="openBoardDetail('repairPassCount', finishSummary.repairPassCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">返修合格</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-teal-600">{{ finishSummary.repairPassCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
+            <ECharts :options="repairProductPassRateOptions" height="260px" class="mt-2" />
           </el-card>
         </el-col>
       </el-row>
 
       <el-row :gutter="10" class="mt-2">
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': currentStockInCount > 0 }"
-            @click="openBoardDetail('currentStockInCount', currentStockInCount)"
-          >
+        <el-col :xs="24" class="mb-3">
+          <el-card shadow="never">
             <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">成品库存</span>
+              <div class="flex items-center gap-2">
+                <span class="font-semibold">库存与出入库</span>
+              </div>
             </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-indigo-600">{{ currentStockInCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.stockInCount > 0 }"
-            @click="openBoardDetail('stockInCount', finishSummary.stockInCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">入库数量</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-violet-600">{{ finishSummary.stockInCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="12" :sm="8" :md="6" :lg="3" class="mb-3">
-          <el-card
-            shadow="never"
-            class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            :class="{ 'stat-card--clickable': finishSummary.stockOutCount > 0 }"
-            @click="openBoardDetail('stockOutCount', finishSummary.stockOutCount)"
-          >
-            <template #header>
-              <span class="text-xs font-medium text-[--el-text-color-secondary]">出库数量</span>
-            </template>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-2xl font-semibold text-slate-600">{{ finishSummary.stockOutCount }}</span>
-              <span class="text-xs text-[--el-text-color-secondary]">件</span>
-            </div>
+            <el-row :gutter="10">
+              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': currentStockInCount > 0 }"
+                  @click="openBoardDetail('currentStockInCount', currentStockInCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">成品库存</span>
+                      <el-tooltip content="当前所有状态为入库的成品总数，不受日期筛选影响" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-indigo-600">{{ currentStockInCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.stockInCount > 0 }"
+                  @click="openBoardDetail('stockInCount', finishSummary.stockInCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">入库数量</span>
+                      <el-tooltip content="按入库时间统计指定周期内入库的成品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-violet-600">{{ finishSummary.stockInCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.stockOutCount > 0 }"
+                  @click="openBoardDetail('stockOutCount', finishSummary.stockOutCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">出库数量</span>
+                      <el-tooltip content="按出库时间统计指定周期内出库的成品总数（含外销和研发）" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-slate-600">{{ finishSummary.stockOutCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.stockOutSaleCount > 0 }"
+                  @click="openBoardDetail('stockOutSaleCount', finishSummary.stockOutSaleCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">出库(外销)数量</span>
+                      <el-tooltip content="按出库时间统计指定周期内出库类型为外销的成品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-blue-600">{{ finishSummary.stockOutSaleCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.stockOutDevCount > 0 }"
+                  @click="openBoardDetail('stockOutDevCount', finishSummary.stockOutDevCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">出库(研发)数量</span>
+                      <el-tooltip content="按出库时间统计指定周期内出库类型为研发的成品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-orange-600">{{ finishSummary.stockOutDevCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+            </el-row>
+            <ECharts :options="outboundRatioOptions" height="260px" class="mt-2" />
           </el-card>
         </el-col>
       </el-row>
@@ -526,6 +690,26 @@
                   <span v-else class="text-slate-600">{{ row.stockOutCount }}</span>
                 </template>
               </el-table-column>
+              <el-table-column prop="stockOutSaleCount" label="出库(外销)" width="110" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.stockOutSaleCount > 0"
+                    class="stat-cell-link text-blue-600"
+                    @click.stop="openBoardDetail('stockOutSaleCount', row.stockOutSaleCount, row.date)"
+                  >{{ row.stockOutSaleCount }}</span>
+                  <span v-else class="text-blue-600">{{ row.stockOutSaleCount }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="stockOutDevCount" label="出库(研发)" width="110" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.stockOutDevCount > 0"
+                    class="stat-cell-link text-orange-600"
+                    @click.stop="openBoardDetail('stockOutDevCount', row.stockOutDevCount, row.date)"
+                  >{{ row.stockOutDevCount }}</span>
+                  <span v-else class="text-orange-600">{{ row.stockOutDevCount }}</span>
+                </template>
+              </el-table-column>
             </el-table>
           </el-card>
         </el-col>
@@ -616,13 +800,11 @@
           v-if="isColumnVisible('inventory_stock')"
           prop="inventory_stock"
           label="库存状态"
-          width="100"
+          width="120"
           align="center"
         >
           <template #default="{ row }">
-            <el-tag :type="inventoryTagType(row.inventory_stock)" size="small">
-              {{ row.inventory_stock_name }}
-            </el-tag>
+            <DictTag :code="'storage_status'" :model-value="row.inventory_stock" size="small" />
           </template>
         </el-table-column>
         <el-table-column
@@ -714,8 +896,12 @@ import { ref, computed, onMounted, watch } from "vue";
 import { getProductList } from "@/api/product";
 import { getFinishProductDailyStats, getFinishProductBoardDetail } from "@/api/finish-product";
 import ECharts from "@/components/ECharts/index.vue";
-import { InfoFilled, Setting } from "@element-plus/icons-vue";
+import DictTag from "@/components/DictTag/index.vue";
+import { InfoFilled, Setting, Refresh } from "@element-plus/icons-vue";
 import { useFinishProductTableColumns, FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY } from "@/composables/useFinishProductTableColumns";
+import { useDictStore } from "@/store";
+
+const dictStore = useDictStore();
 
 const {
   columnOptions,
@@ -740,9 +926,12 @@ interface FinishDailyStat {
   repairCount: number;
   repairTestingCount: number;
   repairPassCount: number;
+  repairFailCount: number;
   pendingRepairCount: number;
   stockInCount: number;
   stockOutCount: number;
+  stockOutSaleCount: number;
+  stockOutDevCount: number;
 }
 
 const finishChartSeries = [
@@ -755,8 +944,11 @@ const finishChartSeries = [
   { name: "返修正在测试", key: "repairTestingCount", color: "#06B6D4", timeField: "测试状态修改时间" },
   { name: "待测试返修", key: "pendingRepairCount", color: "#F59E0B", timeField: "测试状态修改时间" },
   { name: "返修合格", key: "repairPassCount", color: "#13C2C2", timeField: "测试状态修改时间" },
+  { name: "返修不良", key: "repairFailCount", color: "#F56C6C", timeField: "测试状态修改时间" },
   { name: "入库数量", key: "stockInCount", color: "#8B5CF6", timeField: "入库时间" },
   { name: "出库数量", key: "stockOutCount", color: "#64748B", timeField: "出库时间" },
+  { name: "出库(外销)", key: "stockOutSaleCount", color: "#3B82F6", timeField: "出库时间" },
+  { name: "出库(研发)", key: "stockOutDevCount", color: "#F97316", timeField: "出库时间" },
 ] as const;
 
 const finishChartTimeFieldMap = Object.fromEntries(
@@ -792,8 +984,11 @@ const boardCategoryLabels: Record<string, string> = {
   repairTestingCount: "返修正在测试",
   pendingRepairCount: "待测试返修",
   repairPassCount: "返修合格",
+  repairFailCount: "返修不良",
   stockInCount: "入库数量",
   stockOutCount: "出库数量",
+  stockOutSaleCount: "出库(外销)数量",
+  stockOutDevCount: "出库(研发)数量",
   currentStockInCount: "成品库存",
 };
 
@@ -808,9 +1003,12 @@ const emptyFinishSummary = () => ({
   repairCount: 0,
   repairTestingCount: 0,
   repairPassCount: 0,
+  repairFailCount: 0,
   pendingRepairCount: 0,
   stockInCount: 0,
   stockOutCount: 0,
+  stockOutSaleCount: 0,
+  stockOutDevCount: 0,
 });
 
 const formatDate = (date: Date) => {
@@ -881,6 +1079,50 @@ const currentStockInCount = ref(0);
 const dailyStats = ref<FinishDailyStat[]>([]);
 const finishDataLoaded = ref(false);
 
+const periodType = ref("30d");
+const bomType = ref("");
+const NEW_BOARD_DATE_RANGE_STORAGE_KEY = "new-board-date-range";
+
+function computeDateRangeByPeriod(period: string): [string, string] {
+  const now = new Date();
+  let start: Date;
+  let end = new Date(now);
+
+  switch (period) {
+    case "today":
+      start = new Date(now);
+      break;
+    case "week": {
+      const day = now.getDay() || 7;
+      start = new Date(now);
+      start.setDate(now.getDate() - day + 1);
+      break;
+    }
+    case "month":
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case "year":
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    case "7d":
+      start = new Date(now);
+      start.setDate(now.getDate() - 6);
+      break;
+    case "30d":
+    default:
+      start = new Date(now);
+      start.setDate(now.getDate() - 29);
+      break;
+  }
+
+  return [formatDate(start), formatDate(end)];
+}
+
+function onPeriodChange() {
+  finishDateRange.value = computeDateRangeByPeriod(periodType.value);
+  fetchFinishData();
+}
+
 const detailDialogVisible = ref(false);
 const detailDialogTitle = ref("");
 const detailLoading = ref(false);
@@ -890,12 +1132,6 @@ const detailPageNum = ref(1);
 const detailPageSize = ref(10);
 const detailCategory = ref<BoardCategoryKey>("newCount");
 const detailSingleDate = ref<string | null>(null);
-
-const inventoryTagType = (value: number) => {
-  if (value === 1) return "success";
-  if (value === 2) return "danger";
-  return "warning";
-};
 
 const statusTagType = (value: number) => {
   if (value === 2) return "success";
@@ -912,17 +1148,18 @@ const bomTypeTagType = (value: number | null | undefined) => {
 
 const buildDetailTitle = (category: BoardCategoryKey, singleDate?: string | null) => {
   const label = boardCategoryLabels[category] || category;
+  const bomLabel = bomType.value === "arm" ? "（机械臂）" : bomType.value === "joint" ? "（关节）" : "";
   if (category === "currentStockInCount") {
-    return `${label} - 明细（当前已入库）`;
+    return `${label} - 明细（当前已入库）${bomLabel}`;
   }
   if (singleDate) {
-    return `${label} - 明细（${singleDate}）`;
+    return `${label} - 明细（${singleDate}）${bomLabel}`;
   }
   const [start, end] = finishDateRange.value || [];
   if (start && end) {
-    return start === end ? `${label} - 明细（${start}）` : `${label} - 明细（${start} 至 ${end}）`;
+    return start === end ? `${label} - 明细（${start}）${bomLabel}` : `${label} - 明细（${start} 至 ${end}）${bomLabel}`;
   }
-  return `${label} - 明细`;
+  return `${label} - 明细${bomLabel}`;
 };
 
 const fetchBoardDetail = async () => {
@@ -935,10 +1172,12 @@ const fetchBoardDetail = async () => {
       date?: string;
       pageNum?: number;
       pageSize?: number;
+      bom_type?: string;
     } = {
       category: detailCategory.value,
       pageNum: detailPageNum.value,
       pageSize: detailPageSize.value,
+      bom_type: bomType.value,
     };
     if (detailCategory.value !== "currentStockInCount") {
       if (detailSingleDate.value) {
@@ -970,6 +1209,7 @@ const openBoardDetail = (category: BoardCategoryKey, count: number, singleDate?:
   detailDialogTitle.value = buildDetailTitle(category, singleDate);
   detailDialogVisible.value = true;
   fetchBoardDetail();
+  void bomType.value; // reactive dependency for title
 };
 
 const materialStats = ref({
@@ -983,6 +1223,73 @@ const barChartOptions = ref<any>({});
 const horizontalBarOptions = ref<any>({});
 const dailyLineChartOptions = ref<any>({});
 const dailyBarChartOptions = ref<any>({});
+
+const newProductPassRateOptions = computed(() => {
+  const pass = finishSummary.value.passCount || 0;
+  const fail = finishSummary.value.failCount || 0;
+
+  return {
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    legend: { bottom: 0 },
+    series: [{
+      name: "新品合格率",
+      type: "pie",
+      radius: ["40%", "70%"],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 4, borderColor: "var(--el-bg-color)", borderWidth: 2 },
+      label: { show: true, formatter: "{b}\n{d}%" },
+      data: [
+        { value: pass, name: "合格", itemStyle: { color: "#67C23A" } },
+        { value: fail, name: "不良", itemStyle: { color: "#F56C6C" } },
+      ],
+    }],
+  };
+});
+
+const repairProductPassRateOptions = computed(() => {
+  const pass = finishSummary.value.repairPassCount || 0;
+  const fail = finishSummary.value.repairFailCount || 0;
+
+  return {
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    legend: { bottom: 0 },
+    series: [{
+      name: "返修品合格率",
+      type: "pie",
+      radius: ["40%", "70%"],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 4, borderColor: "var(--el-bg-color)", borderWidth: 2 },
+      label: { show: true, formatter: "{b}\n{d}%" },
+      data: [
+        { value: pass, name: "合格", itemStyle: { color: "#13C2C2" } },
+        { value: fail, name: "不良", itemStyle: { color: "#F56C6C" } },
+      ],
+    }],
+  };
+});
+
+const outboundRatioOptions = computed(() => {
+  const sale = finishSummary.value.stockOutSaleCount || 0;
+  const dev = finishSummary.value.stockOutDevCount || 0;
+  const total = sale + dev;
+
+  return {
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    legend: { bottom: 0 },
+    series: [{
+      name: "出库类型占比",
+      type: "pie",
+      radius: ["40%", "70%"],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 4, borderColor: "var(--el-bg-color)", borderWidth: 2 },
+      label: { show: true, formatter: total > 0 ? "{b}\n{d}%" : "{b}\n0%" },
+      data: [
+        { value: sale, name: "外销", itemStyle: { color: "#3B82F6" } },
+        { value: dev, name: "研发", itemStyle: { color: "#F97316" } },
+      ],
+    }],
+  };
+});
 
 const materialHealthPercent = computed(() => {
   if (materialStats.value.totalCount === 0) return 0;
@@ -1025,6 +1332,7 @@ const fetchFinishData = async () => {
     const res = await getFinishProductDailyStats({
       start_date: finishDateRange.value[0],
       end_date: finishDateRange.value[1],
+      bom_type: bomType.value,
     });
     finishSummary.value = {
       ...emptyFinishSummary(),
@@ -1042,7 +1350,8 @@ const fetchFinishData = async () => {
 };
 
 const resetFinishDateRange = () => {
-  finishDateRange.value = createDefaultFinishDateRange();
+  periodType.value = "30d";
+  finishDateRange.value = computeDateRangeByPeriod("30d");
   fetchFinishData();
 };
 
@@ -1296,6 +1605,9 @@ const handleBoardTypeChange = () => {
 
 onMounted(() => {
   loadColumnSettings();
+  dictStore.loadDictItems('storage_status', true);
+  periodType.value = "30d";
+  finishDateRange.value = computeDateRangeByPeriod("30d");
   fetchFinishData();
 });
 </script>

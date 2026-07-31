@@ -17,11 +17,15 @@ class FinishProduct(models.Model):
 
     INVENTORY_NOT_IN = 0
     INVENTORY_IN = 1
-    INVENTORY_OUT = 2
+    INVENTORY_OUT_SALE = 2
+    INVENTORY_OUT_DEV = 3
+    INVENTORY_CONSUME = 4
     INVENTORY_STOCK_CHOICES = (
         (INVENTORY_NOT_IN, "未入库"),
         (INVENTORY_IN, "入库"),
-        (INVENTORY_OUT, "出库"),
+        (INVENTORY_OUT_SALE, "出库（外销）"),
+        (INVENTORY_OUT_DEV, "出库（研发）"),
+        (INVENTORY_CONSUME, "组件消耗"),
     )
 
     REPAIR_NEW = 0
@@ -86,6 +90,13 @@ class FinishProduct(models.Model):
         default=REPAIR_NEW,
         choices=REPAIR_CHOICES,
         verbose_name="是否返修",
+    )
+    parent_sn_code = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="父级SN码",
+        help_text="记录该成品所属的父级产品SN码",
     )
 
     class Meta:

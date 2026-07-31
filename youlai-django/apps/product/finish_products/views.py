@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from apps.product.boms.models import AssemblyRecipe, BomList
-from apps.product.products.models import Product
+from apps.product.products.models import Product, WarehouseLog
 from core.datetime import format_local_datetime, local_date_key, local_day_range_datetimes
 from core.datetime import make_local_aware, parse_local_datetime_text
 
@@ -80,6 +80,8 @@ def _empty_daily_bucket(date_str):
         "pendingRepairCount": 0,
         "stockInCount": 0,
         "stockOutCount": 0,
+        "stockOutSaleCount": 0,
+        "stockOutDevCount": 0,
     }
 
 
@@ -97,6 +99,19 @@ def _parse_optional_datetime(body, field_keys, field_label):
     if parsed is None:
         raise ValueError(f"{field_label}格式无效，请使用 YYYY-MM-DD HH:MM:SS")
     return make_local_aware(parsed), True
+
+
+def _filter_by_bom_type(qs, bom_type):
+    """根据BOM类型筛选成品查询集。bom_type: 'joint'=关节(0), 'arm'=机械臂(1), 其他值不筛选"""
+    if not bom_type:
+        return qs
+    if bom_type in ("joint", "0"):
+        bom_ids = list(BomList.objects.filter(type=BomList.TYPE_JOINT, is_del=0).values_list("id", flat=True))
+        return qs.filter(bom_id__in=bom_ids)
+    elif bom_type in ("arm", "1"):
+        bom_ids = list(BomList.objects.filter(type=BomList.TYPE_ROBOT_ARM, is_del=0).values_list("id", flat=True))
+        return qs.filter(bom_id__in=bom_ids)
+    return qs
 
 
 def _increment_daily_count(daily_map, summary, day, count_key):
@@ -171,6 +186,8 @@ def finish_product_daily_stats(request):
     if (end_date - start_date).days > 366:
         return JsonResponse({"code": "400", "msg": "日期范围不能超过366天"})
 
+    bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
+
     daily_map = {}
     current = start_date
     while current <= end_date:
@@ -187,6 +204,7 @@ def finish_product_daily_stats(request):
         create_time__gte=start_dt,
         create_time__lte=end_dt,
     )
+    create_qs = _filter_by_bom_type(create_qs, bom_type)
 
     for item in create_qs:
         day = local_date_key(item.create_time)
@@ -204,6 +222,7 @@ def finish_product_daily_stats(request):
         test_time__gte=start_dt,
         test_time__lte=end_dt,
     )
+    test_qs = _filter_by_bom_type(test_qs, bom_type)
     for item in test_qs:
         _accumulate_test_time_stats(item, daily_map, summary)
 
@@ -212,6 +231,7 @@ def finish_product_daily_stats(request):
         update_time__gte=start_dt,
         update_time__lte=end_dt,
     )
+    update_qs = _filter_by_bom_type(update_qs, bom_type)
 
     for item in update_qs:
         day = local_date_key(item.update_time)
@@ -229,7 +249,9 @@ def finish_product_daily_stats(request):
         stock_in_time__isnull=False,
         stock_in_time__gte=start_dt,
         stock_in_time__lte=end_dt,
+        inventory_stock=FinishProduct.INVENTORY_IN,
     )
+    stock_in_qs = _filter_by_bom_type(stock_in_qs, bom_type)
     for item in stock_in_qs:
         day = local_date_key(item.stock_in_time)
         _increment_daily_count(daily_map, summary, day, "stockInCount")
@@ -238,13 +260,25 @@ def finish_product_daily_stats(request):
         stock_out_time__isnull=False,
         stock_out_time__gte=start_dt,
         stock_out_time__lte=end_dt,
+        inventory_stock__in=[FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV],
     )
+    stock_out_qs = _filter_by_bom_type(stock_out_qs, bom_type)
     for item in stock_out_qs:
         day = local_date_key(item.stock_out_time)
-        _increment_daily_count(daily_map, summary, day, "stockOutCount")
+        bucket = daily_map.get(day)
+        if not bucket:
+            continue
+        bucket["stockOutCount"] += 1
+        summary["stockOutCount"] += 1
+        if item.inventory_stock == FinishProduct.INVENTORY_OUT_DEV:
+            bucket["stockOutDevCount"] += 1
+            summary["stockOutDevCount"] += 1
+        else:
+            bucket["stockOutSaleCount"] += 1
+            summary["stockOutSaleCount"] += 1
 
-    current_stock_in_count = FinishProduct.objects.filter(
-        inventory_stock=FinishProduct.INVENTORY_IN
+    current_stock_in_count = _filter_by_bom_type(
+        FinishProduct.objects.filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type
     ).count()
 
     return JsonResponse(
@@ -257,6 +291,7 @@ def finish_product_daily_stats(request):
                 "daily": list(daily_map.values()),
                 "startDate": start_date.isoformat(),
                 "endDate": end_date.isoformat(),
+                "bomType": bom_type or "all",
             },
         }
     )
@@ -342,28 +377,29 @@ def _serialize_finish_product(item, bom_map=None):
         material_code = bom.material_code or ""
 
     return {
-        "id": item.id,
-        "sn_code": item.sn_code or "",
-        "bom_id": item.bom_id,
-        "bom_type": bom_type,
-        "bom_type_name": bom_type_name,
-        "bom_model": bom_model,
-        "bom_name": bom_name,
-        "material_code": material_code,
-        "name": item.name,
-        "status": item.status,
-        "status_name": item.get_status_display(),
-        "description": item.description or "",
-        "create_time": format_local_datetime(item.create_time) or "",
-        "update_time": format_local_datetime(item.update_time) or "",
-        "test_time": format_local_datetime(item.test_time) or "",
-        "stock_in_time": format_local_datetime(item.stock_in_time) or "",
-        "stock_out_time": format_local_datetime(item.stock_out_time) or "",
-        "inventory_stock": item.inventory_stock,
-        "inventory_stock_name": item.get_inventory_stock_display(),
-        "repair": item.repair,
-        "repair_name": item.get_repair_display(),
-    }
+            "id": item.id,
+            "sn_code": item.sn_code or "",
+            "bom_id": item.bom_id,
+            "bom_type": bom_type,
+            "bom_type_name": bom_type_name,
+            "bom_model": bom_model,
+            "bom_name": bom_name,
+            "material_code": material_code,
+            "parent_sn_code": item.parent_sn_code or "",
+            "name": item.name,
+            "status": item.status,
+            "status_name": item.get_status_display(),
+            "description": item.description or "",
+            "create_time": format_local_datetime(item.create_time) or "",
+            "update_time": format_local_datetime(item.update_time) or "",
+            "test_time": format_local_datetime(item.test_time) or "",
+            "stock_in_time": format_local_datetime(item.stock_in_time) or "",
+            "stock_out_time": format_local_datetime(item.stock_out_time) or "",
+            "inventory_stock": item.inventory_stock,
+            "inventory_stock_name": item.get_inventory_stock_display(),
+            "repair": item.repair,
+            "repair_name": item.get_repair_display(),
+        }
 
 
 BOARD_DETAIL_CATEGORIES = {
@@ -378,6 +414,8 @@ BOARD_DETAIL_CATEGORIES = {
     "pendingRepairCount",
     "stockInCount",
     "stockOutCount",
+    "stockOutSaleCount",
+    "stockOutDevCount",
     "currentStockInCount",
 }
 
@@ -420,9 +458,16 @@ def _apply_board_category_filter(qs, category):
             status=FinishProduct.STATUS_UNTESTED,
         )
     if category == "stockInCount":
-        return qs.filter(stock_in_time__isnull=False)
+        return qs.filter(stock_in_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_IN)
     if category == "stockOutCount":
-        return qs.filter(stock_out_time__isnull=False)
+        return qs.filter(
+            stock_out_time__isnull=False,
+            inventory_stock__in=[FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV],
+        )
+    if category == "stockOutSaleCount":
+        return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_SALE)
+    if category == "stockOutDevCount":
+        return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_DEV)
     if category == "currentStockInCount":
         return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
     return qs.none()
@@ -433,6 +478,8 @@ def finish_product_board_detail(request):
     category = (request.GET.get("category") or "").strip()
     if category not in BOARD_DETAIL_CATEGORIES:
         return JsonResponse({"code": "400", "msg": "无效的统计类别"})
+
+    bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
 
     page_num, page_size = _parse_page_params(request)
     end_date = _parse_date_param(
@@ -455,6 +502,7 @@ def finish_product_board_detail(request):
 
     qs = FinishProduct.objects.all()
     qs = _apply_board_category_filter(qs, category)
+    qs = _filter_by_bom_type(qs, bom_type)
 
     if category == "currentStockInCount":
         pass
@@ -464,7 +512,7 @@ def finish_product_board_detail(request):
         qs = _apply_field_date_range(qs, "test_time", start_date, end_date)
     elif category == "stockInCount":
         qs = _apply_field_date_range(qs, "stock_in_time", start_date, end_date)
-    elif category == "stockOutCount":
+    elif category == "stockOutCount" or category == "stockOutSaleCount" or category == "stockOutDevCount":
         qs = _apply_field_date_range(qs, "stock_out_time", start_date, end_date)
     else:
         qs = _apply_field_date_range(qs, "update_time", start_date, end_date)
@@ -474,7 +522,7 @@ def finish_product_board_detail(request):
         order_fields = ["-test_time", "-id"]
     elif category == "stockInCount":
         order_fields = ["-stock_in_time", "-id"]
-    elif category == "stockOutCount":
+    elif category in ("stockOutCount", "stockOutSaleCount", "stockOutDevCount"):
         order_fields = ["-stock_out_time", "-id"]
 
     total = qs.count()
@@ -530,7 +578,7 @@ def finish_product_list(request):
             qs = qs.none()
     if status in ("0", "1", "2", "3"):
         qs = qs.filter(status=int(status))
-    if inventory_stock in ("0", "1", "2"):
+    if inventory_stock in ("0", "1", "2", "3", "4"):
         qs = qs.filter(inventory_stock=int(inventory_stock))
     if repair in ("0", "1"):
         qs = qs.filter(repair=int(repair))
@@ -575,6 +623,59 @@ def finish_product_list(request):
     )
 
 
+def _sync_product_inventory(bom, inventory_action):
+    """同步成品库存到产品库存表
+    
+    Args:
+        bom: BomList对象
+        inventory_action: 'in' 入库, 'out' 出库
+    """
+    if not bom.material_code:
+        return
+    
+    material_code = bom.material_code.strip()
+    if not material_code:
+        return
+    
+    bom_type = bom.type
+    
+    if bom_type == 0:
+        product_type = 4
+    elif bom_type == 1:
+        product_type = 5
+    else:
+        product_type = 2
+    
+    quantity = 1
+    
+    try:
+        product = Product.objects.get(material_code=material_code, is_del=0)
+        current = product.quantity if product.quantity is not None else 0
+        
+        if inventory_action == "out" and current < quantity:
+            raise ValueError(f"库存不足：物料编码「{material_code}」当前库存 {current}，需要出库 {quantity}")
+        
+        if inventory_action == "in":
+            product.quantity = current + quantity
+        else:
+            product.quantity = current - quantity
+        
+        product.type = product_type
+        product.save(update_fields=["quantity", "type", "updated_at"])
+    except Product.DoesNotExist:
+        if inventory_action == "out":
+            raise ValueError(f"物料编码「{material_code}」不存在，无法出库")
+        
+        Product.objects.create(
+            name=bom.bom_name or bom.bom_model,
+            type=product_type,
+            material_code=material_code,
+            quantity=quantity,
+            procurement_cycle=1,
+            is_del=0,
+        )
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def update_finish_product(request):
@@ -585,6 +686,16 @@ def update_finish_product(request):
             return JsonResponse({"code": "400", "msg": "缺少成品 ID"})
 
         item = FinishProduct.objects.get(id=int(item_id))
+        
+        old_inventory_stock = item.inventory_stock
+        old_parent_sn_code = item.parent_sn_code
+
+        # 获取关联的BOM类型，用于判断是否为关节
+        try:
+            bom = BomList.objects.get(id=item.bom_id, is_del=0)
+            bom_type = bom.type
+        except BomList.DoesNotExist:
+            bom_type = None
 
         if "sn_code" in body:
             sn_code = (body.get("sn_code") or "").strip()
@@ -601,11 +712,45 @@ def update_finish_product(request):
                     item.test_time = timezone.now()
             item.status = status
 
+        # 先处理父级SN码变更（影响后续库存状态验证）
+        new_parent_sn_code = item.parent_sn_code
+        if "parent_sn_code" in body or "parentSnCode" in body:
+            new_parent_sn_code = (body.get("parent_sn_code", body.get("parentSnCode")) or "").strip() or None
+
+        is_joint = (bom_type == 0)  # bom_type=0 表示关节
+
+        # ========== 核心逻辑：关节有父级SN码时，强制设置为组件消耗状态 ==========
+        # 先自动设置 inventory_stock，确保后续校验和同步使用正确的值
+        if is_joint and new_parent_sn_code:
+            if not old_parent_sn_code or item.inventory_stock != FinishProduct.INVENTORY_CONSUME:
+                if "inventory_stock" in body:
+                    body["inventory_stock"] = FinishProduct.INVENTORY_CONSUME
+                inventory_stock = FinishProduct.INVENTORY_CONSUME
+                item.inventory_stock = FinishProduct.INVENTORY_CONSUME
+        # 清除父级SN码时，如果库存状态是组件消耗，需要恢复
+        if is_joint and not new_parent_sn_code and item.inventory_stock == FinishProduct.INVENTORY_CONSUME:
+            if "inventory_stock" in body:
+                body["inventory_stock"] = FinishProduct.INVENTORY_IN if old_inventory_stock == FinishProduct.INVENTORY_CONSUME else old_inventory_stock
+            inventory_stock = FinishProduct.INVENTORY_IN if old_inventory_stock == FinishProduct.INVENTORY_CONSUME else old_inventory_stock
+            item.inventory_stock = inventory_stock
+
         if "inventory_stock" in body:
             inventory_stock = int(body.get("inventory_stock"))
             valid_inventory = {c[0] for c in FinishProduct.INVENTORY_STOCK_CHOICES}
             if inventory_stock not in valid_inventory:
                 return JsonResponse({"code": "400", "msg": "库存状态值无效"})
+            # 如果是关节（bom_type=0）且有父级SN码，库存状态只能为组件消耗
+            if is_joint and new_parent_sn_code and inventory_stock != FinishProduct.INVENTORY_CONSUME:
+                return JsonResponse({"code": "400", "msg": "关节有关联父级时，库存状态只能为「组件消耗」"})
+            # 如果清除了父级SN码，库存状态不能为组件消耗
+            if is_joint and not new_parent_sn_code and inventory_stock == FinishProduct.INVENTORY_CONSUME:
+                return JsonResponse({"code": "400", "msg": "清除父级SN码后，库存状态不能为「组件消耗」"})
+            # 状态流转校验：未入库的成品不能直接出库，必须先入库
+            if (
+                old_inventory_stock == FinishProduct.INVENTORY_NOT_IN
+                and inventory_stock in (FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV)
+            ):
+                return JsonResponse({"code": "400", "msg": "未入库的成品不能直接出库，请先办理入库手续"})
             item.inventory_stock = inventory_stock
 
         if "repair" in body:
@@ -617,6 +762,12 @@ def update_finish_product(request):
 
         if "description" in body:
             item.description = (body.get("description") or "").strip() or None
+
+        if "parent_sn_code" in body or "parentSnCode" in body:
+            item.parent_sn_code = new_parent_sn_code
+            # 关节有父级SN码时，强制设置为组件消耗（已在上方核心逻辑处理，此处作为兜底）
+            if is_joint and new_parent_sn_code and item.inventory_stock != FinishProduct.INVENTORY_CONSUME:
+                item.inventory_stock = FinishProduct.INVENTORY_CONSUME
 
         if "create_time" in body or "createTime" in body:
             create_time_raw = body.get("create_time", body.get("createTime"))
@@ -641,6 +792,100 @@ def update_finish_product(request):
             if should_update:
                 setattr(item, model_field, parsed_value)
 
+        # 自动同步出入库时间戳（作为显式字段的兜底）
+        # 当用户改变库存状态为「入库/出库」但未显式填写对应时间时，自动记录当前时间
+        if old_inventory_stock != item.inventory_stock:
+            now = timezone.now()
+            if item.inventory_stock == FinishProduct.INVENTORY_IN:
+                if not item.stock_in_time:
+                    item.stock_in_time = now
+            elif item.inventory_stock in (
+                FinishProduct.INVENTORY_OUT_SALE,
+                FinishProduct.INVENTORY_OUT_DEV,
+            ):
+                if not item.stock_out_time:
+                    item.stock_out_time = now
+
+        if item.inventory_stock in (
+            FinishProduct.INVENTORY_IN,
+            FinishProduct.INVENTORY_OUT_SALE,
+            FinishProduct.INVENTORY_OUT_DEV,
+        ):
+            if not item.sn_code:
+                return JsonResponse(
+                    {"code": "400", "msg": "入库或出库前必须先填写SN码"}
+                )
+            if item.status != FinishProduct.STATUS_PASS:
+                return JsonResponse(
+                    {"code": "400", "msg": "入库或出库时，测试状态必须为测试合格"}
+                )
+        elif item.inventory_stock == FinishProduct.INVENTORY_CONSUME:
+            # 组件消耗状态：需要SN码，但不需要测试合格
+            if not item.sn_code:
+                return JsonResponse(
+                    {"code": "400", "msg": "组件消耗状态必须填写SN码"}
+                )
+
+        inventory_action = None
+        warehouse_log_type = None
+        if old_inventory_stock != item.inventory_stock:
+            if item.inventory_stock == FinishProduct.INVENTORY_IN:
+                # 如果是从组件消耗变为入库，需要恢复库存
+                if old_inventory_stock == FinishProduct.INVENTORY_CONSUME:
+                    inventory_action = "in"
+                    warehouse_log_type = WarehouseLog.STORAGE_IN
+                else:
+                    inventory_action = "in"
+                    warehouse_log_type = WarehouseLog.STORAGE_IN
+            elif item.inventory_stock in (FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV):
+                inventory_action = "out"
+                if item.inventory_stock == FinishProduct.INVENTORY_OUT_DEV:
+                    warehouse_log_type = WarehouseLog.STORAGE_OUT_RANDD
+                else:
+                    warehouse_log_type = WarehouseLog.STORAGE_OUT_SALE
+            # 变为组件消耗状态：减少库存
+            elif item.inventory_stock == FinishProduct.INVENTORY_CONSUME:
+                inventory_action = "out"
+                warehouse_log_type = WarehouseLog.STORAGE_OUT_SALE
+            # 从组件消耗变为其他状态（非入库/出库）：库存不变（组件消耗已减少过一次）
+            elif old_inventory_stock == FinishProduct.INVENTORY_CONSUME:
+                pass
+
+        if old_parent_sn_code != item.parent_sn_code:
+            # 组件消耗状态的关节，不因为父级SN码变化而额外触发库存操作
+            # 但如果库存状态不是组件消耗，才执行原有的逻辑
+            if item.inventory_stock != FinishProduct.INVENTORY_CONSUME:
+                if item.inventory_stock == FinishProduct.INVENTORY_IN:
+                    if old_parent_sn_code is None and item.parent_sn_code:
+                        inventory_action = "out"
+                    elif old_parent_sn_code and item.parent_sn_code is None:
+                        inventory_action = "in"
+
+        if inventory_action:
+            try:
+                bom = BomList.objects.get(id=item.bom_id, is_del=0)
+            except BomList.DoesNotExist:
+                return JsonResponse({"code": "400", "msg": "关联 BOM 不存在，无法同步库存"})
+            
+            with transaction.atomic():
+                _sync_product_inventory(bom, inventory_action)
+                
+                if warehouse_log_type:
+                    user_desc = (body.get("warehouse_log_description") or body.get("warehouseLogDescription") or "").strip()
+                    base_desc = f"BOM: {bom.bom_model or ''} {bom.bom_name or ''}, 操作: {'入库' if inventory_action == 'in' else '出库'}"
+                    if user_desc:
+                        full_desc = f"{base_desc} | {user_desc}"
+                    else:
+                        full_desc = base_desc
+                    WarehouseLog.objects.create(
+                        name=bom.bom_name or bom.bom_model or item.name,
+                        sn_code=item.sn_code or "",
+                        material_code=bom.material_code or "",
+                        storage_status=warehouse_log_type,
+                        count=1,
+                        description=full_desc,
+                    )
+
         item.update_time = timezone.now()
         item.save()
 
@@ -653,10 +898,51 @@ def update_finish_product(request):
         )
     except FinishProduct.DoesNotExist:
         return JsonResponse({"code": "404", "msg": "成品不存在"})
+    except BomList.DoesNotExist:
+        return JsonResponse({"code": "400", "msg": "关联 BOM 不存在"})
+    except ValueError as e:
+        return JsonResponse({"code": "400", "msg": str(e)})
     except (TypeError, ValueError):
         return JsonResponse({"code": "400", "msg": "参数格式错误"})
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"更新失败: {str(e)}"})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def check_joint_stock_consistency(request):
+    """检查关节库存数量与成品关节数量是否一致"""
+    try:
+        from apps.product.products.models import Product
+        from apps.product.products.constants import PRODUCT_TYPE_JOINT
+        from apps.product.boms.models import BomList
+        from django.db import models
+        
+        stock_joint_total = Product.objects.filter(
+            type=PRODUCT_TYPE_JOINT,
+            is_del=0
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        
+        finish_joint_total = FinishProduct.objects.filter(
+            bom_id__in=BomList.objects.filter(type=BomList.TYPE_JOINT, is_del=0).values_list('id', flat=True),
+            parent_sn_code__isnull=True,
+            status=FinishProduct.STATUS_PASS,
+            inventory_stock=FinishProduct.INVENTORY_IN,
+        ).count()
+        
+        is_consistent = stock_joint_total == finish_joint_total
+        
+        return JsonResponse({
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "stock_joint_total": stock_joint_total,
+                "finish_joint_total": finish_joint_total,
+                "is_consistent": is_consistent,
+            },
+        })
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"检查失败: {str(e)}"})
 
 
 @csrf_exempt
@@ -750,3 +1036,82 @@ def rollback_finish_product(request):
         return JsonResponse({"code": "400", "msg": str(e)})
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"回退失败: {str(e)}"})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def warehouse_log_list(request):
+    """出入库记录列表"""
+    try:
+        sn_code = (request.GET.get("sn_code") or "").strip()
+        material_code = (request.GET.get("material_code") or "").strip()
+        storage_status = request.GET.get("storage_status")
+        start_date = request.GET.get("start_date")
+        end_date = request.GET.get("end_date")
+        
+        try:
+            page_num = int(request.GET.get("pageNum", 1))
+        except (TypeError, ValueError):
+            page_num = 1
+        try:
+            page_size = int(request.GET.get("pageSize", 20))
+        except (TypeError, ValueError):
+            page_size = 20
+        if page_num < 1:
+            page_num = 1
+        if page_size < 1:
+            page_size = 100
+
+        qs = WarehouseLog.objects.all()
+        
+        if sn_code:
+            qs = qs.filter(sn_code__icontains=sn_code)
+        if material_code:
+            qs = qs.filter(material_code__icontains=material_code)
+        if storage_status:
+            try:
+                status_val = int(storage_status)
+                qs = qs.filter(storage_status=status_val)
+            except (TypeError, ValueError):
+                pass
+        if start_date:
+            try:
+                start = datetime.strptime(str(start_date).strip()[:10], "%Y-%m-%d").date()
+                qs = qs.filter(created_at__date__gte=start)
+            except (TypeError, ValueError):
+                pass
+        if end_date:
+            try:
+                end = datetime.strptime(str(end_date).strip()[:10], "%Y-%m-%d").date()
+                qs = qs.filter(created_at__date__lte=end)
+            except (TypeError, ValueError):
+                pass
+
+        total = qs.count()
+        start = (page_num - 1) * page_size
+        items = list(qs.order_by("-created_at")[start : start + page_size])
+        
+        data = [{
+            "id": item.id,
+            "name": item.name,
+            "sn_code": item.sn_code,
+            "material_code": item.material_code,
+            "storage_status": item.storage_status,
+            "storage_status_name": item.get_storage_status_display(),
+            "count": item.count,
+            "description": item.description,
+            "created_at": format_local_datetime(item.created_at),
+        } for item in items]
+        
+        return JsonResponse({
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "list": data,
+                "total": total,
+                "pageNum": page_num,
+                "pageSize": page_size,
+            },
+        })
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"获取出入库记录失败: {str(e)}"})

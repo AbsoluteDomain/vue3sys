@@ -73,7 +73,7 @@ export const constantRoutes: RouteRecordRaw[] = [
     ],
   },
 
-  // 产品 BOM 静态路由（保证菜单未配好时也能从库存页跳转）
+  // 产品模块静态路由（保证菜单未配好时也能跳转）
   {
     path: "/product",
     component: Layout,
@@ -84,6 +84,24 @@ export const constantRoutes: RouteRecordRaw[] = [
         name: "productBom",
         component: () => import("@/views/product/bom/index.vue"),
         meta: { title: "产品BOM管理" },
+      },
+      {
+        path: "repair",
+        name: "repair",
+        component: () => import("@/views/product/repair/index.vue"),
+        meta: { title: "返修管理" },
+      },
+      {
+        path: "warehouseLog",
+        name: "warehouseLog",
+        component: () => import("@/views/product/warehouseLog/index.vue"),
+        meta: { title: "出入库记录" },
+      },
+      {
+        path: "stockAlert",
+        name: "stockAlert",
+        component: () => import("@/views/product/stockAlert/index.vue"),
+        meta: { title: "库存预警" },
       },
     ],
   },

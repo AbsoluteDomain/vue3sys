@@ -42,3 +42,113 @@ export function adjustProductStock(data: { id: number; type: 'in' | 'out'; quant
     data
   })
 }
+
+export function getBomList(params: any) {
+  return request({
+    url: '/api/v1/bom/list/',
+    method: 'get',
+    params
+  })
+}
+
+export function calculateProductionRequirements(data: any) {
+  return request({
+    url: '/api/v1/production-plan/calculate',
+    method: 'post',
+    data
+  })
+}
+
+export function getProductionPlan(date: string) {
+  return request({
+    url: '/api/v1/production-plan/get',
+    method: 'get',
+    params: { date }
+  })
+}
+
+export function saveProductionPlan(data: any) {
+  return request({
+    url: '/api/v1/production-plan/save',
+    method: 'post',
+    data
+  })
+}
+
+export function listProductionPlan(params?: any) {
+  return request({
+    url: '/api/v1/production-plan/list',
+    method: 'get',
+    params
+  })
+}
+
+export function listRepairProducts(params?: any) {
+  return request({
+    url: '/api/v1/repair/list/',
+    method: 'get',
+    params
+  })
+}
+
+export function getProductRepairHistory(params: { product_id: number }) {
+  return request({
+    url: '/api/v1/repair/history/',
+    method: 'get',
+    params
+  })
+}
+
+export function createRepair(data: { product_id: number; repair_info: string }) {
+  return request({
+    url: '/api/v1/repair/create/',
+    method: 'post',
+    data
+  })
+}
+
+export function getProductsWithSn(params?: any) {
+  return request({
+    url: '/api/v1/repair/products/',
+    method: 'get',
+    params
+  })
+}
+
+export function deleteRepair(data: { id: number }) {
+  return request({
+    url: '/api/v1/repair/delete/',
+    method: 'post',
+    data
+  })
+}
+
+export function createWarehouseLog(data: {
+  sn_code?: string
+  material_code?: string
+  storage_status: number
+  count: number
+  description?: string
+}) {
+  return request({
+    url: '/api/v1/product/warehouse-log/create/',
+    method: 'post',
+    data
+  })
+}
+
+export function listWarehouseLog(params: any) {
+  return request({
+    url: '/api/v1/product/warehouse-log/list/',
+    method: 'get',
+    params
+  })
+}
+
+export function listStockAlert(params?: any) {
+  return request({
+    url: '/api/v1/product/stock-alert/list/',
+    method: 'get',
+    params
+  })
+}

@@ -358,8 +358,9 @@ def data_permission_required(user_or_token, operation: str = None, target_user_i
     if operation == "select":
         return get_viewable_user_ids(user)
     elif operation in ("add", "update", "delete"):
+        # 如果目标用户ID为空（系统创建的数据），则允许操作
         if target_user_id is None:
-            raise ValidationError({"code": "A0402", "msg": "未提供目标用户ID"})
+            return True
         return has_permission_to_user(user, target_user_id)
 
     raise ValidationError({"code": "A0402", "msg": f"不支持的操作: {operation}"})

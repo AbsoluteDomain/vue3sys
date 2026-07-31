@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     :title="dialogTitle"
-    width="420px"
+    width="480px"
     destroy-on-close
     @closed="handleClosed"
   >
@@ -23,6 +23,22 @@
           style="width: 100%"
         />
       </el-form-item>
+      <el-form-item v-if="stockType === 'out'" label="出库类型" prop="stockOutType">
+        <el-radio-group v-model="formData.stockOutType">
+          <el-radio value="2">外销</el-radio>
+          <el-radio value="3">研发</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item :label="stockType === 'in' ? '入库信息' : '出库信息'" prop="description">
+        <el-input
+          v-model="formData.description"
+          type="textarea"
+          :rows="3"
+          maxlength="500"
+          show-word-limit
+          :placeholder="stockType === 'in' ? '请输入入库信息描述' : '请输入出库信息描述'"
+        />
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
@@ -36,7 +52,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { adjustProductStock } from '@/api/product'
+import { adjustProductStock, createWarehouseLog } from '@/api/product'
 
 const emit = defineEmits(['success'])
 
@@ -48,13 +64,17 @@ const productId = ref(null)
 const productName = ref('')
 const currentStock = ref(null)
 const unit = ref('')
+const materialCode = ref('')
 
 const formData = reactive({
-  quantity: 1
+  quantity: 1,
+  description: '',
+  stockOutType: '2' // 默认外销
 })
 
 const formRules = {
-  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }]
+  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
+  description: [{ required: true, message: '请填写出入库信息', trigger: 'blur' }]
 }
 
 const dialogTitle = computed(() => (stockType.value === 'in' ? '产品入库' : '产品出库'))
@@ -70,13 +90,18 @@ const open = (row, type) => {
   productName.value = row.name
   currentStock.value = row.quantity ?? 0
   unit.value = row.unit || ''
+  materialCode.value = row.material_code || ''
   formData.quantity = 1
+  formData.description = ''
+  formData.stockOutType = '2' // 默认外销
   visible.value = true
 }
 
 const handleClosed = () => {
   formRef.value?.resetFields()
   formData.quantity = 1
+  formData.description = ''
+  formData.stockOutType = '2'
 }
 
 const handleSubmit = () => {
@@ -87,11 +112,23 @@ const handleSubmit = () => {
       return
     }
     submitting.value = true
+    // 入库=1，出库(外销)=2，出库(研发)=3
+    const storageStatus = stockType.value === 'in' ? 1 : parseInt(formData.stockOutType, 10)
+    const warehouseLogData = {
+      name: productName.value,
+      material_code: materialCode.value?.trim() || undefined,
+      storage_status: storageStatus,
+      count: formData.quantity,
+      description: formData.description.trim()
+    }
     adjustProductStock({
       id: productId.value,
       type: stockType.value,
       quantity: formData.quantity
     })
+      .then(() => {
+        return createWarehouseLog(warehouseLogData)
+      })
       .then(() => {
         ElMessage.success(stockType.value === 'in' ? '入库成功' : '出库成功')
         emit('success')

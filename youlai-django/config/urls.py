@@ -36,4 +36,6 @@ urlpatterns = [
     re_path(r"^api/v1/product/?", include("apps.product.products.urls")),
     re_path(r"^api/v1/bom/?", include("apps.product.boms.urls")),
     re_path(r"^api/v1/finish-product/?", include("apps.product.finish_products.urls")),
+    re_path(r"^api/v1/production-plan/?", include("apps.product.production_plan.urls")),
+    re_path(r"^api/v1/repair/?", include("apps.product.repair.urls")),
 ]

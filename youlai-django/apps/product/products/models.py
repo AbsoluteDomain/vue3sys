@@ -56,16 +56,52 @@ class Product(models.Model):
     # 9. alert_quantity: int, 允许空
     alert_quantity = models.IntegerField(null=True, blank=True, verbose_name="预警数量")
 
-    # 10. is_del: 逻辑删除标记，0=正常，1=已删除
+    # 10. procurement_cycle: decimal, 采购周期（天）
+    procurement_cycle = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0, verbose_name="采购周期(天)")
+
+    # 11. is_del: 逻辑删除标记，0=正常，1=已删除
     is_del = models.IntegerField(default=0, verbose_name="删除标记")
 
     class Meta:
         # 关键点：指定数据库中的表名
         # 根据你的截图，表名似乎是 'products'
         db_table = 'products'
+        app_label = 'products'
         verbose_name = "产品"
         verbose_name_plural = "产品管理"
 
     def __str__(self):
         # 定义打印对象时显示的字符，这里显示产品名
         return self.name
+
+
+class WarehouseLog(models.Model):
+    """
+    出入库日志表 (对应数据库表: warehouse_log)
+    """
+    STORAGE_IN = 1       # 入库
+    STORAGE_OUT_SALE = 2  # 出库(外销)
+    STORAGE_OUT_RANDD = 3  # 出库(研发)
+
+    STORAGE_CHOICES = (
+        (STORAGE_IN, '入库'),
+        (STORAGE_OUT_SALE, '出库(外销)'),
+        (STORAGE_OUT_RANDD, '出库(研发)'),
+    )
+
+    id = models.AutoField(primary_key=True, verbose_name="ID")
+    name = models.CharField(max_length=255, null=True, blank=True, verbose_name="名称")
+    sn_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="SN码")
+    material_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="物料编码")
+    storage_status = models.IntegerField(choices=STORAGE_CHOICES, verbose_name="出入库状态")
+    count = models.IntegerField(default=1, verbose_name="数量")
+    description = models.TextField(null=True, blank=True, verbose_name="出入库信息")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        db_table = 'warehouse_log'
+        verbose_name = "出入库日志"
+        verbose_name_plural = "出入库日志管理"
+
+    def __str__(self):
+        return f"{self.sn_code or self.material_code} - {self.get_storage_status_display()}"

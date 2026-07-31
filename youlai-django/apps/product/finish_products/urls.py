@@ -8,4 +8,6 @@ urlpatterns = [
     path("board-detail/", views.finish_product_board_detail, name="finish_product_board_detail"),
     path("update/", views.update_finish_product, name="update_finish_product"),
     path("rollback/", views.rollback_finish_product, name="rollback_finish_product"),
+    path("check-joint-consistency/", views.check_joint_stock_consistency, name="check_joint_stock_consistency"),
+    path("warehouse-log/list/", views.warehouse_log_list, name="warehouse_log_list"),
 ]

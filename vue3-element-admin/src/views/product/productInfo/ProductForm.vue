@@ -17,8 +17,8 @@
       :rules="formRules"
       label-width="80px"
     >
-      <el-form-item label="产品名称" prop="name">
-        <el-input v-model="formData.name" placeholder="请输入产品名称" />
+      <el-form-item label="零件名称" prop="name">
+        <el-input v-model="formData.name" placeholder="请输入零件名称" />
       </el-form-item>
 
       <el-form-item label="图号" prop="draw_code">
@@ -54,6 +54,11 @@
       
       <el-form-item label="预警库存" prop="alert_quantity">
         <el-input-number v-model="formData.alert_quantity" :min="0" />
+      </el-form-item>
+
+      <el-form-item label="采购周期" prop="procurement_cycle">
+        <el-input-number v-model="formData.procurement_cycle" :min="1" :precision="2" :step="0.5" />
+        <div class="form-tip">采购周期(天)：用于动态计算库存预警阈值</div>
       </el-form-item>
 
       <el-form-item label="备注" prop="description">
@@ -96,12 +101,13 @@ const formData = reactive({
   unit: '',
   location: '',
   alert_quantity: 0,
+  procurement_cycle: 1,
   description: ''
 })
 
 // 表单校验规则
 const formRules = {
-  name: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
+  name: [{ required: true, message: '请输入零件名称', trigger: 'blur' }],
   material_code: [{ required: true, message: '请输入物料编码', trigger: 'blur' }],
   type: [{ required: true, message: '请选择类型', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
@@ -124,6 +130,7 @@ const open = (row = {}) => {
     unit: '',
     location: '',
     alert_quantity: 0,
+    procurement_cycle: 1,
     description: ''
   })
   
@@ -131,6 +138,7 @@ const open = (row = {}) => {
     isEdit.value = true
     Object.assign(formData, row)
     formData.type = Number(row.type ?? 0)
+    formData.procurement_cycle = Number(row.procurement_cycle ?? 1)
   } else {
     // 新增
     isEdit.value = false
@@ -170,3 +178,12 @@ const handleSubmit = () => {
 // 暴露 open 方法给父组件
 defineExpose({ open })
 </script>
+
+<style scoped>
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+</style>

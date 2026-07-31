@@ -1,7 +1,9 @@
 export const PRODUCT_TYPE_OPTIONS = [
   { label: '自制', value: 0 },
   { label: '外协', value: 1 },
-  { label: '外购', value: 2 }
+  { label: '外购', value: 2 },
+  { label: '关节', value: 4 },
+  { label: '机械臂', value: 5 }
 ]
 
 export const formatProductTypeLabel = (type) => {
@@ -16,5 +18,7 @@ export const productTypeTagType = (type) => {
   if (num === 0) return 'success'
   if (num === 1) return 'warning'
   if (num === 2) return 'info'
+  if (num === 4) return 'primary'
+  if (num === 5) return 'danger'
   return 'info'
 }

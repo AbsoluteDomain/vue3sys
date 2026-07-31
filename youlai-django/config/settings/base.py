@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'apps.product.products',  # 新增的产品应用
     'apps.product.boms',
     'apps.product.finish_products',
+    'apps.product.production_plan',
+    'apps.product.repair',
     'apps.system.operation_logs',
     'apps.system.releases',
 ]

@@ -4,20 +4,10 @@
     <!-- 搜索区域 -->
     <el-card shadow="never" class="search-card">
       <el-form :inline="true" :model="queryParams" class="search-form">
-        <el-form-item label="产品ID">
-          <el-input
-            v-model="queryParams.productId"
-            placeholder="产品ID"
-            clearable
-            style="width: 140px"
-            @clear="handleSearch"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="产品名称">
+        <el-form-item label="零件名称">
           <el-input
             v-model="queryParams.productName"
-            placeholder="产品名称"
+            placeholder="零件名称"
             clearable
             style="width: 200px"
             @clear="handleSearch"
@@ -97,8 +87,7 @@
         <el-table-column type="index" label="序号" width="60" align="center" />
         
         <!-- ⚠️ 这里对应后端的字段名 -->
-        <el-table-column prop="id" label="产品ID" sortable="custom" width="100" />
-        <el-table-column prop="name" label="产品名称" sortable="custom" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="name" label="零件名称" sortable="custom" min-width="150" show-overflow-tooltip />
         <el-table-column prop="draw_code" label="图号" sortable="custom" min-width="120" show-overflow-tooltip />
         <el-table-column prop="material_code" label="物料编码" sortable="custom" min-width="120" show-overflow-tooltip />
         <el-table-column
@@ -123,6 +112,12 @@
         </el-table-column>
 
         <el-table-column prop="alert_quantity" label="报警数量" sortable="custom" width="120" />
+
+        <el-table-column prop="procurement_cycle" label="采购周期(天)" sortable="custom" width="130" align="center">
+          <template #default="{ row }">
+            <span>{{ row.procurement_cycle || '—' }}</span>
+          </template>
+        </el-table-column
         
         <!-- 状态 (假设后端有 status 字段，如果没有可删除) -->
         <!-- <el-table-column prop="status" label="状态" sortable width="80" align="center">
@@ -188,7 +183,6 @@ import { formatProductTypeLabel, productTypeTagType, PRODUCT_TYPE_OPTIONS } from
 const queryParams = reactive({
   pageNum: 1,
   pageSize: 10,
-  productId: '',
   productName: '',
   materialCode: '',
   type: '',
@@ -247,7 +241,6 @@ const handleSearch = () => {
 
 // 4. 重置
 const resetQuery = () => {
-  queryParams.productId = ''
   queryParams.productName = ''
   queryParams.materialCode = ''
   queryParams.type = ''

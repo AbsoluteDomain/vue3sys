@@ -11,6 +11,7 @@ export function getFinishProductList(params: any) {
 export function getFinishProductDailyStats(params: {
   start_date: string
   end_date: string
+  bom_type?: string
 }) {
   return request({
     url: '/api/v1/finish-product/daily-stats/',
@@ -26,6 +27,7 @@ export function getFinishProductBoardDetail(params: {
   date?: string
   pageNum?: number
   pageSize?: number
+  bom_type?: string
 }) {
   return request({
     url: '/api/v1/finish-product/board-detail/',
@@ -41,6 +43,8 @@ export function updateFinishProduct(data: {
   inventory_stock?: number
   repair?: number
   description?: string
+  warehouse_log_description?: string
+  parent_sn_code?: string
   create_time?: string | null
   test_time?: string | null
   stock_in_time?: string | null
@@ -58,5 +62,28 @@ export function rollbackFinishProduct(data: { id: number }) {
     url: '/api/v1/finish-product/rollback/',
     method: 'post',
     data
+  })
+}
+
+export function checkJointStockConsistency() {
+  return request({
+    url: '/api/v1/finish-product/check-joint-consistency/',
+    method: 'get'
+  })
+}
+
+export function getWarehouseLogList(params: {
+  pageNum?: number
+  pageSize?: number
+  sn_code?: string
+  material_code?: string
+  storage_status?: number | string
+  start_date?: string
+  end_date?: string
+}) {
+  return request({
+    url: '/api/v1/finish-product/warehouse-log/list/',
+    method: 'get',
+    params
   })
 }

@@ -12,10 +12,10 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
-        <el-form-item label="BOM型号">
+        <el-form-item label="产品型号">
           <el-input
             v-model="queryParams.bom_model"
-            placeholder="BOM型号"
+            placeholder="产品型号"
             clearable
             style="width: 160px"
             @clear="handleSearch"
@@ -62,18 +62,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="库存状态">
-          <el-select
+          <DictSelect
             v-model="queryParams.inventory_stock"
+            code="storage_status"
             placeholder="全部"
-            clearable
-            style="width: 110px"
+            style="width: 130px"
             @change="handleSearch"
-            @clear="handleSearch"
-          >
-            <el-option label="未入库" value="0" />
-            <el-option label="入库" value="1" />
-            <el-option label="出库" value="2" />
-          </el-select>
+          />
         </el-form-item>
         <el-form-item label="返修">
           <el-select
@@ -127,20 +122,33 @@
       </el-form>
     </el-card>
 
+    <div v-if="showJointWarning" class="joint-warning">
+      <el-icon class="warning-icon"><WarningFilled /></el-icon>
+      <span>库存关节数量与成品关节数量不符，请添加关节父级物料关系</span>
+    </div>
+
     <el-card shadow="never" class="table-card">
       <div class="table-toolbar">
-        <el-button @click="openColumnDialog">
-          <el-icon><Setting /></el-icon> 列展示
-        </el-button>
+        <el-checkbox v-model="collapseMode">折叠模式</el-checkbox>
+        <div class="toolbar-actions">
+          <el-button type="warning" @click="handleAssemble">
+            <el-icon><Box /></el-icon> 组装产品
+          </el-button>
+          <el-button @click="openColumnDialog">
+            <el-icon><Setting /></el-icon> 列展示
+          </el-button>
+        </div>
       </div>
 
       <el-table
-        :data="tableData"
+        :data="filteredTableData"
         border
         stripe
         style="width: 100%"
         height="500"
         v-loading="loading"
+        :row-class-name="getRowClassName"
+        @row-click="handleRowClick"
       >
         <el-table-column type="index" label="序号" width="60" align="center" fixed="left" />
         <el-table-column
@@ -171,7 +179,7 @@
         <el-table-column
           v-if="isColumnVisible('bom_model')"
           prop="bom_model"
-          label="BOM型号"
+          label="产品型号"
           min-width="120"
           show-overflow-tooltip
         />
@@ -187,6 +195,13 @@
           prop="material_code"
           label="物料编码"
           min-width="110"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('parent_sn_code')"
+          prop="parent_sn_code"
+          label="父级SN码"
+          min-width="130"
           show-overflow-tooltip
         />
         <el-table-column
@@ -206,13 +221,11 @@
           v-if="isColumnVisible('inventory_stock')"
           prop="inventory_stock"
           label="库存状态"
-          width="100"
+          width="120"
           align="center"
         >
           <template #default="{ row }">
-            <el-tag :type="inventoryTagType(row.inventory_stock)" size="small">
-              {{ row.inventory_stock_name }}
-            </el-tag>
+            <DictTag :code="'storage_status'" :model-value="row.inventory_stock" size="small" />
           </template>
         </el-table-column>
         <el-table-column
@@ -267,8 +280,8 @@
         />
         <el-table-column label="操作" width="140" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="handleRollback(row)">回退</el-button>
+            <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click.stop="handleRollback(row)">回退</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -304,7 +317,7 @@
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="BOM型号">
+            <el-form-item label="产品型号">
               <el-input v-model="formData.bom_model" disabled />
             </el-form-item>
           </el-col>
@@ -342,20 +355,23 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="测试状态" class="finish-edit-form__radio-row">
-          <el-radio-group v-model="formData.status">
-            <el-radio :value="0">未测试</el-radio>
-            <el-radio :value="1">测试中</el-radio>
-            <el-radio :value="2">测试合格</el-radio>
-            <el-radio :value="3">测试不良</el-radio>
+        <el-form-item label="返修" class="finish-edit-form__radio-row">
+          <el-radio-group v-model="formData.repair">
+            <el-radio :value="0">新品</el-radio>
+            <el-radio :value="1">返修品</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="库存状态" class="finish-edit-form__radio-row">
-          <el-radio-group v-model="formData.inventory_stock">
-            <el-radio :value="0">未入库</el-radio>
-            <el-radio :value="1">入库</el-radio>
-            <el-radio :value="2">出库</el-radio>
+        
+        <el-form-item label="测试状态" class="finish-edit-form__radio-row">
+          <el-radio-group v-model="formData.status">
+            <el-radio :value="0" :disabled="requiresPassStatus">未测试</el-radio>
+            <el-radio :value="1" :disabled="requiresPassStatus">测试中</el-radio>
+            <el-radio :value="2">测试合格</el-radio>
+            <el-radio :value="3" :disabled="requiresPassStatus">测试不良</el-radio>
           </el-radio-group>
+          <div v-if="requiresPassStatus" class="finish-edit-form__hint">
+            选择入库/出库时，测试状态必须为「测试合格」
+          </div>
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
@@ -385,11 +401,24 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="返修" class="finish-edit-form__radio-row">
-          <el-radio-group v-model="formData.repair">
-            <el-radio :value="0">新品</el-radio>
-            <el-radio :value="1">返修品</el-radio>
-          </el-radio-group>
+        <el-form-item label="库存状态">
+          <el-select
+            v-model="formData.inventory_stock"
+            placeholder="请选择库存状态"
+            style="width: 100%"
+            :disabled="isJointWithParent"
+          >
+            <el-option
+              v-for="item in availableStockOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+              :disabled="isStockOptionDisabled(item.value)"
+            />
+          </el-select>
+          <div v-if="isJointWithParent" class="finish-edit-form__hint">
+            关节有关联父级，库存状态固定为「组件消耗」
+          </div>
         </el-form-item>
         <el-form-item label="描述">
           <el-input
@@ -399,6 +428,14 @@
             maxlength="255"
             show-word-limit
             placeholder="请输入描述"
+          />
+        </el-form-item>
+        <el-form-item label="父级SN码">
+          <el-input
+            v-model="formData.parent_sn_code"
+            placeholder="请输入父级产品SN码"
+            maxlength="255"
+            clearable
           />
         </el-form-item>
       </el-form>
@@ -421,15 +458,117 @@
         <el-button type="primary" @click="saveColumnSettings">确定</el-button>
       </template>
     </el-dialog>
+
+    <bom-assemble-dialog ref="assembleDialogRef" @success="getList" />
+
+    <el-dialog
+      v-model="repairConfirmVisible"
+      title="生成返修单"
+      width="420px"
+      :close-on-click-modal="false"
+      @close="handleRepairConfirmCancel"
+    >
+      <div class="repair-confirm-tip">
+        <el-icon class="warning-icon"><WarningFilled /></el-icon>
+        <span>当前产品已标记为「返修品」，是否同时生成返修单？</span>
+      </div>
+      <template #footer>
+        <el-button @click="handleRepairConfirmCancel">取消</el-button>
+        <el-button type="info" @click="handleRepairConfirmSkip">不生成</el-button>
+        <el-button type="primary" @click="handleRepairConfirmGenerate">生成</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="repairDialogVisible" title="生成返修单" width="480px" destroy-on-close>
+      <el-form :model="repairFormData" label-width="80px">
+        <el-form-item label="SN码">
+          <span>{{ formData.sn_code || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="返修内容">
+          <el-input
+            v-model="repairFormData.repair_info"
+            type="textarea"
+            :rows="4"
+            maxlength="500"
+            show-word-limit
+            placeholder="请输入返修内容描述"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="repairDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="repairSubmitting" @click="handleRepairSubmit">
+          保存并生成返修单
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="jointDetailVisible"
+      title="关节详情"
+      width="860px"
+      destroy-on-close
+    >
+      <div v-if="jointDetailRow" class="joint-detail-header">
+        <span>机械臂 SN码：{{ jointDetailRow.sn_code || '—' }}</span>
+        <span>（共 {{ getJointChildren(jointDetailRow.sn_code).length }} 个关节子件）</span>
+      </div>
+      <el-table
+        :data="jointDetailRow ? getJointChildren(jointDetailRow.sn_code) : []"
+        border
+        stripe
+        style="width: 100%"
+        max-height="400"
+      >
+        <el-table-column type="index" label="序号" width="60" align="center" />
+        <el-table-column prop="sn_code" label="SN码" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.sn_code || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="bom_model" label="产品型号" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="bom_name" label="BOM名称" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="material_code" label="物料编码" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="status" label="测试状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)" size="small">
+              {{ row.status_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="inventory_stock" label="库存状态" width="120" align="center">
+          <template #default="{ row }">
+            <DictTag :code="'storage_status'" :model-value="row.inventory_stock" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="repair" label="返修" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.repair === 1 ? 'warning' : 'info'" size="small">
+              {{ row.repair_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="jointDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { Search, Refresh, Setting } from '@element-plus/icons-vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { Search, Refresh, Setting, Box, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getFinishProductList, updateFinishProduct, rollbackFinishProduct } from '@/api/finish-product'
+import { getFinishProductList, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency } from '@/api/finish-product'
+import { createRepair } from '@/api/product'
 import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
+import BomAssembleDialog from '../product/bom/bomInfo/BomAssembleDialog.vue'
+import DictSelect from '@/components/DictSelect/index.vue'
+import DictTag from '@/components/DictTag/index.vue'
+import { useDictStore } from '@/store'
+
+const dictStore = useDictStore()
 
 const {
   columnOptions,
@@ -484,8 +623,35 @@ const tableData = ref([])
 const loading = ref(false)
 const total = ref(0)
 const dialogVisible = ref(false)
+const originalInventoryStock = ref(0)
 const submitting = ref(false)
 const formRef = ref(null)
+const assembleDialogRef = ref(null)
+
+const repairDialogVisible = ref(false)
+const repairSubmitting = ref(false)
+const repairFormData = reactive({
+  repair_info: ''
+})
+
+const repairConfirmVisible = ref(false)
+
+const collapseMode = ref(true)
+
+const jointDetailVisible = ref(false)
+const jointDetailRow = ref(null)
+
+const filteredTableData = computed(() => {
+  if (!collapseMode.value) return tableData.value
+  return tableData.value.filter(row => {
+    // 只折叠那些有parent_sn_code 且 对应父级存在并拥有sn_code的关节
+    if (String(row.bom_type) !== '0' || !row.parent_sn_code) return true
+    const parentExists = tableData.value.some(
+      item => String(item.bom_type) === '1' && item.sn_code === row.parent_sn_code
+    )
+    return !parentExists
+  })
+})
 
 const formRules = {
   sn_code: [{ max: 255, message: 'SN码不能超过255个字符', trigger: 'blur' }]
@@ -494,6 +660,8 @@ const formRules = {
 const formData = reactive({
   id: null,
   sn_code: '',
+  bom_id: null,
+  bom_type: null,
   bom_model: '',
   bom_name: '',
   status: 0,
@@ -503,14 +671,87 @@ const formData = reactive({
   test_time: '',
   stock_in_time: '',
   stock_out_time: '',
-  description: ''
+  description: '',
+  parent_sn_code: ''
 })
 
-const inventoryTagType = (value) => {
-  if (value === 1) return 'success'
-  if (value === 2) return 'danger'
-  return 'warning'
+const showJointWarning = ref(false)
+
+const STATUS_PASS = 2
+
+const INVENTORY_CONSUME = 4
+
+// 记录关节变为组件消耗前的库存状态
+const stockBeforeConsume = ref(null)
+
+const storageStatusOptions = computed(() => {
+  return dictStore.getDictItems('storage_status').map(item => ({
+    ...item,
+    value: Number(item.value)
+  }))
+})
+
+// 是否为有关联父级的关节（bom_type=0且有parent_sn_code）
+const isJointWithParent = computed(() => {
+  return String(formData.bom_type) === '0' && !!formData.parent_sn_code
+})
+
+// 可用的库存状态选项
+const availableStockOptions = computed(() => {
+  if (isJointWithParent.value) {
+    // 有关联父级的关节，只能选择组件消耗
+    return storageStatusOptions.value.filter(item => item.value === INVENTORY_CONSUME)
+  }
+  return storageStatusOptions.value
+})
+
+const isStockOptionDisabled = (value) => {
+  const numValue = Number(value)
+  // 有关联父级的关节，只能选择组件消耗
+  if (isJointWithParent.value && numValue !== INVENTORY_CONSUME) {
+    return true
+  }
+  // 未入库的成品(0)不能直接出库(2或3)
+  if (Number(originalInventoryStock.value) === 0 && (numValue === 2 || numValue === 3)) {
+    return true
+  }
+  return false
 }
+
+// 组件消耗状态(4)不需要强制测试合格
+const requiresPassStatus = computed(
+  () => formData.inventory_stock === 1 || formData.inventory_stock === 2 || formData.inventory_stock === 3
+)
+
+watch(
+  () => formData.inventory_stock,
+  (val) => {
+    if (val === 1 || val === 2 || val === 3) {
+      formData.status = STATUS_PASS
+    }
+  }
+)
+
+// 监听parent_sn_code变化，关节有父级时自动设置库存状态为组件消耗
+watch(
+  () => formData.parent_sn_code,
+  (val, oldVal) => {
+    if (String(formData.bom_type) === '0' && val) {
+      // 关节有父级SN码：强制设置库存状态为组件消耗
+      if (formData.inventory_stock !== INVENTORY_CONSUME) {
+        stockBeforeConsume.value = formData.inventory_stock
+        formData.inventory_stock = INVENTORY_CONSUME
+      }
+    }
+    // 清除父级SN码时，不允许库存状态为组件消耗
+    if (String(formData.bom_type) === '0' && !val && formData.inventory_stock === INVENTORY_CONSUME) {
+      const revertVal = stockBeforeConsume.value !== null ? stockBeforeConsume.value : (originalInventoryStock.value === INVENTORY_CONSUME ? 0 : originalInventoryStock.value)
+      formData.inventory_stock = revertVal
+      originalInventoryStock.value = revertVal
+      stockBeforeConsume.value = null
+    }
+  }
+)
 
 const statusTagType = (value) => {
   if (value === 2) return 'success'
@@ -568,48 +809,158 @@ const resetQuery = () => {
 const handleSizeChange = () => getList()
 const handleCurrentChange = () => getList()
 
+const handleAssemble = () => assembleDialogRef.value?.open()
+
+const handleRowClick = (row) => {
+  if (!collapseMode.value) return
+  if (String(row.bom_type) === '1' && row.sn_code) {
+    jointDetailRow.value = row
+    jointDetailVisible.value = true
+  }
+}
+
+const getJointChildren = (parentSnCode) => {
+  if (!parentSnCode) return []
+  return tableData.value.filter(
+    item => String(item.bom_type) === '0' && item.parent_sn_code === parentSnCode
+  )
+}
+
+const getRowClassName = ({ row }) => {
+  if (collapseMode.value && String(row.bom_type) === '1' && row.sn_code) {
+    return 'row-clickable'
+  }
+  return ''
+}
+
 const handleEdit = (row) => {
   formData.id = row.id
   formData.sn_code = row.sn_code
+  formData.bom_id = row.bom_id
+  formData.bom_type = row.bom_type
   formData.bom_model = row.bom_model || ''
   formData.bom_name = row.bom_name || ''
-  formData.status = row.status
   formData.inventory_stock = row.inventory_stock
+  originalInventoryStock.value = row.inventory_stock
+  stockBeforeConsume.value = null
   formData.repair = row.repair
   formData.create_time = row.create_time || ''
   formData.test_time = row.test_time || ''
   formData.stock_in_time = row.stock_in_time || ''
   formData.stock_out_time = row.stock_out_time || ''
   formData.description = row.description || ''
+  formData.parent_sn_code = row.parent_sn_code || ''
+  // 立即同步：如果是有关联父级的关节，强制设置为组件消耗状态
+  if (String(row.bom_type) === '0' && row.parent_sn_code) {
+    if (formData.inventory_stock !== INVENTORY_CONSUME) {
+      stockBeforeConsume.value = formData.inventory_stock
+      formData.inventory_stock = INVENTORY_CONSUME
+    }
+  } else if (String(row.bom_type) === '0' && !row.parent_sn_code && formData.inventory_stock === INVENTORY_CONSUME) {
+    // 清除父级SN码后的状态
+    const revertVal = stockBeforeConsume.value !== null ? stockBeforeConsume.value : 0
+    formData.inventory_stock = revertVal
+    originalInventoryStock.value = revertVal
+    stockBeforeConsume.value = null
+  }
+  // 同步测试状态
+  formData.status =
+    formData.inventory_stock === 1 || formData.inventory_stock === 2 || formData.inventory_stock === 3 ? STATUS_PASS : row.status
   dialogVisible.value = true
 }
 
+const saveProduct = () => {
+  submitting.value = true
+  return updateFinishProduct({
+    id: formData.id,
+    sn_code: formData.sn_code?.trim() || '',
+    status: formData.status,
+    inventory_stock: formData.inventory_stock,
+    repair: formData.repair,
+    description: formData.description,
+    parent_sn_code: formData.parent_sn_code?.trim() || '',
+    create_time: formData.create_time || null,
+    test_time: formData.test_time || null,
+    stock_in_time: formData.stock_in_time || null,
+    stock_out_time: formData.stock_out_time || null
+  })
+}
+
 const handleSubmit = () => {
+  if (requiresPassStatus.value && formData.status !== STATUS_PASS) {
+    ElMessage.warning('入库或出库时，测试状态必须为「测试合格」')
+    return
+  }
+  // 组件消耗状态需要SN码
+  if (formData.inventory_stock === INVENTORY_CONSUME && !formData.sn_code?.trim()) {
+    ElMessage.warning('组件消耗状态必须填写SN码')
+    return
+  }
   formRef.value?.validate((valid) => {
     if (!valid) return
-    submitting.value = true
-    updateFinishProduct({
-      id: formData.id,
-      sn_code: formData.sn_code?.trim() || '',
-      status: formData.status,
-      inventory_stock: formData.inventory_stock,
-      repair: formData.repair,
-      description: formData.description,
-      create_time: formData.create_time || null,
-      test_time: formData.test_time || null,
-      stock_in_time: formData.stock_in_time || null,
-      stock_out_time: formData.stock_out_time || null
-    })
-      .then(() => {
-        ElMessage.success('保存成功')
-        dialogVisible.value = false
-        getList()
-      })
-      .catch(() => {})
-      .finally(() => {
-        submitting.value = false
-      })
+
+    if (formData.repair === 1) {
+      repairConfirmVisible.value = true
+    } else {
+      doSaveProduct()
+    }
   })
+}
+
+const doSaveProduct = () => {
+  saveProduct()
+    .then(() => {
+      ElMessage.success('保存成功')
+      dialogVisible.value = false
+      getList()
+      checkJointConsistency()
+    })
+    .catch(() => {})
+    .finally(() => {
+      submitting.value = false
+    })
+}
+
+const handleRepairConfirmGenerate = () => {
+  repairConfirmVisible.value = false
+  repairFormData.repair_info = ''
+  repairDialogVisible.value = true
+}
+
+const handleRepairConfirmSkip = () => {
+  repairConfirmVisible.value = false
+  doSaveProduct()
+}
+
+const handleRepairConfirmCancel = () => {
+  repairConfirmVisible.value = false
+}
+
+const handleRepairSubmit = () => {
+  if (!repairFormData.repair_info?.trim()) {
+    ElMessage.warning('请填写返修内容')
+    return
+  }
+  repairSubmitting.value = true
+  saveProduct()
+    .then(() => {
+      return createRepair({
+        product_id: formData.id,
+        repair_info: repairFormData.repair_info.trim()
+      })
+    })
+    .then(() => {
+      ElMessage.success('保存成功，返修单已生成')
+      repairDialogVisible.value = false
+      dialogVisible.value = false
+      getList()
+      checkJointConsistency()
+    })
+    .catch(() => {})
+    .finally(() => {
+      repairSubmitting.value = false
+      submitting.value = false
+    })
 }
 
 const handleRollback = (row) => {
@@ -637,9 +988,20 @@ const handleRollback = (row) => {
     })
 }
 
+const checkJointConsistency = async () => {
+  try {
+    const data = await checkJointStockConsistency()
+    showJointWarning.value = !data.is_consistent
+  } catch (error) {
+    console.error('检查关节库存一致性失败', error)
+  }
+}
+
 onMounted(() => {
   loadColumnSettings()
+  dictStore.loadDictItems('storage_status', true)
   getList()
+  checkJointConsistency()
 })
 </script>
 
@@ -660,8 +1022,22 @@ onMounted(() => {
 }
 .table-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.table-toolbar .toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+:deep(.el-table .row-clickable) {
+  cursor: pointer;
+}
+
+:deep(.el-table .row-clickable:hover > td) {
+  background-color: var(--el-color-primary-light-9) !important;
 }
 .column-setting-tip {
   margin-bottom: 12px;
@@ -688,10 +1064,66 @@ onMounted(() => {
 .finish-edit-form__radio-row :deep(.el-radio-group) {
   flex-wrap: nowrap;
 }
+.joint-warning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 20px;
+  background-color: #fef0f0;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  color: #dc3545;
+  font-size: 14px;
+}
+
+.joint-warning .warning-icon {
+  font-size: 16px;
+}
+
+.repair-confirm-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  background-color: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 6px;
+  color: var(--el-color-warning);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.repair-confirm-tip .warning-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.joint-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background-color: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 6px;
+  color: var(--el-color-primary);
+  font-size: 14px;
+}
+
 .finish-edit-form__radio-row :deep(.el-radio) {
   margin-right: 16px;
 }
 .finish-edit-form__radio-row :deep(.el-radio:last-child) {
   margin-right: 0;
+}
+.finish-edit-form__hint {
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-color-warning);
 }
 </style>

@@ -1,9 +1,9 @@
-﻿<template>
-  <template v-if="tagType">
-    <el-tag :type="tagType" :size="tagSize">{{ label }}</el-tag>
+<template>
+  <template v-if="resolvedTagType">
+    <el-tag :type="resolvedTagType" :size="tagSize">{{ resolvedLabel }}</el-tag>
   </template>
   <template v-else>
-    <span>{{ label }}</span>
+    <span>{{ resolvedLabel }}</span>
   </template>
 </template>
 
@@ -19,52 +19,35 @@ const props = defineProps({
   },
 });
 
-const label = ref("");
-const tagType = ref<"success" | "warning" | "info" | "primary" | "danger" | undefined>(); // 标签类型
-const tagSize = ref<"default" | "large" | "small">(props.size as "default" | "large" | "small"); // 标签大小
-
+const tagSize = ref<"default" | "large" | "small">(props.size as "default" | "large" | "small");
 const dictStore = useDictStore();
 
-/**
- * 根据字典项的值获取对应的 label 和 tagType
- * @param dictCode 字典编码
- * @param value 字典项的值
- * @returns 包含 label 和 tagType 的对象
- */
-const getLabelAndTagByValue = async (dictCode: string, value: any) => {
-  // 按需加载字典数据
-  await dictStore.loadDictItems(dictCode);
-  // 从缓存中获取字典数据
-  const dictItems = dictStore.getDictItems(dictCode);
-  // 查找对应的字典项
-  const dictItem = dictItems.find((item) => item.value == value);
-  return {
-    label: dictItem?.label || "",
-    tagType: dictItem?.tagType,
-  };
-};
+// 响应式获取 label 和 tagType
+const resolvedLabel = computed(() => {
+  if (!props.code || props.modelValue === undefined) return "";
+  const dictItems = dictStore.getDictItems(props.code);
+  const dictItem = dictItems.find((item) => String(item.value) === String(props.modelValue));
+  return dictItem?.label || "";
+});
 
-/**
- * 更新 label 和 tagType
- */
-const updateLabelAndTag = async () => {
-  if (!props.code || props.modelValue === undefined) return;
-  const { label: newLabel, tagType: newTagType } = await getLabelAndTagByValue(
-    props.code,
-    props.modelValue
-  );
-  label.value = newLabel;
-  tagType.value = newTagType as typeof tagType.value;
-};
+const resolvedTagType = computed(() => {
+  if (!props.code || props.modelValue === undefined) return undefined;
+  const dictItems = dictStore.getDictItems(props.code);
+  const dictItem = dictItems.find((item) => String(item.value) === String(props.modelValue));
+  return dictItem?.tagType as typeof resolvedTagType.value;
+});
 
-// 初始化或code变化时更新标签和标签样式
-watch(
-  [() => props.code, () => props.modelValue],
-  async () => {
-    if (props.code) {
-      await updateLabelAndTag();
-    }
-  },
-  { immediate: true }
-);
+// 初始化加载字典数据
+onMounted(async () => {
+  if (props.code) {
+    await dictStore.loadDictItems(props.code);
+  }
+});
+
+// code 变化时重新加载字典
+watch(() => props.code, async (newCode) => {
+  if (newCode) {
+    await dictStore.loadDictItems(newCode);
+  }
+});
 </script>

@@ -16,6 +16,7 @@ export const finishProductColumnOptions: FinishProductColumnOption[] = [
   { key: "bom_model", label: "BOM型号", defaultVisible: true },
   { key: "bom_name", label: "BOM名称", defaultVisible: true },
   { key: "material_code", label: "物料编码", defaultVisible: false },
+  { key: "parent_sn_code", label: "父级SN码", defaultVisible: false },
   { key: "status", label: "测试状态", defaultVisible: true },
   { key: "inventory_stock", label: "库存状态", defaultVisible: true },
   { key: "repair", label: "返修", defaultVisible: true },

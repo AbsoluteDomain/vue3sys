@@ -22,9 +22,10 @@ export const useDictStore = defineStore("dict", () => {
   /**
    * 加载字典数据（如果缓存中没有则请求）
    * @param dictCode 字典编码
+   * @param force 是否强制重新加载（忽略缓存）
    */
-  const loadDictItems = async (dictCode: string) => {
-    if (dictCache.value[dictCode]) return;
+  const loadDictItems = async (dictCode: string, force = false) => {
+    if (!force && dictCache.value[dictCode]) return;
     // 防止重复请求
     if (!requestQueue[dictCode]) {
       requestQueue[dictCode] = DictAPI.getDictItems(dictCode)

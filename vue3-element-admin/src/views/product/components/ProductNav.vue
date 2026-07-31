@@ -3,6 +3,8 @@
     <el-radio-group :model-value="activePath" @change="onNavChange">
       <el-radio-button value="/product/index">库存管理</el-radio-button>
       <el-radio-button value="/product/productBom">产品BOM管理</el-radio-button>
+      <el-radio-button value="/product/repair">返修管理</el-radio-button>
+      <el-radio-button value="/product/warehouseLog">出入库记录</el-radio-button>
     </el-radio-group>
   </el-card>
 </template>
@@ -15,6 +17,12 @@ const route = useRoute()
 const router = useRouter()
 
 const activePath = computed(() => {
+  if (route.path.includes('warehouseLog')) {
+    return '/product/warehouseLog'
+  }
+  if (route.path.includes('repair')) {
+    return '/product/repair'
+  }
   if (route.path.includes('productBom') || route.path.includes('/bom')) {
     return '/product/productBom'
   }
