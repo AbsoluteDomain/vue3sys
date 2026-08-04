@@ -12,6 +12,7 @@ from apps.product.products.models import Product, WarehouseLog
 from core.datetime import format_local_datetime, local_date_key, local_day_range_datetimes
 from core.datetime import make_local_aware, parse_local_datetime_text
 
+from apps.system.dicts.models import DictionaryItem
 from apps.system.operation_logs.utils import format_finish_product_rollback_description
 
 try:
@@ -34,6 +35,23 @@ VALID_STATUS = {
 def _log_if_available(request, **kwargs):
     if OPERATION_LOGS_AVAILABLE:
         log_operation_from_request(request, **kwargs)
+
+
+def _get_valid_dict_int_values(dict_code):
+    """从字典表读取启用的字典项值，转为整数集合。
+
+    用于替代筛选条件中硬编码的状态值，使得在字典管理中新增/启用的字典项
+    能够立即被筛选命中，无需修改后端代码。
+    """
+    valid = set()
+    for v in DictionaryItem.objects.filter(
+        dict_code=dict_code, status=1
+    ).values_list("value", flat=True):
+        try:
+            valid.add(int(v))
+        except (TypeError, ValueError):
+            continue
+    return valid
 
 
 def _recipe_part_info(row):
@@ -578,8 +596,15 @@ def finish_product_list(request):
             qs = qs.none()
     if status in ("0", "1", "2", "3"):
         qs = qs.filter(status=int(status))
-    if inventory_stock in ("0", "1", "2", "3", "4"):
-        qs = qs.filter(inventory_stock=int(inventory_stock))
+    if inventory_stock:
+        try:
+            inv_val = int(inventory_stock)
+        except (TypeError, ValueError):
+            inv_val = None
+        if inv_val is not None and inv_val in _get_valid_dict_int_values("storage_status"):
+            qs = qs.filter(inventory_stock=inv_val)
+        else:
+            qs = qs.none()
     if repair in ("0", "1"):
         qs = qs.filter(repair=int(repair))
 
@@ -674,6 +699,64 @@ def _sync_product_inventory(bom, inventory_action):
             procurement_cycle=1,
             is_del=0,
         )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_finish_product(request):
+    """创建成品（用于手动添加关节等场景）"""
+    try:
+        body = json.loads(request.body or "{}")
+        bom_id = body.get("bom_id")
+        if not bom_id:
+            return JsonResponse({"code": "400", "msg": "缺少 BOM ID"})
+
+        try:
+            bom = BomList.objects.get(id=int(bom_id), is_del=0)
+        except BomList.DoesNotExist:
+            return JsonResponse({"code": "400", "msg": "关联的 BOM 不存在"})
+
+        sn_code = (body.get("sn_code") or "").strip() or None
+        if sn_code and FinishProduct.objects.filter(sn_code=sn_code).exists():
+            return JsonResponse({"code": "400", "msg": "SN码已存在"})
+
+        now = timezone.now()
+        item = FinishProduct.objects.create(
+            sn_code=sn_code,
+            bom_id=bom.id,
+            name=bom.bom_name or bom.bom_model or "",
+            status=FinishProduct.STATUS_UNTESTED,
+            inventory_stock=FinishProduct.INVENTORY_NOT_IN,
+            repair=FinishProduct.REPAIR_NEW,
+            description=(body.get("description") or "").strip() or None,
+            parent_sn_code=(body.get("parent_sn_code") or "").strip() or None,
+            create_time=now,
+            update_time=now,
+            test_time=now,
+        )
+
+        _log_if_available(
+            request,
+            module='finish_product',
+            module_name='成品管理',
+            operation_type='create',
+            target_id=item.id,
+            target_name=item.sn_code or item.name,
+            after_data=_serialize_finish_product(item),
+            description=f"创建成品：{bom.bom_model} {bom.bom_name or ''}",
+        )
+
+        return JsonResponse(
+            {
+                "code": "00000",
+                "msg": "创建成功",
+                "data": _serialize_finish_product(item),
+            }
+        )
+    except (TypeError, ValueError):
+        return JsonResponse({"code": "400", "msg": "参数格式错误"})
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"创建失败: {str(e)}"})
 
 
 @csrf_exempt
@@ -1115,3 +1198,94 @@ def warehouse_log_list(request):
         })
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"获取出入库记录失败: {str(e)}"})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def bind_joints_to_arm(request):
+    """批量绑定多个关节到指定机械臂"""
+    try:
+        body = json.loads(request.body or "{}")
+        arm_id = body.get("arm_id")
+        arm_sn_code = (body.get("arm_sn_code") or "").strip()
+        joint_ids = body.get("joint_ids") or []
+
+        if not arm_id:
+            return JsonResponse({"code": "400", "msg": "缺少机械臂 ID"})
+        if not arm_sn_code:
+            return JsonResponse({"code": "400", "msg": "缺少机械臂 SN码"})
+        if not joint_ids:
+            return JsonResponse({"code": "400", "msg": "请至少选择一个关节"})
+
+        # 验证机械臂
+        try:
+            arm = FinishProduct.objects.get(id=int(arm_id))
+        except FinishProduct.DoesNotExist:
+            return JsonResponse({"code": "400", "msg": "机械臂不存在"})
+
+        try:
+            arm_bom = BomList.objects.get(id=arm.bom_id, is_del=0)
+            if arm_bom.type != 1:
+                return JsonResponse({"code": "400", "msg": "目标不是机械臂类型"})
+        except BomList.DoesNotExist:
+            return JsonResponse({"code": "400", "msg": "机械臂关联的BOM不存在"})
+
+        bound_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for joint_id in joint_ids:
+                try:
+                    joint = FinishProduct.objects.select_for_update().get(id=int(joint_id))
+
+                    # 验证关节类型
+                    try:
+                        joint_bom = BomList.objects.get(id=joint.bom_id, is_del=0)
+                        if joint_bom.type != 0:
+                            errors.append(f"ID={joint_id} 不是关节类型，已跳过")
+                            continue
+                    except BomList.DoesNotExist:
+                        errors.append(f"ID={joint_id} 关联的BOM不存在，已跳过")
+                        continue
+
+                    # 已绑定的跳过
+                    if joint.parent_sn_code:
+                        errors.append(f"SN={joint.sn_code or '无SN'} 已有父级，已跳过")
+                        continue
+
+                    # 设置父级SN码和库存状态
+                    old_inventory = joint.inventory_stock
+                    joint.parent_sn_code = arm_sn_code
+                    joint.inventory_stock = FinishProduct.INVENTORY_CONSUME
+
+                    # 同步库存：如果之前是入库状态，减少库存
+                    if old_inventory == FinishProduct.INVENTORY_IN:
+                        try:
+                            product = Product.objects.select_for_update().get(
+                                material_code=joint_bom.material_code, is_del=0
+                            )
+                            current = product.quantity if product.quantity is not None else 0
+                            product.quantity = current - 1
+                            product.save(update_fields=["quantity", "updated_at"])
+                        except Product.DoesNotExist:
+                            pass
+
+                    joint.save()
+                    bound_count += 1
+
+                except FinishProduct.DoesNotExist:
+                    errors.append(f"ID={joint_id} 不存在，已跳过")
+                except Exception as e:
+                    errors.append(f"ID={joint_id} 绑定失败: {str(e)}")
+
+        result = {"bound_count": bound_count}
+        if errors:
+            result["errors"] = errors
+
+        return JsonResponse({
+            "code": "00000",
+            "msg": "绑定成功",
+            "data": result,
+        })
+    except Exception as e:
+        return JsonResponse({"code": "500", "msg": f"绑定失败: {str(e)}"})

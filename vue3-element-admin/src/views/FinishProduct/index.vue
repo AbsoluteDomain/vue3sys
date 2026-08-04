@@ -278,9 +278,13 @@
           min-width="140"
           show-overflow-tooltip
         />
-        <el-table-column label="操作" width="140" fixed="right" align="center">
+        <el-table-column label="操作" width="190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button
+              v-if="String(row.bom_type) === '1' && row.sn_code"
+              link type="success" size="small" @click.stop="handleBindJoints(row)"
+            >关节绑定</el-button>
             <el-button link type="danger" size="small" @click.stop="handleRollback(row)">回退</el-button>
           </template>
         </el-table-column>
@@ -436,7 +440,11 @@
             placeholder="请输入父级产品SN码"
             maxlength="255"
             clearable
+            :disabled="isArmProduct"
           />
+          <div v-if="isArmProduct" class="finish-edit-form__hint">
+            机械臂类型不可填写父级SN码
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -553,15 +561,129 @@
         <el-button @click="jointDetailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="bindJointVisible"
+      title="关节绑定"
+      width="720px"
+      destroy-on-close
+    >
+      <div v-if="bindJointRow" class="bind-joint-header">
+        <span>机械臂：{{ bindJointRow.bom_model }} ({{ bindJointRow.bom_name }})</span>
+        <span>SN码：{{ bindJointRow.sn_code }}</span>
+      </div>
+      <div class="bind-joint-tip">
+        选择要绑定到此机械臂的关节（仅显示有SN码、测试合格且已入库的未绑定关节）
+      </div>
+      <div class="bind-joint-select-wrapper">
+        <el-select
+          v-model="selectedJointIds"
+          multiple
+          filterable
+          placeholder="请选择关节（可输入筛选）"
+          style="flex: 1; min-width: 0"
+        >
+          <el-option
+            v-for="joint in availableJoints"
+            :key="joint.id"
+            :label="`${joint.sn_code || '无SN码'} - ${joint.bom_model}${joint.bom_name ? ' (' + joint.bom_name + ')' : ''}`"
+            :value="joint.id"
+          >
+            <div class="joint-option">
+              <span class="joint-option__sn">{{ joint.sn_code || '无SN码' }}</span>
+              <span class="joint-option__model">{{ joint.bom_model }}</span>
+              <span v-if="joint.bom_name" class="joint-option__name">({{ joint.bom_name }})</span>
+              <el-tag
+                v-if="joint.status != null"
+                :type="statusTagType(joint.status)"
+                size="small"
+                class="joint-option__tag"
+              >
+                {{ joint.status_name }}
+              </el-tag>
+            </div>
+          </el-option>
+          <template #empty>
+            <div class="select-empty">暂无未绑定的关节</div>
+          </template>
+        </el-select>
+        <el-button type="primary" @click="openAddJointDialog">
+          <el-icon><Plus /></el-icon> 添加关节
+        </el-button>
+      </div>
+      <div v-if="selectedJointIds.length > 0" class="bind-joint-selected">
+        <span class="selected-label">已选关节：</span>
+        <div class="selected-tags">
+          <el-tag
+            v-for="joint in selectedJoints"
+            :key="joint.id"
+            closable
+            @close="selectedJointIds = selectedJointIds.filter(id => id !== joint.id)"
+          >
+            {{ joint.sn_code || '无SN码' }} - {{ joint.bom_model }}
+          </el-tag>
+        </div>
+      </div>
+      <div class="bind-joint-footer">
+        已选择 <b>{{ selectedJointIds.length }}</b> 个关节
+      </div>
+      <template #footer>
+        <el-button @click="bindJointVisible = false">取消</el-button>
+        <el-button type="primary" :loading="bindSubmitting" @click="handleBindSubmit">
+          确认绑定
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="addJointVisible"
+      title="添加关节"
+      width="480px"
+      destroy-on-close
+    >
+      <el-form :model="{ addJointBomId, addJointSnCode }" label-width="100px">
+        <el-form-item label="关节BOM">
+          <el-select
+            v-model="addJointBomId"
+            filterable
+            placeholder="请选择关节BOM"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="bom in jointBomList"
+              :key="bom.id"
+              :label="`${bom.bom_model} ${bom.bom_name || ''} (${bom.type_name || ''})`"
+              :value="bom.id"
+            />
+            <template #empty>
+              <div class="select-empty">暂无关节类型的BOM</div>
+            </template>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="SN码">
+          <el-input
+            v-model="addJointSnCode"
+            placeholder="请输入SN码（选填）"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addJointVisible = false">取消</el-button>
+        <el-button type="primary" :loading="addJointSubmitting" @click="handleAddJoint">
+          创建
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
-import { Search, Refresh, Setting, Box, WarningFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, Setting, Box, WarningFilled, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getFinishProductList, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency } from '@/api/finish-product'
-import { createRepair } from '@/api/product'
+import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm } from '@/api/finish-product'
+import { createRepair, getBomList } from '@/api/product'
 import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
 import BomAssembleDialog from '../product/bom/bomInfo/BomAssembleDialog.vue'
 import DictSelect from '@/components/DictSelect/index.vue'
@@ -621,7 +743,7 @@ const buildListParams = () => {
 
 const tableData = ref([])
 const loading = ref(false)
-const total = ref(0)
+const backendTotal = ref(0)
 const dialogVisible = ref(false)
 const originalInventoryStock = ref(0)
 const submitting = ref(false)
@@ -641,7 +763,42 @@ const collapseMode = ref(true)
 const jointDetailVisible = ref(false)
 const jointDetailRow = ref(null)
 
-const filteredTableData = computed(() => {
+const bindJointVisible = ref(false)
+const bindJointRow = ref(null)
+const bindSubmitting = ref(false)
+const selectedJointIds = ref([])
+
+// 可用于绑定的关节：bom_type=0、未绑定父级SN码、有SN码、测试合格且入库
+const availableJoints = computed(() => {
+  return tableData.value.filter(
+    item =>
+      String(item.bom_type) === '0' &&
+      !item.parent_sn_code &&
+      item.sn_code &&
+      Number(item.status) === STATUS_PASS &&
+      Number(item.inventory_stock) === INVENTORY_IN
+  )
+})
+
+// 已选中的关节对象列表（用于提交）
+const selectedJoints = computed(() => {
+  return availableJoints.value.filter(j => selectedJointIds.value.includes(j.id))
+})
+
+// 添加关节对话框
+const addJointVisible = ref(false)
+const addJointSubmitting = ref(false)
+const addJointBomId = ref(null)
+const addJointSnCode = ref('')
+const addJointBomList = ref([])
+
+// 过滤仅显示关节类型的BOM
+const jointBomList = computed(() => {
+  return addJointBomList.value.filter(b => String(b.type) === '0' || String(b.bom_type) === '0')
+})
+
+// 折叠后可见的数据（仅过滤掉被折叠的行，未分页）
+const visibleData = computed(() => {
   if (!collapseMode.value) return tableData.value
   return tableData.value.filter(row => {
     // 只折叠那些有parent_sn_code 且 对应父级存在并拥有sn_code的关节
@@ -651,6 +808,20 @@ const filteredTableData = computed(() => {
     )
     return !parentExists
   })
+})
+
+// 最终显示的数据：折叠模式下前端分页，确保每页显示 pageSize 条可见数据
+const filteredTableData = computed(() => {
+  if (!collapseMode.value) return tableData.value
+  const start = (queryParams.pageNum - 1) * queryParams.pageSize
+  const end = start + queryParams.pageSize
+  return visibleData.value.slice(start, end)
+})
+
+// 总条数：折叠模式下为可见数据条数，否则为后端返回的总数
+const total = computed(() => {
+  if (collapseMode.value) return visibleData.value.length
+  return backendTotal.value
 })
 
 const formRules = {
@@ -679,6 +850,8 @@ const showJointWarning = ref(false)
 
 const STATUS_PASS = 2
 
+const INVENTORY_IN = 1
+
 const INVENTORY_CONSUME = 4
 
 // 记录关节变为组件消耗前的库存状态
@@ -689,6 +862,11 @@ const storageStatusOptions = computed(() => {
     ...item,
     value: Number(item.value)
   }))
+})
+
+// 是否为机械臂产品（bom_type=1）
+const isArmProduct = computed(() => {
+  return String(formData.bom_type) === '1'
 })
 
 // 是否为有关联父级的关节（bom_type=0且有parent_sn_code）
@@ -736,6 +914,8 @@ watch(
 watch(
   () => formData.parent_sn_code,
   (val, oldVal) => {
+    // 机械臂类型：忽略父级SN码变化
+    if (String(formData.bom_type) === '1') return
     if (String(formData.bom_type) === '0' && val) {
       // 关节有父级SN码：强制设置库存状态为组件消耗
       if (formData.inventory_stock !== INVENTORY_CONSUME) {
@@ -774,10 +954,23 @@ const formatFinishProductLabel = (row) => {
 
 const getList = () => {
   loading.value = true
-  getFinishProductList(buildListParams())
+  const params = buildListParams()
+  // 折叠模式：一次性加载所有数据，由前端分页，确保每页显示 pageSize 条可见数据
+  if (collapseMode.value) {
+    params.pageNum = 1
+    params.pageSize = 9999
+  }
+  getFinishProductList(params)
     .then((response) => {
       tableData.value = response?.list || []
-      total.value = response?.total || 0
+      backendTotal.value = response?.total || 0
+      // 折叠模式下防止当前页越界
+      if (collapseMode.value) {
+        const maxPage = Math.max(1, Math.ceil(visibleData.value.length / queryParams.pageSize))
+        if (queryParams.pageNum > maxPage) {
+          queryParams.pageNum = 1
+        }
+      }
     })
     .catch(() => {
       ElMessage.error('获取成品列表失败')
@@ -806,10 +999,26 @@ const resetQuery = () => {
   getList()
 }
 
-const handleSizeChange = () => getList()
-const handleCurrentChange = () => getList()
+const handleSizeChange = () => {
+  queryParams.pageNum = 1
+  // 折叠模式下数据已全部加载，前端分页无需重新请求
+  if (!collapseMode.value) {
+    getList()
+  }
+}
+const handleCurrentChange = () => {
+  if (!collapseMode.value) {
+    getList()
+  }
+}
 
 const handleAssemble = () => assembleDialogRef.value?.open()
+
+// 切换折叠模式时重新加载数据（折叠模式需一次性加载，非折叠模式恢复后端分页）
+watch(collapseMode, () => {
+  queryParams.pageNum = 1
+  getList()
+})
 
 const handleRowClick = (row) => {
   if (!collapseMode.value) return
@@ -849,7 +1058,12 @@ const handleEdit = (row) => {
   formData.stock_in_time = row.stock_in_time || ''
   formData.stock_out_time = row.stock_out_time || ''
   formData.description = row.description || ''
-  formData.parent_sn_code = row.parent_sn_code || ''
+  // 机械臂类型：清空父级SN码（不可设置）
+  if (String(row.bom_type) === '1') {
+    formData.parent_sn_code = ''
+  } else {
+    formData.parent_sn_code = row.parent_sn_code || ''
+  }
   // 立即同步：如果是有关联父级的关节，强制设置为组件消耗状态
   if (String(row.bom_type) === '0' && row.parent_sn_code) {
     if (formData.inventory_stock !== INVENTORY_CONSUME) {
@@ -988,6 +1202,78 @@ const handleRollback = (row) => {
     })
 }
 
+const handleBindJoints = (row) => {
+  bindJointRow.value = row
+  selectedJointIds.value = []
+  bindJointVisible.value = true
+  loadJointBomList()
+}
+
+const loadJointBomList = async () => {
+  try {
+    const res = await getBomList({ pageNum: 1, pageSize: 999 })
+    addJointBomList.value = res?.list || []
+  } catch (e) {
+    console.error('加载BOM列表失败', e)
+  }
+}
+
+const openAddJointDialog = () => {
+  addJointBomId.value = null
+  addJointSnCode.value = ''
+  addJointVisible.value = true
+}
+
+const handleAddJoint = async () => {
+  if (!addJointBomId.value) {
+    ElMessage.warning('请选择关节BOM')
+    return
+  }
+  addJointSubmitting.value = true
+  try {
+    await createFinishProduct({
+      bom_id: addJointBomId.value,
+      sn_code: addJointSnCode.value?.trim() || ''
+    })
+    ElMessage.success('关节创建成功')
+    addJointVisible.value = false
+    addJointBomId.value = null
+    addJointSnCode.value = ''
+    await getList()
+  } catch (e) {
+    // 错误由request拦截器提示
+  } finally {
+    addJointSubmitting.value = false
+  }
+}
+
+const handleBindSubmit = () => {
+  if (!bindJointRow.value?.sn_code) {
+    ElMessage.warning('机械臂缺少SN码')
+    return
+  }
+  if (selectedJoints.value.length === 0) {
+    ElMessage.warning('请至少选择一个关节')
+    return
+  }
+  bindSubmitting.value = true
+  bindJointsToArm({
+    arm_id: bindJointRow.value.id,
+    arm_sn_code: bindJointRow.value.sn_code,
+    joint_ids: selectedJoints.value.map(j => j.id)
+  })
+    .then(() => {
+      ElMessage.success(`已绑定 ${selectedJoints.value.length} 个关节到机械臂`)
+      bindJointVisible.value = false
+      getList()
+      checkJointConsistency()
+    })
+    .catch(() => {})
+    .finally(() => {
+      bindSubmitting.value = false
+    })
+}
+
 const checkJointConsistency = async () => {
   try {
     const data = await checkJointStockConsistency()
@@ -1111,6 +1397,92 @@ onMounted(() => {
   border-radius: 6px;
   color: var(--el-color-primary);
   font-size: 14px;
+}
+
+.bind-joint-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--el-color-primary-light-9);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.bind-joint-tip {
+  margin-bottom: 12px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.bind-joint-footer {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+
+.bind-joint-footer b {
+  color: var(--el-color-primary);
+}
+
+.bind-joint-select-wrapper {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.joint-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.joint-option__sn {
+  font-weight: 500;
+}
+
+.joint-option__model {
+  color: var(--el-text-color-regular);
+}
+
+.joint-option__name {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+.joint-option__tag {
+  margin-left: auto;
+}
+
+.bind-joint-selected {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.selected-label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.select-empty {
+  text-align: center;
+  color: var(--el-text-color-placeholder);
+  padding: 10px;
+  font-size: 13px;
 }
 
 .finish-edit-form__radio-row :deep(.el-radio) {

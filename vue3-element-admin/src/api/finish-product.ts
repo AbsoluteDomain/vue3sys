@@ -36,6 +36,26 @@ export function getFinishProductBoardDetail(params: {
   })
 }
 
+export function createFinishProduct(data: {
+  bom_id: number
+  sn_code?: string
+  status?: number
+  inventory_stock?: number
+  repair?: number
+  description?: string
+  parent_sn_code?: string
+  create_time?: string | null
+  test_time?: string | null
+  stock_in_time?: string | null
+  stock_out_time?: string | null
+}) {
+  return request({
+    url: '/api/v1/finish-product/create/',
+    method: 'post',
+    data
+  })
+}
+
 export function updateFinishProduct(data: {
   id: number
   sn_code?: string
@@ -69,6 +89,18 @@ export function checkJointStockConsistency() {
   return request({
     url: '/api/v1/finish-product/check-joint-consistency/',
     method: 'get'
+  })
+}
+
+export function bindJointsToArm(data: {
+  arm_id: number
+  arm_sn_code: string
+  joint_ids: number[]
+}) {
+  return request({
+    url: '/api/v1/finish-product/bind-joints/',
+    method: 'post',
+    data
   })
 }
 

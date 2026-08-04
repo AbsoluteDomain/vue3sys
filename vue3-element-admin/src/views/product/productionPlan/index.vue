@@ -77,7 +77,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="`${selectedDate} 生产计划`" width="1100px" height="80vh" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="`${formatDateTitle(selectedDate)} 生产计划`" width="1100px" height="80vh" destroy-on-close>
       <el-form ref="formRef" :model="formData" class="plan-form">
         <el-form-item label="已选产品">
           <div class="bom-selection-list">
@@ -244,6 +244,34 @@ function formatDate(dateData) {
   }
   
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function formatDateTitle(dateData) {
+  if (!dateData) return ''
+  
+  let d
+  if (dateData instanceof Date) {
+    d = dateData
+  } else if (typeof dateData === 'string') {
+    d = new Date(dateData)
+  } else if (dateData && typeof dateData.getTime === 'function') {
+    d = new Date(dateData.getTime())
+  } else if (dateData.date && dateData.date instanceof Date) {
+    d = dateData.date
+  } else if (dateData.year && dateData.month && dateData.day) {
+    d = new Date(dateData.year, dateData.month - 1, dateData.day)
+  } else {
+    return ''
+  }
+  
+  const year = d.getFullYear()
+  const month = d.getMonth() + 1
+  const day = d.getDate()
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  const seconds = String(d.getSeconds()).padStart(2, '0')
+  
+  return `${year}年${month}月${day}日${hours}:${minutes}:${seconds}`
 }
 
 function getDateCellClass(dateData) {
