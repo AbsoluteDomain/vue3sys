@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.product.repair',
     'apps.system.operation_logs',
     'apps.system.releases',
+    'apps.order',  # 订单管理应用
 ]
 
 MIDDLEWARE = [

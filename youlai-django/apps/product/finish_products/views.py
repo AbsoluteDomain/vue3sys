@@ -371,6 +371,19 @@ def _parse_page_params(request):
     return page_num, page_size
 
 
+def _get_dict_label(dict_code, int_value):
+    """根据字典编码和整数值获取字典项的标签。"""
+    try:
+        item = DictionaryItem.objects.filter(
+            dict_code=dict_code, status=1, value=str(int_value)
+        ).first()
+        if item:
+            return item.label
+    except Exception:
+        pass
+    return str(int_value)
+
+
 def _serialize_finish_product(item, bom_map=None):
     bom_type = None
     bom_type_name = ""
@@ -414,7 +427,7 @@ def _serialize_finish_product(item, bom_map=None):
             "stock_in_time": format_local_datetime(item.stock_in_time) or "",
             "stock_out_time": format_local_datetime(item.stock_out_time) or "",
             "inventory_stock": item.inventory_stock,
-            "inventory_stock_name": item.get_inventory_stock_display(),
+            "inventory_stock_name": _get_dict_label("storage_status", item.inventory_stock),
             "repair": item.repair,
             "repair_name": item.get_repair_display(),
         }
@@ -819,7 +832,7 @@ def update_finish_product(request):
 
         if "inventory_stock" in body:
             inventory_stock = int(body.get("inventory_stock"))
-            valid_inventory = {c[0] for c in FinishProduct.INVENTORY_STOCK_CHOICES}
+            valid_inventory = _get_valid_dict_int_values("storage_status")
             if inventory_stock not in valid_inventory:
                 return JsonResponse({"code": "400", "msg": "库存状态值无效"})
             # 如果是关节（bom_type=0）且有父级SN码，库存状态只能为组件消耗

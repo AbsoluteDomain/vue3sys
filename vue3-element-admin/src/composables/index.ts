@@ -13,3 +13,7 @@ export type { RecentMenuItem } from "./useRecentMenus";
 // 成品表格列展示
 export { useFinishProductTableColumns, finishProductColumnOptions, FINISH_PRODUCT_COLUMN_STORAGE_KEY, FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY } from "./useFinishProductTableColumns";
 export type { FinishProductColumnOption } from "./useFinishProductTableColumns";
+
+// 订单表格列展示
+export { useOrderTableColumns, orderColumnOptions, ORDER_COLUMN_STORAGE_KEY } from "./useOrderTableColumns";
+export type { OrderColumnOption } from "./useOrderTableColumns";

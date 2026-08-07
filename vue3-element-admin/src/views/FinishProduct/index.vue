@@ -575,41 +575,46 @@
       <div class="bind-joint-tip">
         选择要绑定到此机械臂的关节（仅显示有SN码、测试合格且已入库的未绑定关节）
       </div>
-      <div class="bind-joint-select-wrapper">
-        <el-select
-          v-model="selectedJointIds"
-          multiple
-          filterable
-          placeholder="请选择关节（可输入筛选）"
-          style="flex: 1; min-width: 0"
-        >
-          <el-option
-            v-for="joint in availableJoints"
-            :key="joint.id"
-            :label="`${joint.sn_code || '无SN码'} - ${joint.bom_model}${joint.bom_name ? ' (' + joint.bom_name + ')' : ''}`"
-            :value="joint.id"
+      <div v-loading="bindJointLoading" element-loading-text="加载可绑定关节...">
+        <div class="bind-joint-select-wrapper">
+          <el-select
+            v-model="selectedJointIds"
+            multiple
+            filterable
+            placeholder="请选择关节（可输入筛选）"
+            style="flex: 1; min-width: 0"
           >
-            <div class="joint-option">
-              <span class="joint-option__sn">{{ joint.sn_code || '无SN码' }}</span>
-              <span class="joint-option__model">{{ joint.bom_model }}</span>
-              <span v-if="joint.bom_name" class="joint-option__name">({{ joint.bom_name }})</span>
-              <el-tag
-                v-if="joint.status != null"
-                :type="statusTagType(joint.status)"
-                size="small"
-                class="joint-option__tag"
-              >
-                {{ joint.status_name }}
-              </el-tag>
-            </div>
-          </el-option>
-          <template #empty>
-            <div class="select-empty">暂无未绑定的关节</div>
-          </template>
-        </el-select>
-        <el-button type="primary" @click="openAddJointDialog">
-          <el-icon><Plus /></el-icon> 添加关节
-        </el-button>
+            <el-option
+              v-for="joint in availableJoints"
+              :key="joint.id"
+              :label="`${joint.sn_code || '无SN码'} - ${joint.bom_model}${joint.bom_name ? ' (' + joint.bom_name + ')' : ''}`"
+              :value="joint.id"
+            >
+              <div class="joint-option">
+                <span class="joint-option__sn">{{ joint.sn_code || '无SN码' }}</span>
+                <span class="joint-option__model">{{ joint.bom_model }}</span>
+                <span v-if="joint.bom_name" class="joint-option__name">({{ joint.bom_name }})</span>
+                <el-tag
+                  v-if="joint.status != null"
+                  :type="statusTagType(joint.status)"
+                  size="small"
+                  class="joint-option__tag"
+                >
+                  {{ joint.status_name }}
+                </el-tag>
+              </div>
+            </el-option>
+            <template #empty>
+              <div class="select-empty">
+                <template v-if="bindJointLoading">加载中...</template>
+                <template v-else>暂无符合条件的关节（需有SN码、测试合格、已入库且未绑定）</template>
+              </div>
+            </template>
+          </el-select>
+          <el-button type="primary" @click="openAddJointDialog">
+            <el-icon><Plus /></el-icon> 添加关节
+          </el-button>
+        </div>
       </div>
       <div v-if="selectedJointIds.length > 0" class="bind-joint-selected">
         <span class="selected-label">已选关节：</span>
@@ -766,11 +771,15 @@ const jointDetailRow = ref(null)
 const bindJointVisible = ref(false)
 const bindJointRow = ref(null)
 const bindSubmitting = ref(false)
+const bindJointLoading = ref(false)
 const selectedJointIds = ref([])
 
-// 可用于绑定的关节：bom_type=0、未绑定父级SN码、有SN码、测试合格且入库
+// 绑定对话框专用的全量关节数据
+const bindJointData = ref([])
+
+// 可用于绑定的关节：使用专用的全量数据（bindJointData），确保不受当前页限制
 const availableJoints = computed(() => {
-  return tableData.value.filter(
+  return bindJointData.value.filter(
     item =>
       String(item.bom_type) === '0' &&
       !item.parent_sn_code &&
@@ -1202,11 +1211,33 @@ const handleRollback = (row) => {
     })
 }
 
-const handleBindJoints = (row) => {
+const handleBindJoints = async (row) => {
   bindJointRow.value = row
   selectedJointIds.value = []
   bindJointVisible.value = true
+  bindJointLoading.value = true
   loadJointBomList()
+
+  // 加载全量数据，确保可绑定的关节列表不受当前页限制
+  try {
+    const res = await getFinishProductList({
+      pageNum: 1,
+      pageSize: 9999,
+      bom_type: '0',
+      status: STATUS_PASS,
+      inventory_stock: INVENTORY_IN
+    })
+    // 用后端返回的数据过滤出未绑定的关节
+    const allData = res?.list || []
+    bindJointData.value = allData.filter(
+      item => !item.parent_sn_code && item.sn_code
+    )
+  } catch (e) {
+    console.error('加载全量关节数据失败', e)
+    bindJointData.value = []
+  } finally {
+    bindJointLoading.value = false
+  }
 }
 
 const loadJointBomList = async () => {

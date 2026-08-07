@@ -15,7 +15,7 @@
     </div>
 
     <el-card shadow="never" class="calendar-card">
-      <el-calendar v-model="selectedDate" ref="calendarRef" :key="calendarKey">
+      <el-calendar v-model="calendarDate" ref="calendarRef" :key="calendarKey">
         <template #date-cell="{ data }">
           <el-tooltip
             v-if="hasPlan(data) && getPlanStatus(data) !== '已计划' && getPlanStatus(data) !== '已过期'"
@@ -23,14 +23,14 @@
             placement="top"
             effect="dark"
           >
-            <div class="calendar-date-cell" :class="getDateCellClass(data)" @click="onDateCellClick(data)">
+            <div class="calendar-date-cell" :class="getDateCellClass(data)" @click.stop="onDateCellClick(data)">
               <span class="date-number">{{ data.day }}</span>
               <span v-if="hasPlan(data)" class="plan-tag" :class="getPlanTagClass(data)">
                 {{ getPlanStatus(data) }}
               </span>
             </div>
           </el-tooltip>
-          <div v-else class="calendar-date-cell" :class="getDateCellClass(data)" @click="onDateCellClick(data)">
+          <div v-else class="calendar-date-cell" :class="getDateCellClass(data)" @click.stop="onDateCellClick(data)">
             <span class="date-number">{{ data.day }}</span>
             <span v-if="hasPlan(data)" class="plan-tag" :class="{ 'tag-expired': getPlanStatus(data) === '已过期' }">
               {{ getPlanStatus(data) }}
@@ -184,6 +184,7 @@ import { getBomList, calculateProductionRequirements, getProductionPlan, savePro
 
 const calendarRef = ref(null)
 const selectedDate = ref(new Date())
+const calendarDate = ref(new Date())
 const dialogVisible = ref(false)
 const selectedBomId = ref(null)
 const availableBoms = ref([])
@@ -365,12 +366,7 @@ function getPlanTagClass(dateData) {
 function hasPlan(date) {
   if (!date) return false
   const dateStr = formatDate(date)
-  console.log('hasPlan: 日期输入', date, '格式化后', dateStr, '计划日期列表', planDates.value)
-  const result = !!planDates.value[dateStr]
-  if (result) {
-    console.log('hasPlan: 匹配到计划日期', dateStr)
-  }
-  return result
+  return !!planDates.value[dateStr]
 }
 
 function getPlanStatus(date) {
@@ -431,8 +427,6 @@ async function loadPlanDates() {
             has_shortage: item.has_shortage || false,
             shortage_details: item.shortage_details || [],
             shortage_bom_names: item.shortage_bom_names || [],
-            stock_before: item.stock_before || {},
-            stock_after: item.stock_after || {},
             boms: item.boms || [],
             is_expired: item.is_expired || false,
           }

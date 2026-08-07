@@ -88,6 +88,12 @@ def assign_role_menus(*, role_id: int, menu_ids, current_user, updater_user_id):
             role.update_time = timezone.now()
             role.save(update_fields=["update_by", "update_time"])
 
+    # bulk_create 不会触发 post_save signal，需手动刷新该角色的权限缓存
+    # 否则 Redis 中会残留 delete 后刷新的空权限列表，导致非 ROOT/非超管用户 403
+    if role and role.code:
+        from core.permissions.role_perm_service import refresh_role_perms_cache
+        refresh_role_perms_cache(role.code)
+
     return {"data": {}, "msg": "菜单权限分配成功"}
 
 

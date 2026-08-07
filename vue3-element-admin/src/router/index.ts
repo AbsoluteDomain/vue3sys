@@ -105,6 +105,21 @@ export const constantRoutes: RouteRecordRaw[] = [
       },
     ],
   },
+
+  // 订单模块静态路由（保证菜单未配好时也能跳转）
+  {
+    path: "/order",
+    component: Layout,
+    meta: { hidden: true },
+    children: [
+      {
+        path: "orderList",
+        name: "orderList",
+        component: () => import("@/views/order/index.vue"),
+        meta: { title: "订单管理" },
+      },
+    ],
+  },
 ];
 
 /**
