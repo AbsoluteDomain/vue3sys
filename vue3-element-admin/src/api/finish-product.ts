@@ -119,3 +119,48 @@ export function getWarehouseLogList(params: {
     params
   })
 }
+
+// ==================== 不合格项 API ====================
+
+export function getUnqualifiedItems(params: {
+  finish_product_id?: number | string
+  sn_code?: string
+}) {
+  return request({
+    url: '/api/v1/finish-product/unqualified/list/',
+    method: 'get',
+    params
+  })
+}
+
+export function saveUnqualifiedItems(data: {
+  finish_product_id: number
+  sn_code?: string
+  unqualified_values: number[]
+}) {
+  return request({
+    url: '/api/v1/finish-product/unqualified/save/',
+    method: 'post',
+    data
+  })
+}
+
+export function deleteUnqualifiedItem(id: number) {
+  return request({
+    url: '/api/v1/finish-product/unqualified/delete/',
+    method: 'post',
+    data: { id }
+  })
+}
+
+export function addUnqualifiedItem(data: {
+  finish_product_id: number
+  sn_code?: string
+  unqualified_value: number
+}) {
+  return request({
+    url: '/api/v1/finish-product/unqualified/add/',
+    method: 'post',
+    data
+  })
+}

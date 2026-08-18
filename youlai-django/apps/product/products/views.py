@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .models import Product, WarehouseLog
 from .constants import normalize_product_type, product_type_label
+from apps.product.utils.warehouse_logger import create_warehouse_log as create_log_with_operator, get_operator_info
 
 from apps.system.operation_logs.utils import (
     format_product_create_description,
@@ -514,7 +515,7 @@ def warehouse_log_list(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def create_warehouse_log(request):
-    """创建出入库日志"""
+    """创建出入库日志（包含操作人信息）"""
     try:
         body = json.loads(request.body or "{}")
         
@@ -524,8 +525,12 @@ def create_warehouse_log(request):
         storage_status = body.get("storage_status")
         count = body.get("count", 1)
         description = (body.get("description") or "").strip() or None
+        module = (body.get("module") or "manual").strip() or None
+        action_type = (body.get("action_type") or "").strip() or None
+        operation_detail = body.get("operation_detail")
         
-        valid_statuses = (WarehouseLog.STORAGE_IN, WarehouseLog.STORAGE_OUT_SALE, WarehouseLog.STORAGE_OUT_RANDD)
+        valid_statuses = (WarehouseLog.STORAGE_IN, WarehouseLog.STORAGE_OUT_SALE, 
+                         WarehouseLog.STORAGE_OUT_RANDD, WarehouseLog.MANUAL_ADJUST)
         if storage_status not in valid_statuses:
             return JsonResponse({"code": "400", "msg": "出入库状态无效"})
         
@@ -540,14 +545,22 @@ def create_warehouse_log(request):
         if not sn_code and not material_code:
             return JsonResponse({"code": "400", "msg": "SN码和物料编码不能同时为空"})
         
-        warehouse_log = WarehouseLog.objects.create(
+        # 使用新的日志记录逻辑，自动获取操作人信息
+        warehouse_log = create_log_with_operator(
+            request=request,
+            storage_status=storage_status,
             name=name,
             sn_code=sn_code,
             material_code=material_code,
-            storage_status=storage_status,
             count=count,
             description=description,
+            module=module,
+            action_type=action_type,
+            operation_detail=operation_detail,
         )
+        
+        if warehouse_log is None:
+            return JsonResponse({"code": "500", "msg": "创建日志失败"})
         
         return JsonResponse({
             "code": "00000",
@@ -555,6 +568,8 @@ def create_warehouse_log(request):
             "data": {"id": warehouse_log.id}
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JsonResponse({"code": "500", "msg": f"创建失败: {str(e)}"})
 
 
@@ -586,14 +601,14 @@ def stock_alert_list(request):
         future_plans = list(ProductionPlan.objects.filter(plan_date__gte=today).order_by("plan_date"))
         future_bom_ids = list({p.bom_id for p in future_plans})
 
-        # 收集所有在未来计划的BOM中使用到的产品ID
+        # 通过共享辅助函数构建 BOM 需求映射（使用有效产品 ID，支持物料编码回退）
+        from apps.product.boms.utils import build_bom_requirements
+        bom_requirements, _ = build_bom_requirements(future_bom_ids)
+
+        # 收集所有在未来计划的BOM中使用到的有效产品ID
         bom_product_ids = set()
-        if future_bom_ids:
-            for recipe in AssemblyRecipe.objects.filter(bom_id__in=future_bom_ids):
-                if recipe.raw_material_id:
-                    bom_product_ids.add(recipe.raw_material_id)
-                if recipe.component_id:
-                    bom_product_ids.add(recipe.component_id)
+        for req_map in bom_requirements.values():
+            bom_product_ids.update(req_map.keys())
 
         # 收集需要纳入监控的产品
         products = Product.objects.filter(is_del=0).filter(
@@ -601,16 +616,6 @@ def stock_alert_list(request):
             | Q(alert_quantity__gt=0)
             | Q(id__in=bom_product_ids)
         )
-
-        # 预先计算每个 bom 的所需量: {bom_id: {product_id: required_qty}}
-        bom_requirements = {}
-        if future_bom_ids:
-            for recipe in AssemblyRecipe.objects.filter(bom_id__in=future_bom_ids):
-                pid = recipe.raw_material_id or recipe.component_id
-                unit_qty = float(recipe.raw_material_quantity if recipe.raw_material_id else recipe.component_quantity or 1)
-                if pid:
-                    bom_requirements.setdefault(recipe.bom_id, {})
-                    bom_requirements[recipe.bom_id][pid] = float(bom_requirements[recipe.bom_id].get(pid, 0)) + unit_qty
 
         # 预先计算每个产品在所有未来计划中的总需求和涉及天数
         product_future_demand = {}

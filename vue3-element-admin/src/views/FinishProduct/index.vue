@@ -124,7 +124,7 @@
 
     <div v-if="showJointWarning" class="joint-warning">
       <el-icon class="warning-icon"><WarningFilled /></el-icon>
-      <span>库存关节数量与成品关节数量不符，请添加关节父级物料关系</span>
+      <span>库存关节/机械臂数量与成品入库数量不符，请检查产品库存是否正确</span>
     </div>
 
     <el-card shadow="never" class="table-card">
@@ -278,9 +278,13 @@
           min-width="140"
           show-overflow-tooltip
         />
-        <el-table-column label="操作" width="190" fixed="right" align="center">
+        <el-table-column label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button
+              v-if="String(row.status) === '3' || String(row.repair) === '1'"
+              link type="warning" size="small" @click.stop="handleViewUnqualified(row)"
+            >不良详情</el-button>
             <el-button
               v-if="String(row.bom_type) === '1' && row.sn_code"
               link type="success" size="small" @click.stop="handleBindJoints(row)"
@@ -375,6 +379,9 @@
           </el-radio-group>
           <div v-if="requiresPassStatus" class="finish-edit-form__hint">
             选择入库/出库时，测试状态必须为「测试合格」
+          </div>
+          <div v-if="formData.status === 3" class="finish-edit-form__hint" style="color: #E6A23C;">
+            ⚠️ 选择「测试不良」后，保存时需要选择不合格项
           </div>
         </el-form-item>
         <el-row :gutter="20">
@@ -487,10 +494,27 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="repairDialogVisible" title="生成返修单" width="480px" destroy-on-close>
+    <el-dialog v-model="repairDialogVisible" title="生成返修单" width="520px" destroy-on-close>
       <el-form :model="repairFormData" label-width="80px">
         <el-form-item label="SN码">
           <span>{{ formData.sn_code || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="不良项">
+          <el-select
+            v-model="repairFormData.unqualified_values"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="请选择不良项"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in repairUnqualifiedOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="返修内容">
           <el-input
@@ -519,10 +543,11 @@
     >
       <div v-if="jointDetailRow" class="joint-detail-header">
         <span>机械臂 SN码：{{ jointDetailRow.sn_code || '—' }}</span>
-        <span>（共 {{ getJointChildren(jointDetailRow.sn_code).length }} 个关节子件）</span>
+        <span>（共 {{ jointDetailChildren.length }} 个关节子件）</span>
       </div>
       <el-table
-        :data="jointDetailRow ? getJointChildren(jointDetailRow.sn_code) : []"
+        v-loading="jointDetailLoading"
+        :data="jointDetailChildren"
         border
         stripe
         style="width: 100%"
@@ -554,6 +579,19 @@
             <el-tag :type="row.repair === 1 ? 'warning' : 'info'" size="small">
               {{ row.repair_name }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="danger"
+              size="small"
+              :loading="row._unbinding"
+              @click.stop="handleUnbindJoint(row)"
+            >
+              解除绑定
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -680,6 +718,100 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 不合格项选择对话框（编辑保存时使用） -->
+    <el-dialog
+      v-model="unqualifiedSelectVisible"
+      title="选择不合格项"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <div class="unqualified-tip">
+        请选择该成品的不合格项（可多选）
+      </div>
+      <el-form :model="{ values: selectedUnqualifiedValues }" label-width="0">
+        <el-form-item>
+          <el-select
+            v-model="selectedUnqualifiedValues"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="请选择不合格项"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in dictStore.getDictItems('unqualified_status')"
+              :key="item.value"
+              :label="item.label"
+              :value="Number(item.value)"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="unqualifiedSelectVisible = false">取消</el-button>
+        <el-button type="primary" :loading="unqualifiedSelectSubmitting" @click="handleUnqualifiedSelectConfirm">
+          确定
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 不合格项详情对话框（列表中查看使用） -->
+    <el-dialog
+      v-model="unqualifiedDetailVisible"
+      title="不良详情"
+      width="520px"
+      destroy-on-close
+    >
+      <div v-if="unqualifiedDetailRow" class="unqualified-detail-header">
+        <span>SN码：{{ unqualifiedDetailRow.sn_code || '—' }}</span>
+        <span>BOM：{{ unqualifiedDetailRow.bom_model }} ({{ unqualifiedDetailRow.bom_name }})</span>
+      </div>
+      <div v-loading="unqualifiedDetailLoading">
+        <el-table :data="unqualifiedDetailItems" border stripe style="width: 100%" max-height="300">
+          <el-table-column prop="unqualified_label" label="不合格项" />
+          <el-table-column prop="create_time" label="添加时间" width="170" />
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="{ row }">
+              <el-button
+                link
+                type="danger"
+                size="small"
+                @click="handleDeleteUnqualified(row)"
+              >
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 20px; color: #999;">暂无不合格项</div>
+          </template>
+        </el-table>
+      </div>
+      <el-form :model="{ value: newUnqualifiedValue }" label-width="80px" style="margin-top: 10px;">
+        <el-form-item label="添加不良">
+          <el-select
+            v-model="newUnqualifiedValue"
+            placeholder="选择不合格项"
+            style="width: 100%"
+            clearable
+          >
+            <el-option
+              v-for="item in dictStore.getDictItems('unqualified_status')"
+              :key="item.value"
+              :label="item.label"
+              :value="Number(item.value)"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="unqualifiedDetailVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="unqualifiedDetailSubmitting" @click="handleAddUnqualified">
+          添加
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -687,7 +819,7 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { Search, Refresh, Setting, Box, WarningFilled, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm } from '@/api/finish-product'
+import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
 import { createRepair, getBomList } from '@/api/product'
 import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
 import BomAssembleDialog from '../product/bom/bomInfo/BomAssembleDialog.vue'
@@ -758,8 +890,10 @@ const assembleDialogRef = ref(null)
 const repairDialogVisible = ref(false)
 const repairSubmitting = ref(false)
 const repairFormData = reactive({
-  repair_info: ''
+  repair_info: '',
+  unqualified_values: []
 })
+const repairUnqualifiedOptions = ref([])
 
 const repairConfirmVisible = ref(false)
 
@@ -767,6 +901,8 @@ const collapseMode = ref(true)
 
 const jointDetailVisible = ref(false)
 const jointDetailRow = ref(null)
+const jointDetailChildren = ref([])
+const jointDetailLoading = ref(false)
 
 const bindJointVisible = ref(false)
 const bindJointRow = ref(null)
@@ -800,6 +936,19 @@ const addJointSubmitting = ref(false)
 const addJointBomId = ref(null)
 const addJointSnCode = ref('')
 const addJointBomList = ref([])
+
+// 不合格项选择对话框（编辑时使用）
+const unqualifiedSelectVisible = ref(false)
+const unqualifiedSelectSubmitting = ref(false)
+const selectedUnqualifiedValues = ref([])
+
+// 不合格项详情对话框（列表中查看使用）
+const unqualifiedDetailVisible = ref(false)
+const unqualifiedDetailRow = ref(null)
+const unqualifiedDetailItems = ref([])
+const unqualifiedDetailLoading = ref(false)
+const newUnqualifiedValue = ref(null)
+const unqualifiedDetailSubmitting = ref(false)
 
 // 过滤仅显示关节类型的BOM
 const jointBomList = computed(() => {
@@ -1029,19 +1178,148 @@ watch(collapseMode, () => {
   getList()
 })
 
-const handleRowClick = (row) => {
+const handleRowClick = async (row) => {
   if (!collapseMode.value) return
   if (String(row.bom_type) === '1' && row.sn_code) {
     jointDetailRow.value = row
     jointDetailVisible.value = true
+    // 从后端加载关节数据，不依赖当前页表格数据
+    jointDetailLoading.value = true
+    jointDetailChildren.value = []
+    try {
+      const res = await getFinishProductList({
+        parent_sn_code: row.sn_code,
+        pageNum: 1,
+        pageSize: 1000,
+      })
+      jointDetailChildren.value = res?.list || []
+    } catch (e) {
+      console.error('加载关节数据失败', e)
+    } finally {
+      jointDetailLoading.value = false
+    }
   }
 }
 
-const getJointChildren = (parentSnCode) => {
-  if (!parentSnCode) return []
-  return tableData.value.filter(
-    item => String(item.bom_type) === '0' && item.parent_sn_code === parentSnCode
-  )
+const handleUnbindJoint = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定解除关节 ${row.sn_code || '无SN码'} 与机械臂 ${jointDetailRow.value?.sn_code} 的绑定吗？`,
+      '解除绑定',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+
+  row._unbinding = true
+  try {
+    await updateFinishProduct({
+      id: row.id,
+      sn_code: row.sn_code || '',
+      parent_sn_code: '',
+    })
+    ElMessage.success('解除绑定成功')
+    // 从列表中移除已解绑的关节
+    jointDetailChildren.value = jointDetailChildren.value.filter(item => item.id !== row.id)
+    // 更新主表格中对应的数据
+    const tableRow = tableData.value.find(item => item.id === row.id)
+    if (tableRow) {
+      tableRow.parent_sn_code = ''
+    }
+  } catch (e) {
+    ElMessage.error('解除绑定失败')
+    console.error(e)
+  } finally {
+    row._unbinding = false
+  }
+}
+
+// ==================== 不合格项相关方法 ====================
+
+// 查看不合格项详情
+const handleViewUnqualified = async (row) => {
+  unqualifiedDetailRow.value = row
+  unqualifiedDetailVisible.value = true
+  unqualifiedDetailLoading.value = true
+  unqualifiedDetailItems.value = []
+  try {
+    const res = await getUnqualifiedItems({ finish_product_id: row.id })
+    unqualifiedDetailItems.value = res || []
+  } catch (e) {
+    console.error('加载不合格项失败', e)
+    ElMessage.error('加载不合格项失败')
+  } finally {
+    unqualifiedDetailLoading.value = false
+  }
+}
+
+// 编辑保存时，不合格项选择确认
+const handleUnqualifiedSelectConfirm = async () => {
+  unqualifiedSelectSubmitting.value = true
+  try {
+    // 先保存成品
+    await saveProduct()
+    // 再保存不合格项
+    await saveUnqualifiedItems({
+      finish_product_id: formData.id,
+      sn_code: formData.sn_code?.trim() || '',
+      unqualified_values: selectedUnqualifiedValues.value,
+    })
+    ElMessage.success('保存成功')
+    unqualifiedSelectVisible.value = false
+    dialogVisible.value = false
+    getList()
+    checkJointConsistency()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    unqualifiedSelectSubmitting.value = false
+    submitting.value = false
+  }
+}
+
+// 删除单个不合格项
+const handleDeleteUnqualified = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除此不合格项吗？', '删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await deleteUnqualifiedItem(row.id)
+    ElMessage.success('删除成功')
+    // 从列表中移除
+    unqualifiedDetailItems.value = unqualifiedDetailItems.value.filter(item => item.id !== row.id)
+  } catch (e) {
+    ElMessage.error('删除失败')
+    console.error(e)
+  }
+}
+
+// 添加单个不合格项
+const handleAddUnqualified = async () => {
+  if (!newUnqualifiedValue.value) {
+    ElMessage.warning('请选择不合格项')
+    return
+  }
+  unqualifiedDetailSubmitting.value = true
+  try {
+    const res = await addUnqualifiedItem({
+      finish_product_id: unqualifiedDetailRow.value.id,
+      sn_code: unqualifiedDetailRow.value.sn_code,
+      unqualified_value: newUnqualifiedValue.value,
+    })
+    if (res) {
+      unqualifiedDetailItems.value.push(res)
+      newUnqualifiedValue.value = null
+      ElMessage.success('添加成功')
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    unqualifiedDetailSubmitting.value = false
+  }
 }
 
 const getRowClassName = ({ row }) => {
@@ -1122,6 +1400,21 @@ const handleSubmit = () => {
   formRef.value?.validate((valid) => {
     if (!valid) return
 
+    // 测试不良状态：弹出不合格项选择对话框
+    if (formData.status === 3) {
+      // 加载已有的不合格项
+      getUnqualifiedItems({ finish_product_id: formData.id })
+        .then((items) => {
+          selectedUnqualifiedValues.value = items.map(item => item.unqualified_value)
+          unqualifiedSelectVisible.value = true
+        })
+        .catch(() => {
+          selectedUnqualifiedValues.value = []
+          unqualifiedSelectVisible.value = true
+        })
+      return
+    }
+
     if (formData.repair === 1) {
       repairConfirmVisible.value = true
     } else {
@@ -1144,9 +1437,38 @@ const doSaveProduct = () => {
     })
 }
 
-const handleRepairConfirmGenerate = () => {
+const handleRepairConfirmGenerate = async () => {
   repairConfirmVisible.value = false
   repairFormData.repair_info = ''
+  repairFormData.unqualified_values = []
+
+  // 加载字典项
+  await dictStore.loadDictItems('unqualified_status')
+  const allOptions = dictStore.getDictItems('unqualified_status').map(item => ({
+    value: Number(item.value),
+    label: item.label
+  }))
+
+  // 加载产品已绑定的不良项
+  try {
+    const res = await getUnqualifiedItems({ finish_product_id: formData.id })
+    const boundItems = res || []
+    if (boundItems.length > 0) {
+      // 如果有绑定的不良项，显示绑定的几项
+      repairUnqualifiedOptions.value = boundItems.map(item => ({
+        value: item.unqualified_value,
+        label: item.unqualified_label
+      }))
+      repairFormData.unqualified_values = boundItems.map(item => item.unqualified_value)
+    } else {
+      // 如果没有绑定，显示全部
+      repairUnqualifiedOptions.value = allOptions
+    }
+  } catch {
+    // 如果加载失败，显示全部
+    repairUnqualifiedOptions.value = allOptions
+  }
+
   repairDialogVisible.value = true
 }
 
@@ -1160,8 +1482,18 @@ const handleRepairConfirmCancel = () => {
 }
 
 const handleRepairSubmit = () => {
-  if (!repairFormData.repair_info?.trim()) {
-    ElMessage.warning('请填写返修内容')
+  // 构建返修内容：将选中的不良项标签拼接到返修内容中
+  const selectedLabels = repairUnqualifiedOptions.value
+    .filter(opt => repairFormData.unqualified_values.includes(opt.value))
+    .map(opt => opt.label)
+  let finalRepairInfo = repairFormData.repair_info.trim()
+  if (selectedLabels.length > 0) {
+    const prefix = `不良项：${selectedLabels.join('、')}`
+    finalRepairInfo = finalRepairInfo ? `${prefix}\n${finalRepairInfo}` : prefix
+  }
+
+  if (!finalRepairInfo) {
+    ElMessage.warning('请填写返修内容或选择不良项')
     return
   }
   repairSubmitting.value = true
@@ -1169,7 +1501,7 @@ const handleRepairSubmit = () => {
     .then(() => {
       return createRepair({
         product_id: formData.id,
-        repair_info: repairFormData.repair_info.trim()
+        repair_info: finalRepairInfo
       })
     })
     .then(() => {
@@ -1317,6 +1649,7 @@ const checkJointConsistency = async () => {
 onMounted(() => {
   loadColumnSettings()
   dictStore.loadDictItems('storage_status', true)
+  dictStore.loadDictItems('unqualified_status', true)
   getList()
   checkJointConsistency()
 })
@@ -1528,5 +1861,26 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.4;
   color: var(--el-color-warning);
+}
+
+.unqualified-tip {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background-color: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 4px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.unqualified-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background-color: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-size: 13px;
 }
 </style>

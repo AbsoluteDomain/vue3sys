@@ -57,7 +57,6 @@ class DictViewSet(BaseModelViewSet):
             return DictDetailSerializer
         return DictListSerializer
 
-    @permission_required(["sys:dict:list"])
     @extend_schema(
         summary="字典列表",
         responses=resp("DictOptionListResult", serializers.ListField(child=serializers.DictField())),
@@ -218,7 +217,6 @@ class DictItemViewSet(BaseModelViewSet):
             qs = qs.filter(create_by__in=data_permission)
         return qs
 
-    @permission_required(["sys:dict-item:list"])
     @extend_schema(
         summary="字典项下拉选项",
         parameters=[

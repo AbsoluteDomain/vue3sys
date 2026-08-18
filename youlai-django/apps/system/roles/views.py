@@ -427,7 +427,6 @@ class RoleViewSet(BaseModelViewSet):
         )
         return success({}, msg=result.get("msg", "修改角色状态成功"))
 
-    @permission_required(["sys:role:list"])
     @extend_schema(
         summary="角色下拉选项",
         responses=resp(

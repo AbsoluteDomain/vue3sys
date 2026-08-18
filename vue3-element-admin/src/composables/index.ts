@@ -17,3 +17,7 @@ export type { FinishProductColumnOption } from "./useFinishProductTableColumns";
 // 订单表格列展示
 export { useOrderTableColumns, orderColumnOptions, ORDER_COLUMN_STORAGE_KEY } from "./useOrderTableColumns";
 export type { OrderColumnOption } from "./useOrderTableColumns";
+
+// 库存管理表格列展示
+export { useProductTableColumns, productColumnOptions, PRODUCT_COLUMN_STORAGE_KEY } from "./useProductTableColumns";
+export type { ProductColumnOption } from "./useProductTableColumns";

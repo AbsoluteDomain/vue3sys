@@ -195,7 +195,10 @@ const searchProducts = async (query, row) => {
     row.productOptions = list.filter(
       (product) => !selected.has(product.id) || product.id === row.product_id
     )
-    ensureRowOption(row)
+    // 有搜索关键词时不从缓存补充已删除的物料，仅无关键词（打开下拉框）时保留当前绑定项
+    if (!keyword) {
+      ensureRowOption(row)
+    }
   } catch (error) {
     console.error(error)
   } finally {

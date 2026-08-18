@@ -71,6 +71,9 @@
         <el-button type="success" @click="handleAdd">
           <el-icon><Plus /></el-icon> 新增
         </el-button>
+        <el-button @click="openColumnDialog">
+          <el-icon><Setting /></el-icon> 列展示
+        </el-button>
       </div>
 
       <!-- 表格 -->
@@ -84,13 +87,42 @@
         :row-class-name="getRowClassName"
         @sort-change="handleSortChange"
       >
-        <el-table-column type="index" label="序号" width="60" align="center" />
-        
-        <!-- ⚠️ 这里对应后端的字段名 -->
-        <el-table-column prop="name" label="零件名称" sortable="custom" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="draw_code" label="图号" sortable="custom" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="material_code" label="物料编码" sortable="custom" min-width="120" show-overflow-tooltip />
+        <el-table-column type="index" label="序号" width="60" align="center" fixed="left" />
+
         <el-table-column
+          v-if="isColumnVisible('id')"
+          prop="id"
+          label="ID"
+          width="80"
+          align="center"
+        />
+
+        <el-table-column
+          v-if="isColumnVisible('name')"
+          prop="name"
+          label="零件名称"
+          sortable="custom"
+          min-width="150"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('draw_code')"
+          prop="draw_code"
+          label="图号"
+          sortable="custom"
+          min-width="120"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('material_code')"
+          prop="material_code"
+          label="物料编码"
+          sortable="custom"
+          min-width="120"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('type')"
           prop="type"
           class-name="col-product-type"
           label="类型"
@@ -103,33 +135,48 @@
             </el-tag>
           </template>
         </el-table-column>
-        
-        <!-- 数量 -->
-        <el-table-column prop="quantity" label="数量" sortable="custom" width="100" align="right">
+
+        <el-table-column
+          v-if="isColumnVisible('quantity')"
+          prop="quantity"
+          label="数量"
+          sortable="custom"
+          width="100"
+          align="right"
+        >
            <template #default="{ row }">
              {{ row.quantity }} {{ row.unit }}
            </template>
         </el-table-column>
 
-        <el-table-column prop="alert_quantity" label="报警数量" sortable="custom" width="120" />
+        <el-table-column
+          v-if="isColumnVisible('alert_quantity')"
+          prop="alert_quantity"
+          label="报警数量"
+          sortable="custom"
+          width="120"
+        />
 
-        <el-table-column prop="procurement_cycle" label="采购周期(天)" sortable="custom" width="130" align="center">
+        <el-table-column
+          v-if="isColumnVisible('procurement_cycle')"
+          prop="procurement_cycle"
+          label="采购周期(天)"
+          sortable="custom"
+          width="130"
+          align="center"
+        >
           <template #default="{ row }">
             <span>{{ row.procurement_cycle || '—' }}</span>
           </template>
-        </el-table-column
-        
-        <!-- 状态 (假设后端有 status 字段，如果没有可删除) -->
-        <!-- <el-table-column prop="status" label="状态" sortable width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-              {{ row.status === 1 ? '启用' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column> -->
+        </el-table-column>
 
-        <!-- 更新时间 -->
-        <el-table-column prop="updated_at" label="更新时间" sortable="custom" width="180" />
+        <el-table-column
+          v-if="isColumnVisible('updated_at')"
+          prop="updated_at"
+          label="更新时间"
+          sortable="custom"
+          width="180"
+        />
 
         <el-table-column
           class-name="col-product-actions"
@@ -164,6 +211,21 @@
         />
       </div>
     </el-card>
+
+    <!-- 列展示设置对话框 -->
+    <el-dialog v-model="columnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
+      <div class="column-setting-tip">勾选需要在表格中展示的字段（序号和操作列始终显示）</div>
+      <el-checkbox-group v-model="columnDraftKeys" class="column-checkbox-group">
+        <el-checkbox v-for="col in columnOptions" :key="col.key" :label="col.key">
+          {{ col.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="resetColumnDraft">恢复默认</el-button>
+        <el-button @click="columnDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveColumnSettings">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -171,13 +233,26 @@
 import { ref, reactive, onMounted } from 'vue'
 // import { getProductList } from '@/api/product' // 引入接口
 import { getProductList, deleteProduct } from '@/api/product' // 引入 deleteProduct
-import { Search, Refresh, Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, Edit, Delete, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // 1. 引入 Drawer 组件
 import productForm from './productInfo/ProductForm.vue'
 import StockAdjustDialog from './productInfo/StockAdjustDialog.vue'
 import { formatProductTypeLabel, productTypeTagType, PRODUCT_TYPE_OPTIONS } from './productInfo/productType'
 // import ProductNav from './components/ProductNav.vue'
+import { useProductTableColumns } from '@/composables/useProductTableColumns'
+
+// 列展示
+const {
+  columnOptions,
+  columnDialogVisible,
+  columnDraftKeys,
+  isColumnVisible,
+  loadColumnSettings,
+  openColumnDialog,
+  resetColumnDraft,
+  saveColumnSettings,
+} = useProductTableColumns()
 
 // 1. 定义响应式数据
 const queryParams = reactive({
@@ -295,6 +370,7 @@ const handleStockOut = (row) => stockDialogRef.value?.open(row, 'out')
 
 // 初始化
 onMounted(() => {
+  loadColumnSettings()
   getList()
 })
 </script>
@@ -337,5 +413,16 @@ onMounted(() => {
     > td:not(.col-product-type):not(.col-product-actions)
 ) {
   color: #ff0000;
+}
+
+.column-setting-tip {
+  margin-bottom: 16px;
+  color: #909399;
+  font-size: 13px;
+}
+.column-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 </style>

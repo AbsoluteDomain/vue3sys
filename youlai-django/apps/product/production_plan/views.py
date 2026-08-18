@@ -7,10 +7,16 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from apps.product.boms.models import AssemblyRecipe, BomList
+from apps.product.boms.utils import build_bom_requirements, build_effective_pid_map
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
 
 from .models import ProductionPlan
+
+
+# 共享辅助函数 build_bom_requirements 已移至 apps.product.boms.utils
+# 此处保留别名以兼容本模块内既有调用
+_build_bom_requirements = build_bom_requirements
 
 
 @csrf_exempt
@@ -28,152 +34,106 @@ def calculate_production_requirements(request):
         
         if not plan_items:
             return JsonResponse({"code": "400", "msg": "请提供生产计划项目"})
-        
-        all_product_ids = set()
-        
+
+        # 收集本次计划涉及的 BOM ID
+        plan_bom_ids = set()
         for item in plan_items:
             bom_id = item.get("bom_id") or item.get("id")
-            if not bom_id:
-                continue
-            
-            try:
-                bom = BomList.objects.get(id=int(bom_id), is_del=0)
-                recipes = AssemblyRecipe.objects.filter(bom_id=bom.id)
-                for recipe in recipes:
-                    if recipe.raw_material_id:
-                        all_product_ids.add(recipe.raw_material_id)
-                    elif recipe.component_id:
-                        all_product_ids.add(recipe.component_id)
-            except BomList.DoesNotExist:
-                continue
-        
-        stock_map = {}
-        for product in Product.objects.filter(id__in=all_product_ids, is_del=0):
-            stock_map[product.id] = product.quantity if product.quantity is not None else 0
-        
+            if bom_id:
+                try:
+                    plan_bom_ids.add(int(bom_id))
+                except (TypeError, ValueError):
+                    continue
+
+        # 预解析日期范围内的历史计划（用于累计库存消耗）
+        previous_plans = []
+        target_date = None
         if plan_date:
             try:
                 target_date = datetime.strptime(plan_date, "%Y-%m-%d").date()
                 today = datetime.now().date()
-                
-                previous_plans = ProductionPlan.objects.filter(
-                    plan_date__lt=target_date,
-                    plan_date__gte=today
-                ).order_by("plan_date")
-                
-                bom_ids = {p.bom_id for p in previous_plans}
-                bom_map = {}
-                if bom_ids:
-                    for bom in BomList.objects.filter(id__in=bom_ids, is_del=0):
-                        bom_map[bom.id] = bom
-                
-                for plan in previous_plans:
-                    bom = bom_map.get(plan.bom_id)
-                    if not bom:
-                        continue
-                    
-                    if bom.material_code:
-                        produced_product = Product.objects.filter(
-                            material_code=bom.material_code, is_del=0
-                        ).first()
-                        if produced_product:
-                            stock_map[produced_product.id] = stock_map.get(produced_product.id, 0) + plan.quantity
-                    
-                    recipes = AssemblyRecipe.objects.filter(bom_id=bom.id)
-                    for recipe in recipes:
-                        product_id = None
-                        unit_qty = 1
-                        
-                        if recipe.raw_material_id:
-                            product_id = recipe.raw_material_id
-                            unit_qty = recipe.raw_material_quantity if recipe.raw_material_quantity is not None else 1
-                        elif recipe.component_id:
-                            product_id = recipe.component_id
-                            unit_qty = recipe.component_quantity if recipe.component_quantity is not None else 1
-                        
-                        if product_id:
-                            consumed = unit_qty * plan.quantity
-                            stock_map[product_id] = max(0, stock_map.get(product_id, 0) - consumed)
+                previous_plans = list(
+                    ProductionPlan.objects.filter(
+                        plan_date__lt=target_date,
+                        plan_date__gte=today,
+                    ).order_by("plan_date")
+                )
             except ValueError:
                 pass
-        
+
+        # 合并本次计划和历史计划涉及的 BOM，统一构建需求映射（支持物料编码回退）
+        all_bom_ids = set(plan_bom_ids)
+        all_bom_ids.update(p.bom_id for p in previous_plans if p.bom_id)
+        bom_requirements, pid_map = _build_bom_requirements(all_bom_ids)
+
+        # 收集所有有效产品 ID，批量加载库存
+        all_product_ids = set()
+        for req_map in bom_requirements.values():
+            all_product_ids.update(req_map.keys())
+
+        stock_map = {}
+        for product in Product.objects.filter(id__in=all_product_ids, is_del=0):
+            stock_map[product.id] = product.quantity if product.quantity is not None else 0
+
+        # 历史计划：模拟消耗原料 + 增加成品库存
+        if previous_plans:
+            prev_bom_ids = {p.bom_id for p in previous_plans if p.bom_id}
+            prev_bom_map = {
+                b.id: b
+                for b in BomList.objects.filter(id__in=prev_bom_ids, is_del=0)
+            }
+            for plan in previous_plans:
+                bom = prev_bom_map.get(plan.bom_id)
+                if not bom:
+                    continue
+
+                # 成品入库（通过 BOM 物料编码匹配有效产品）
+                if bom.material_code:
+                    produced_product = Product.objects.filter(
+                        material_code=bom.material_code, is_del=0
+                    ).first()
+                    if produced_product:
+                        stock_map[produced_product.id] = (
+                            stock_map.get(produced_product.id, 0) + plan.quantity
+                        )
+
+                # 原料消耗（使用有效产品 ID）
+                reqs = bom_requirements.get(bom.id, {})
+                for eff_id, unit_qty in reqs.items():
+                    consumed = unit_qty * plan.quantity
+                    stock_map[eff_id] = max(0, stock_map.get(eff_id, 0) - consumed)
+
+        # 构建本次计划的需求明细
         requirements = {}
-        
         for item in plan_items:
             bom_id = item.get("bom_id") or item.get("id")
             quantity = item.get("quantity", 1)
-            
-            if not bom_id:
+            if not bom_id or quantity < 1:
                 continue
-            if quantity < 1:
-                continue
-            
+
             try:
-                bom = BomList.objects.get(id=int(bom_id), is_del=0)
-            except BomList.DoesNotExist:
+                bom_id_int = int(bom_id)
+            except (TypeError, ValueError):
                 continue
-            
-            recipes = AssemblyRecipe.objects.filter(bom_id=bom.id)
-            
-            for recipe in recipes:
-                product_id = None
-                product_name = ""
-                material_code = ""
-                unit_qty = 1
-                
-                if recipe.raw_material_id:
-                    product_id = recipe.raw_material_id
-                    product_name = recipe.raw_material_name or ""
-                    unit_qty = recipe.raw_material_quantity if recipe.raw_material_quantity is not None else 1
-                elif recipe.component_id:
-                    product_id = recipe.component_id
-                    product_name = recipe.component_name or ""
-                    unit_qty = recipe.component_quantity if recipe.component_quantity is not None else 1
-                
-                if not product_id:
-                    continue
-                
+
+            reqs = bom_requirements.get(bom_id_int, {})
+            for eff_id, unit_qty in reqs.items():
                 total_required = unit_qty * quantity
-                
-                if product_id not in requirements:
-                    product_obj = None
-                    try:
-                        product_obj = Product.objects.get(id=product_id, is_del=0)
-                        material_code = product_obj.material_code or ""
-                        if not product_name:
-                            product_name = product_obj.name
-                    except Product.DoesNotExist:
-                        material_code = ""
-                    
-                    requirements[product_id] = {
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "material_code": material_code,
+                if eff_id not in requirements:
+                    product_obj = Product.objects.filter(id=eff_id, is_del=0).first()
+                    requirements[eff_id] = {
+                        "product_id": eff_id,
+                        "product_name": product_obj.name if product_obj else "",
+                        "material_code": product_obj.material_code or "" if product_obj else "",
                         "total_required": 0,
-                        "stock_before": stock_map.get(product_id, 0),
+                        "stock_before": stock_map.get(eff_id, 0),
                         "alert_quantity": float(product_obj.alert_quantity or 0) if product_obj else 0,
                         "procurement_cycle": float(product_obj.procurement_cycle or 0) if product_obj else 0,
                     }
-                
-                requirements[product_id]["total_required"] += total_required
-        
-        # 预计算 BOM 需求映射 (用于周期需求计算)
-        bom_requirements_cache = {}
-        for item in plan_items:
-            bom_id = item.get("bom_id") or item.get("id")
-            if bom_id and bom_id not in bom_requirements_cache:
-                try:
-                    bom_obj = BomList.objects.get(id=int(bom_id), is_del=0)
-                    bom_req = {}
-                    for recipe in AssemblyRecipe.objects.filter(bom_id=bom_obj.id):
-                        pid = recipe.raw_material_id or recipe.component_id
-                        qty = recipe.raw_material_quantity if recipe.raw_material_id else recipe.component_quantity
-                        qty = qty if qty is not None else 1
-                        if pid:
-                            bom_req[pid] = bom_req.get(pid, 0) + qty
-                    bom_requirements_cache[bom_id] = bom_req
-                except (BomList.DoesNotExist, ValueError):
-                    bom_requirements_cache[bom_id] = {}
+                requirements[eff_id]["total_required"] += total_required
+
+        # bom_requirements 直接复用为周期需求缓存（已使用有效产品 ID）
+        bom_requirements_cache = bom_requirements
         
         # 计算每个产品的周期需求 (2倍采购周期内的未来计划需求)
         from datetime import date, timedelta
@@ -371,45 +331,37 @@ def save_production_plan(request):
             stock_map = _build_stock_map_for_boms(saved_bom_ids)
             # db_stock_map 保存 DB 原始库存 (用于 plan 类型判定)
             db_stock_map = dict(stock_map)
-            
+
             # 如果保存的是未来日期, 需要先消耗今天到该日期之间的已存在计划
-            # 这些是已存在的未执行计划, 需要模拟扣除
             from datetime import date as date_cls
             today_cls = date_cls.today()
             if date_obj > today_cls:
-                # 今天到保存日期之间的已存在计划 (今天 < plan_date < date_obj)
                 in_range_plans = ProductionPlan.objects.filter(
                     plan_date__gte=today_cls,
                     plan_date__lt=date_obj
                 )
-                
-                def _consume_for_save(plan_bom_id, plan_quantity):
-                    if not plan_bom_id or plan_quantity < 1:
-                        return
-                    for recipe in AssemblyRecipe.objects.filter(bom_id=plan_bom_id):
-                        pid = recipe.raw_material_id or recipe.component_id
-                        qty = float(recipe.raw_material_quantity if recipe.raw_material_id else recipe.component_quantity or 1)
-                        if pid:
-                            stock_map[pid] = max(0.0, float(stock_map.get(pid, 0)) - qty * float(plan_quantity))
-                
+                # 合并区间内计划的 BOM，统一构建需求映射（支持物料编码回退）
+                in_range_bom_ids = {p.bom_id for p in in_range_plans if p.bom_id}
+                in_range_bom_ids.update(bom_ids)
+                in_range_requirements, _ = _build_bom_requirements(in_range_bom_ids)
+
                 for pp in in_range_plans:
-                    _consume_for_save(pp.bom_id, pp.quantity)
-            
-            # 构建 bom_requirements 映射
-            bom_requirements = {}
-            for item in saved_bom_ids:
-                for recipe in AssemblyRecipe.objects.filter(bom_id=item["id"]):
-                    pid = recipe.raw_material_id or recipe.component_id
-                    qty = float(recipe.raw_material_quantity if recipe.raw_material_id else recipe.component_quantity or 1)
-                    bom_requirements[item["id"]] = bom_requirements.get(item["id"], {})
-                    bom_requirements[item["id"]][pid] = float(bom_requirements[item["id"]].get(pid, 0)) + qty
-            
+                    reqs = in_range_requirements.get(pp.bom_id, {})
+                    for eff_id, unit_qty in reqs.items():
+                        stock_map[eff_id] = max(
+                            0.0,
+                            float(stock_map.get(eff_id, 0)) - unit_qty * float(pp.quantity)
+                        )
+
+            # 构建 bom_requirements 映射（使用有效产品 ID）
+            bom_requirements, _ = _build_bom_requirements(bom_ids)
+
             # 计算所有未来计划的计划缺料数据
             future_plans = ProductionPlan.objects.filter(plan_date__gte=date_obj)
             plan_shortage_map = _compute_plan_shortage_data(
                 future_plans, bom_requirements, db_stock_map, multiplier
             )
-            
+
             has_shortage, shortage_details, shortage_bom_names = _check_plan_shortage_with_stock(
                 saved_bom_ids, bom_map, stock_map, plan_shortage_map, db_stock_map
             )
@@ -429,17 +381,13 @@ def save_production_plan(request):
 
 
 def _build_stock_map_for_boms(bom_items):
-    """根据 BOM 列表构建当前库存快照"""
+    """根据 BOM 列表构建当前库存快照（使用有效产品 ID，支持物料编码回退）"""
+    bom_ids = [item.get("id") for item in bom_items if item.get("id")]
+    bom_requirements, _ = _build_bom_requirements(bom_ids)
+
     product_ids = set()
-    for item in bom_items:
-        bom_id = item.get("id")
-        if not bom_id:
-            continue
-        for recipe in AssemblyRecipe.objects.filter(bom_id=bom_id):
-            if recipe.raw_material_id:
-                product_ids.add(recipe.raw_material_id)
-            if recipe.component_id:
-                product_ids.add(recipe.component_id)
+    for req_map in bom_requirements.values():
+        product_ids.update(req_map.keys())
 
     stock_map = {}
     if product_ids:
@@ -509,13 +457,8 @@ def list_production_plan(request):
 
         # 预先批量计算每个BOM的需求 {bom_id: {product_id: required_qty}}
         # (提前到此处，供后续 all_product_ids / _consume_plan_stock 复用，避免 N+1 查询)
-        bom_requirements = {}
-        for r in AssemblyRecipe.objects.filter(bom_id__in=bom_ids):
-            pid = r.raw_material_id or r.component_id
-            qty = float(r.raw_material_quantity if r.raw_material_id else r.component_quantity or 1)
-            if pid:
-                bom_requirements.setdefault(r.bom_id, {})
-                bom_requirements[r.bom_id][pid] = float(bom_requirements[r.bom_id].get(pid, 0)) + qty
+        # 使用有效产品 ID（产品删除重建后通过 material_code 回退）
+        bom_requirements, _ = _build_bom_requirements(bom_ids)
 
         all_product_ids = set()
         for req_pid in bom_requirements.values():
@@ -760,97 +703,77 @@ def _check_plan_shortage_with_stock(boms, bom_map, stock_map, plan_shortage_map=
     # 如果没有传 db_stock_map, 则使用 stock_map (兼容旧调用)
     if db_stock_map is None:
         db_stock_map = stock_map
-    
+
     shortage_details = []
     has_shortage = False
     shortage_bom_names = set()
-    
-    # 收集本次计划中所有涉及的产品ID
+
+    # 收集本次计划涉及的所有 BOM 的 recipe，构建有效产品 ID 映射（支持物料编码回退）
+    bom_ids_in_plan = [bom_item.get("id") for bom_item in boms if bom_item.get("id")]
+    bom_requirements, pid_map = _build_bom_requirements(bom_ids_in_plan)
+
+    # 有效产品 ID 集合
     plan_product_ids = set()
-    for bom_item in boms:
-        bom_id = bom_item.get("id")
-        if not bom_id:
-            continue
-        recipes = AssemblyRecipe.objects.filter(bom_id=bom_id)
-        for recipe in recipes:
-            pid = recipe.raw_material_id or recipe.component_id
-            if pid:
-                plan_product_ids.add(pid)
-    
-    # 批量获取产品信息
+    for req_map in bom_requirements.values():
+        plan_product_ids.update(req_map.keys())
+
+    # 批量获取产品信息（按有效 ID）
     products_info = {}
     for product in Product.objects.filter(id__in=plan_product_ids, is_del=0):
         products_info[product.id] = product
-    
+
     for bom_item in boms:
         bom_id = bom_item.get("id")
         quantity = bom_item.get("quantity", 1)
-        
+
         if not bom_id or quantity < 1:
             continue
-        
+
         bom = bom_map.get(bom_id)
         if not bom:
             continue
-        
+
         bom_name = bom.bom_model or bom.bom_name or ""
         bom_has_shortage = False
-        
-        recipes = AssemblyRecipe.objects.filter(bom_id=bom.id)
-        
-        for recipe in recipes:
-            product_id = None
-            unit_qty = 1
-            
-            if recipe.raw_material_id:
-                product_id = recipe.raw_material_id
-                unit_qty = recipe.raw_material_quantity if recipe.raw_material_quantity is not None else 1
-            elif recipe.component_id:
-                product_id = recipe.component_id
-                unit_qty = recipe.component_quantity if recipe.component_quantity is not None else 1
-            
-            if not product_id:
-                continue
-            
+
+        # 使用预计算的 bom_requirements（已按有效产品 ID 聚合）
+        reqs = bom_requirements.get(bom_id, {})
+        for eff_id, unit_qty in reqs.items():
             total_required = float(unit_qty) * float(quantity)
             # 当天开始前的库存 (消耗过去计划后的模拟库存)
-            # 用于 actual 和 alert 判定, 以及显示 stock_before
-            stock_before_plan = float(stock_map.get(product_id, 0))
+            stock_before_plan = float(stock_map.get(eff_id, 0))
             # 数据库实际库存 (用于 plan 类型的全局库存水平判定)
-            actual_stock = float(db_stock_map.get(product_id, 0))
-            
-            product = products_info.get(product_id)
+            actual_stock = float(db_stock_map.get(eff_id, 0))
+
+            product = products_info.get(eff_id)
             product_name = product.name if product else "未知"
             material_code = product.material_code if product else ""
             alert_quantity = float(product.alert_quantity or 0) if product else 0
             procurement_cycle = float(product.procurement_cycle or 0) if product else 0
-            
+
             # 判定短缺类型
             shortage = 0
             shortage_type = ""
             actual_shortage = 0
             plan_shortage = 0
             alert_shortage = 0
-            
+
             # 1. 库存缺料: 计划后库存 < 0 (最严重)
-            # 使用累计模拟库存: 当天开始前的库存 - 当天需求
             stock_after_plan = stock_before_plan - total_required
             if stock_after_plan < 0:
                 actual_shortage = abs(stock_after_plan)
-            
+
             # 2. 计划缺料: 当前库存 < 平均日需求 * 采购周期 * 2 (中等)
-            # 使用数据库实际库存判定全局库存水平
-            if plan_shortage_map and product_id in plan_shortage_map:
-                ps_data = plan_shortage_map[product_id]
+            if plan_shortage_map and eff_id in plan_shortage_map:
+                ps_data = plan_shortage_map[eff_id]
                 required_stock = float(ps_data["required_stock"])
                 if required_stock > 0 and actual_stock < required_stock:
                     plan_shortage = required_stock - actual_stock
-            
+
             # 3. 缺料警告: 计划后库存 <= 预警数量 (最轻)
-            # 使用累计库存计算
             if alert_quantity > 0 and stock_after_plan <= alert_quantity:
                 alert_shortage = max(0.0, alert_quantity - stock_after_plan)
-            
+
             # 按严重程度排序: actual > plan > alert
             if actual_shortage > 0:
                 shortage = actual_shortage
@@ -867,29 +790,25 @@ def _check_plan_shortage_with_stock(boms, bom_map, stock_map, plan_shortage_map=
                 shortage_type = "alert"
                 bom_has_shortage = True
                 has_shortage = True
-            
+
             shortage_details.append({
-                "product_id": product_id,
+                "product_id": eff_id,
                 "product_name": product_name,
                 "material_code": material_code,
                 "required": total_required,
-                # stock_before: 当天开始前的累计库存 (simulated), 与详情页一致
                 "stock_before": stock_before_plan,
-                # stock_after: 计划后累计库存
                 "stock_after": max(0.0, stock_after_plan),
-                # db_stock: 数据库实际原始库存 (用于计划缺料的参考)
                 "db_stock": actual_stock,
                 "shortage": shortage,
                 "shortage_type": shortage_type,
                 "alert_quantity": alert_quantity,
                 "procurement_cycle": procurement_cycle,
-                # 附加计划缺料计算信息
-                "required_stock": plan_shortage_map.get(product_id, {}).get("required_stock", 0) if plan_shortage_map else 0,
-                "avg_daily": plan_shortage_map.get(product_id, {}).get("avg_daily", 0) if plan_shortage_map else 0,
-                "distinct_days": plan_shortage_map.get(product_id, {}).get("distinct_days", 0) if plan_shortage_map else 0,
+                "required_stock": plan_shortage_map.get(eff_id, {}).get("required_stock", 0) if plan_shortage_map else 0,
+                "avg_daily": plan_shortage_map.get(eff_id, {}).get("avg_daily", 0) if plan_shortage_map else 0,
+                "distinct_days": plan_shortage_map.get(eff_id, {}).get("distinct_days", 0) if plan_shortage_map else 0,
             })
-        
+
         if bom_has_shortage and bom_name:
             shortage_bom_names.add(bom_name)
-    
+
     return has_shortage, shortage_details, list(shortage_bom_names)

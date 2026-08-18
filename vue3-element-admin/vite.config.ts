@@ -67,6 +67,12 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
       '/api': {
         target: 'http://127.0.0.1:8000', // 目标服务器
         changeOrigin: true
+      },
+      // 外部订单接口代理（与线上 Nginx 配置一致）
+      '/ext-order': {
+        target: 'http://172.20.45.143:35203',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/ext-order/, '')
       }
     }
 

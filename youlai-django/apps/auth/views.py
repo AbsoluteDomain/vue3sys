@@ -73,16 +73,19 @@ class AuthViewSet(ViewSet):
 
         session_type = getattr(settings, 'SESSION_TYPE', 'jwt')
         if session_type == 'redis-token':
-            # 当前工程 redis-token 模式的 token 生成逻辑仅在账号密码登录序列化器中实现。
             return error("当前会话模式不支持短信验证码登录", code="A0500", status=500)
+
+        # 登录成功后，失效所有旧会话（同一账号只能在一个终端登录）
+        from apps.auth.utils.session_utils import invalidate_user_sessions
+        invalidate_user_sessions(user.id)
 
         refresh = RefreshToken.for_user(user)
 
         redis_conn = get_redis_connection("default")
-        version_key = f"auth:user:security_version:{user.id}"
+        version_key = f"auth:user:token_version:{user.id}"
         current_version = redis_conn.get(version_key)
-        security_version = int(current_version) if current_version is not None else 0
-        refresh["securityVersion"] = security_version
+        token_version = int(current_version) if current_version is not None else 0
+        refresh["tokenVersion"] = token_version
 
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)

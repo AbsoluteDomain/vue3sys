@@ -2,8 +2,10 @@
 import axios from 'axios'
 import request from '@/utils/request'
 
-// 外部订单系统接口基地址（直接访问，不走代理）
-const EXTERNAL_ORDER_BASE_URL = 'http://172.20.45.143:35203'
+// 外部订单系统接口基地址
+// 开发环境：通过 vite 代理到 http://172.20.45.143:35203
+// 生产环境：通过 Nginx 代理到 http://172.20.45.143:35203
+const EXTERNAL_ORDER_BASE_URL = '/ext-order'
 
 // 外部接口专用 axios 实例（不带认证 header，不经过本系统响应拦截器）
 const externalHttp = axios.create({

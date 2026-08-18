@@ -77,31 +77,80 @@ class Product(models.Model):
 
 class WarehouseLog(models.Model):
     """
-    出入库日志表 (对应数据库表: warehouse_log)
+    库存操作日志表 (对应数据库表: warehouse_log)
+    
+    记录所有库存相关的操作，包括：
+    - 出入库操作
+    - 绑定/解除绑定关节到机械臂
+    - 成品回退
+    - 其他影响库存的操作
+    
+    设计原则：
+    - 1次操作即使造成多条数据库修改，也只生成1条记录
+    - 日志中记录对数据的所有操作详情
+    - 尽量记录操作来源模块，便于溯源
     """
     STORAGE_IN = 1       # 入库
     STORAGE_OUT_SALE = 2  # 出库(外销)
     STORAGE_OUT_RANDD = 3  # 出库(研发)
-
+    BIND = 4              # 绑定（关节绑定到机械臂）
+    UNBIND = 5            # 解除绑定
+    ROLLBACK = 6          # 成品回退
+    MANUAL_ADJUST = 7     # 手动调整
+    
     STORAGE_CHOICES = (
         (STORAGE_IN, '入库'),
         (STORAGE_OUT_SALE, '出库(外销)'),
         (STORAGE_OUT_RANDD, '出库(研发)'),
+        (BIND, '绑定关节'),
+        (UNBIND, '解除绑定关节'),
+        (ROLLBACK, '成品回退'),
+        (MANUAL_ADJUST, '手动调整'),
+    )
+    
+    # 操作来源模块
+    MODULE_FINISH_PRODUCT = 'finish_product'  # 成品管理
+    MODULE_INVENTORY = 'inventory'            # 库存管理
+    MODULE_REPAIR = 'repair'                  # 返修管理
+    MODULE_ASSEMBLE = 'assemble'              # 组装产品
+    MODULE_MANUAL = 'manual'                  # 手动操作
+    
+    MODULE_CHOICES = (
+        (MODULE_FINISH_PRODUCT, '成品管理'),
+        (MODULE_INVENTORY, '库存管理'),
+        (MODULE_REPAIR, '返修管理'),
+        (MODULE_ASSEMBLE, '组装产品'),
+        (MODULE_MANUAL, '手动操作'),
     )
 
     id = models.AutoField(primary_key=True, verbose_name="ID")
     name = models.CharField(max_length=255, null=True, blank=True, verbose_name="名称")
     sn_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="SN码")
     material_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="物料编码")
-    storage_status = models.IntegerField(choices=STORAGE_CHOICES, verbose_name="出入库状态")
+    storage_status = models.IntegerField(choices=STORAGE_CHOICES, verbose_name="操作类型")
     count = models.IntegerField(default=1, verbose_name="数量")
-    description = models.TextField(null=True, blank=True, verbose_name="出入库信息")
+    description = models.TextField(null=True, blank=True, verbose_name="操作描述")
+    
+    # 新增字段：操作人
+    operator_id = models.BigIntegerField(null=True, blank=True, verbose_name="操作人ID")
+    operator_name = models.CharField(max_length=64, null=True, blank=True, verbose_name="操作人昵称")
+    
+    # 新增字段：操作来源模块
+    module = models.CharField(max_length=32, choices=MODULE_CHOICES, null=True, blank=True, verbose_name="操作来源模块")
+    
+    # 新增字段：操作详情（JSON格式，记录对数据的所有操作）
+    operation_detail = models.JSONField(null=True, blank=True, verbose_name="操作详情")
+    
+    # 新增字段：操作类型（更细粒度的操作类型）
+    action_type = models.CharField(max_length=32, null=True, blank=True, verbose_name="具体操作类型")
+    
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
 
     class Meta:
         db_table = 'warehouse_log'
-        verbose_name = "出入库日志"
-        verbose_name_plural = "出入库日志管理"
+        verbose_name = "库存操作日志"
+        verbose_name_plural = "库存操作日志管理"
+        ordering = ['-created_at']  # 按创建时间倒序排列
 
     def __str__(self):
-        return f"{self.sn_code or self.material_code} - {self.get_storage_status_display()}"
+        return f"{self.sn_code or self.material_code} - {self.get_storage_status_display()} - {self.operator_name or '系统'}"

@@ -30,7 +30,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["tokenVersion"] = token_version
 
         return token
- 
+
     def validate(self, attrs):
         # 判断是否启用验证码
         if getattr(settings, 'CAPTCHA_ENABLED', True):
@@ -64,7 +64,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             data = super().validate(attrs)
         except AuthenticationFailed:
             raise ValidationError({"code": "A0210", "msg": "用户名或密码错误"})
- 
+
+        # 登录成功后，失效所有旧会话（同一账号只能在一个终端登录）
+        from apps.auth.utils.session_utils import invalidate_user_sessions
+        invalidate_user_sessions(self.user.id)
+
+        # 用新的 tokenVersion 重新生成 token
+        new_refresh = self.get_token(self.user)
+        data["refresh"] = str(new_refresh)
+        data["access"] = str(new_refresh.access_token)
+
         session_type = getattr(settings, 'SESSION_TYPE', 'jwt')
  
         # JWT 会话模式
@@ -140,19 +149,54 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
  
 class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
+        # 在调用父类 validate 之前保存原始的 refresh token 字符串
+        raw_refresh_token = attrs.get("refresh")
+        token_version = 0
+
         # 父类进行 refresh token 校验，生成新的 access token
         try:
             data = super().validate(attrs)
         except TokenError:
             raise ValidationError({"code": "A0231", "msg": "刷新令牌无效或已过期"})
- 
+
+        # 校验 refresh token 中的 tokenVersion 是否与 Redis 中一致
+        # 防止用户修改密码后，旧的 refresh token 仍能刷新出新的 access token
+        if raw_refresh_token:
+            try:
+                refresh = RefreshToken(raw_refresh_token)
+                refresh_payload = refresh.payload
+                user_id = refresh_payload.get("user_id")
+                token_version = refresh_payload.get("tokenVersion", 0)
+
+                if user_id is not None:
+                    redis_conn = get_redis_connection("default")
+                    version_key = f"auth:user:token_version:{user_id}"
+                    current_version = redis_conn.get(version_key)
+                    current_version_int = int(current_version) if current_version is not None else 0
+
+                    if token_version < current_version_int:
+                        raise ValidationError({"code": "A0231", "msg": "刷新令牌已失效，请重新登录"})
+            except ValidationError:
+                raise
+
         # 这里我们直接返回传入的 refresh token（不进行刷新令牌更新，如需要刷新刷新令牌，可开启 refresh token 轮换）
-        refresh = RefreshToken(attrs["refresh"])
+        refresh = RefreshToken(raw_refresh_token)
         data["refresh"] = str(refresh)
- 
+
+        # 更新新生成的 access token 中的 tokenVersion
+        new_access_token = data.get("access")
+        if new_access_token:
+            import jwt
+            jwt_secret = settings.SIMPLE_JWT.get("SIGNING_KEY", settings.SECRET_KEY)
+            jwt_algorithm = settings.SIMPLE_JWT.get("ALGORITHM", "HS256")
+            payload = jwt.decode(new_access_token, jwt_secret, algorithms=[jwt_algorithm])
+            payload["tokenVersion"] = token_version
+            new_access_token = jwt.encode(payload, jwt_secret, algorithm=jwt_algorithm)
+            data["access"] = new_access_token
+
         token_type = "Bearer"
         expires_in = int(settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME").total_seconds())
- 
+
         return {
             "code": "00000",
             "data": {

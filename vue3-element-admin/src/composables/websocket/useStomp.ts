@@ -64,7 +64,10 @@ enum ConnectionState {
  */
 export function useStomp(options: UseStompOptions = {}) {
   // ==================== 配置初始化 ====================
-  const defaultBrokerURL = import.meta.env.VITE_APP_WS_ENDPOINT || "";
+  // Electron 桌面客户端优先使用运行时注入的端点（不影响 Web 环境）
+  const electronWsEndpoint =
+    typeof window !== "undefined" && (window as any).electronAPI?.wsEndpoint;
+  const defaultBrokerURL = electronWsEndpoint || import.meta.env.VITE_APP_WS_ENDPOINT || "";
 
   const config = {
     brokerURL: ref(options.brokerURL ?? defaultBrokerURL),

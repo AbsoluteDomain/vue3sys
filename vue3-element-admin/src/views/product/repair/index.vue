@@ -62,12 +62,30 @@
             placeholder="请选择拥有SN码的成品"
             style="width: 100%"
             filterable
+            @change="handleProductChange"
           >
             <el-option
               v-for="item in productOptions"
               :key="item.id"
               :label="`${item.sn_code} - ${item.bom_name}`"
               :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="不良项">
+          <el-select
+            v-model="formData.unqualified_values"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="请选择不良项"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in repairUnqualifiedOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
             />
           </el-select>
         </el-form-item>
@@ -112,6 +130,10 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listRepairProducts, createRepair, getProductsWithSn, getProductRepairHistory, deleteRepair } from '@/api/product'
+import { getUnqualifiedItems } from '@/api/finish-product'
+import { useDictStore } from '@/store'
+
+const dictStore = useDictStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -122,6 +144,7 @@ const tableData = ref([])
 const historyData = ref([])
 const productOptions = ref([])
 const currentRow = ref(null)
+const repairUnqualifiedOptions = ref([])
 
 const queryParams = reactive({
   sn_code: '',
@@ -131,6 +154,7 @@ const queryParams = reactive({
 const formData = reactive({
   product_id: '',
   repair_info: '',
+  unqualified_values: []
 })
 
 onMounted(() => {
@@ -162,6 +186,8 @@ function resetSearch() {
 async function showCreateDialog() {
   formData.product_id = ''
   formData.repair_info = ''
+  formData.unqualified_values = []
+  repairUnqualifiedOptions.value = []
   
   try {
       const res = await getProductsWithSn()
@@ -173,13 +199,69 @@ async function showCreateDialog() {
   dialogVisible.value = true
 }
 
+// 当选择成品时，加载该产品的不良项
+async function handleProductChange(productId) {
+  formData.unqualified_values = []
+  
+  // 加载字典项
+  await dictStore.loadDictItems('unqualified_status')
+  const allOptions = dictStore.getDictItems('unqualified_status').map(item => ({
+    value: item.value,
+    label: item.label
+  }))
+
+  // 加载产品已绑定的不良项
+  if (productId) {
+    try {
+      const res = await getUnqualifiedItems({ finish_product_id: productId })
+      const boundItems = res || []
+      if (boundItems.length > 0) {
+        // 如果有绑定的不良项，显示绑定的几项
+        repairUnqualifiedOptions.value = boundItems.map(item => ({
+          value: item.unqualified_value,
+          label: item.unqualified_label
+        }))
+        formData.unqualified_values = boundItems.map(item => item.unqualified_value)
+      } else {
+        // 如果没有绑定，显示全部
+        repairUnqualifiedOptions.value = allOptions
+      }
+    } catch {
+      // 如果加载失败，显示全部
+      repairUnqualifiedOptions.value = allOptions
+    }
+  } else {
+    repairUnqualifiedOptions.value = []
+  }
+}
+
 async function handleSubmit() {
   if (!formData.product_id) {
     ElMessage.warning('请选择成品')
     return
   }
-  if (!formData.repair_info || formData.repair_info.trim() === '') {
-    ElMessage.warning('请输入返修内容')
+
+  // 构建返修内容：将选中的不良项标签拼接到返修内容中
+  const selectedLabels = repairUnqualifiedOptions.value
+    .filter(opt => formData.unqualified_values.includes(opt.value))
+    .map(opt => opt.label)
+  let finalRepairInfo = formData.repair_info.trim()
+  if (selectedLabels.length > 0) {
+    const prefix = `不良项：${selectedLabels.join('、')}`
+    finalRepairInfo = finalRepairInfo ? `${prefix}\n${finalRepairInfo}` : prefix
+  }
+
+  // === 调试日志 ===
+  console.log('===== 返修计划提交日志 =====')
+  console.log('选中的不良项值:', formData.unqualified_values)
+  console.log('选中的不良项标签:', selectedLabels)
+  console.log('原返修内容:', formData.repair_info)
+  console.log('最终拼接的返修内容:', finalRepairInfo)
+  console.log('==============================')
+  // === 调试日志结束 ===
+
+  if (!finalRepairInfo) {
+    ElMessage.warning('请填写返修内容或选择不良项')
     return
   }
   
@@ -187,7 +269,7 @@ async function handleSubmit() {
   try {
     await createRepair({
       product_id: formData.product_id,
-      repair_info: formData.repair_info.trim(),
+      repair_info: finalRepairInfo,
     })
     ElMessage.success('创建成功')
     dialogVisible.value = false

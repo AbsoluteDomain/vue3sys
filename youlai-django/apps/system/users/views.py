@@ -1078,7 +1078,6 @@ class UserViewSet(BaseModelViewSet):
         response['Content-Disposition'] = f"attachment; filename={filename}"
         return response
 
-    @permission_required(["sys:user:list"])
     @extend_schema(
         summary="用户下拉选项",
         responses=resp("UserOptionsResult", serializers.ListField(child=serializers.DictField())),

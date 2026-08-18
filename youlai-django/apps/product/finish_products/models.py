@@ -107,3 +107,33 @@ class FinishProduct(models.Model):
 
     def __str__(self):
         return self.sn_code or f"{self.name}#{self.id}"
+
+
+class UnqualifiedItem(models.Model):
+    """成品不合格项表：存储成品与不合格项字典的绑定关系"""
+
+    id = models.AutoField(primary_key=True, verbose_name="ID")
+    finish_product_id = models.IntegerField(verbose_name="成品ID")
+    sn_code = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="SN码",
+    )
+    unqualified_value = models.IntegerField(
+        verbose_name="不良项值",
+        help_text="对应字典 unqualified_status 中的字典项值",
+    )
+    create_time = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="创建时间",
+    )
+
+    class Meta:
+        db_table = "unqualified_item"
+        verbose_name = "成品不合格项"
+        verbose_name_plural = "成品不合格项"
+        ordering = ["-create_time"]
+
+    def __str__(self):
+        return f"{self.sn_code or self.finish_product_id} - {self.unqualified_value}"

@@ -179,7 +179,6 @@ class DeptViewSet(BaseModelViewSet):
         depts_to_delete.update(is_deleted=1)
         return success({}, msg=f"成功删除{count}个部门")
 
-    @permission_required(["sys:dept:list"])
     @extend_schema(
         summary="部门下拉选项",
         responses=resp("DeptOptionsResult", serializers.ListField(child=serializers.DictField())),

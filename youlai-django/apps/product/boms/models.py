@@ -116,6 +116,14 @@ class AssemblyRecipe(models.Model):
 
     component_quantity = models.IntegerField(null=True, blank=True, verbose_name="组件数量")
 
+    material_code = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="物料编码",
+        help_text="冗余存储，用于产品删除重建后通过物料编码回溯",
+    )
+
     created_at = models.DateTimeField(null=True, blank=True, verbose_name="创建时间")
 
     updated_at = models.DateTimeField(null=True, blank=True, verbose_name="更新时间")
