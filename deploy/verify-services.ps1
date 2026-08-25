@@ -45,8 +45,29 @@ if (Test-TcpPort -HostName $dbHost -Port $dbPort) {
 Write-Step "Redis"
 if (Test-TcpPort -Port 6379) {
     Write-Ok "Redis port 6379 open"
+    # Send AUTH + PING if redis-cli available and REDIS_PASSWORD set
+    $redisCli = Join-Path $paths.RedisRoot 'redis-cli.exe'
+    $redisPass = Get-EnvVar 'REDIS_PASSWORD'
+    if (Test-Path $redisCli) {
+        try {
+            if ([string]::IsNullOrWhiteSpace($redisPass)) {
+                $ping = & $redisCli -h 127.0.0.1 -p 6379 PING 2>&1
+            } else {
+                $ping = & $redisCli -h 127.0.0.1 -p 6379 -a $redisPass --no-auth-warning PING 2>&1
+            }
+            if ($ping -match 'PONG') {
+                Write-Ok "Redis AUTH + PING OK"
+            } else {
+                Write-Warn "Redis ping unexpected: $ping"
+                $allOk = $false
+            }
+        } catch {
+            Write-Warn "Redis AUTH check failed: $($_.Exception.Message)"
+            $allOk = $false
+        }
+    }
 } else {
-    Write-Fail "Redis not running"
+    Write-Fail "Redis not running (port 6379 closed)"
     $allOk = $false
 }
 

@@ -361,19 +361,8 @@ def _apply_time_range_filter(qs, request):
 
 
 def _parse_page_params(request):
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 10))
-    except (TypeError, ValueError):
-        page_size = 10
-    if page_num < 1:
-        page_num = 1
-    if page_size < 1:
-        page_size = 10
-    return page_num, page_size
+    from core.pagination import parse_page_params
+    return parse_page_params(request)
 
 
 def _get_dict_label(dict_code, int_value):
@@ -967,7 +956,15 @@ def update_finish_product(request):
             elif item.inventory_stock == FinishProduct.INVENTORY_CONSUME:
                 inventory_action = "out"
                 warehouse_log_type = WarehouseLog.STORAGE_OUT_SALE
-            # 从组件消耗变为其他状态（非入库/出库）：库存不变（组件消耗已减少过一次）
+            # 变为未入库状态：如果之前是入库状态，需要记录出库日志
+            elif item.inventory_stock == FinishProduct.INVENTORY_NOT_IN:
+                if old_inventory_stock == FinishProduct.INVENTORY_IN:
+                    # 从入库变为未入库，记录出库日志
+                    inventory_action = "out"
+                    warehouse_log_type = WarehouseLog.STORAGE_OUT_SALE
+                elif old_inventory_stock == FinishProduct.INVENTORY_CONSUME:
+                    pass  # 组件消耗已减少过一次
+            # 从组件消耗变为其他状态（非入库/出库/组件消耗/未入库）：库存不变
             elif old_inventory_stock == FinishProduct.INVENTORY_CONSUME:
                 pass
 
@@ -1005,7 +1002,19 @@ def update_finish_product(request):
                 if warehouse_log_type:
                     user_desc = (body.get("warehouse_log_description") or body.get("warehouseLogDescription") or "").strip()
                     action_desc = '入库' if inventory_action == 'in' else '出库'
-                    base_desc = f"BOM: {bom.bom_model or ''} {bom.bom_name or ''}, 操作: {action_desc}"
+                    
+                    # 状态名称映射
+                    stock_status_names = {
+                        FinishProduct.INVENTORY_NOT_IN: '未入库',
+                        FinishProduct.INVENTORY_IN: '入库',
+                        FinishProduct.INVENTORY_OUT_SALE: '出库(外销)',
+                        FinishProduct.INVENTORY_OUT_DEV: '出库(研发)',
+                        FinishProduct.INVENTORY_CONSUME: '组件消耗',
+                    }
+                    old_status_name = stock_status_names.get(old_inventory_stock, str(old_inventory_stock))
+                    new_status_name = stock_status_names.get(item.inventory_stock, str(item.inventory_stock))
+                    
+                    base_desc = f"BOM: {bom.bom_model or ''} {bom.bom_name or ''}, 操作: {action_desc} ({old_status_name} → {new_status_name})"
                     if user_desc:
                         full_desc = f"{base_desc} | {user_desc}"
                     else:
@@ -1021,7 +1030,9 @@ def update_finish_product(request):
                         'bom_model': bom.bom_model,
                         'material_code': bom.material_code,
                         'old_stock_status': old_inventory_stock,
+                        'old_stock_status_name': old_status_name,
                         'new_stock_status': item.inventory_stock,
+                        'new_stock_status_name': new_status_name,
                     }
                     
                     # 使用新的日志记录逻辑
@@ -1321,18 +1332,8 @@ def warehouse_log_list(request):
         start_date = request.GET.get("start_date")
         end_date = request.GET.get("end_date")
         
-        try:
-            page_num = int(request.GET.get("pageNum", 1))
-        except (TypeError, ValueError):
-            page_num = 1
-        try:
-            page_size = int(request.GET.get("pageSize", 20))
-        except (TypeError, ValueError):
-            page_size = 20
-        if page_num < 1:
-            page_num = 1
-        if page_size < 1:
-            page_size = 100
+        from core.pagination import parse_page_params
+        page_num, page_size = parse_page_params(request, default_size=20)
 
         qs = WarehouseLog.objects.all()
         
@@ -1765,3 +1766,204 @@ def add_unqualified_item(request):
         return JsonResponse({"code": "400", "msg": "参数格式错误"})
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"添加不合格项失败: {str(e)}"})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def joint_test_report(request):
+    """关节测试每日报表
+    
+    参数:
+        start_date: 开始日期 (YYYY-MM-DD)
+        end_date: 结束日期 (YYYY-MM-DD)
+        bom_ids: BOM ID列表，逗号分隔 (可选，默认所有关节类型BOM)
+    """
+    try:
+        start_date_str = (request.GET.get("start_date") or "").strip()
+        end_date_str = (request.GET.get("end_date") or "").strip()
+        bom_ids_str = (request.GET.get("bom_ids") or "").strip()
+        
+        if not start_date_str or not end_date_str:
+            return JsonResponse({"code": "400", "msg": "请选择日期范围"})
+        
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+        
+        if start_date > end_date:
+            return JsonResponse({"code": "400", "msg": "开始日期不能晚于结束日期"})
+        
+        # 构建日期列表
+        date_list = []
+        current = start_date
+        while current <= end_date:
+            date_list.append(current.strftime("%Y-%m-%d"))
+            current += timedelta(days=1)
+        
+        # 获取BOM列表
+        if bom_ids_str:
+            bom_ids = [int(x.strip()) for x in bom_ids_str.split(",") if x.strip()]
+            boms = BomList.objects.filter(id__in=bom_ids, is_del=0)
+        else:
+            # 默认获取所有BOM
+            boms = BomList.objects.filter(is_del=0)
+        
+        bom_list = list(boms.values("id", "bom_model", "bom_name", "material_code"))
+        
+        if not bom_list:
+            return JsonResponse({
+                "code": "00000",
+                "msg": "成功",
+                "data": {
+                    "dates": date_list,
+                    "boms": [],
+                    "unqualified_items": [],
+                    "summary": [],
+                    "details": [],
+                }
+            })
+        
+        # 获取不合格项字典
+        unqualified_items = list(
+            DictionaryItem.objects.filter(
+                dict_code="unqualified_status",
+                status=1,
+            ).values("value", "label", "sort")
+        )
+        # 按sort排序
+        unqualified_items.sort(key=lambda x: (x.get("sort") or 0, int(x.get("value", 0))))
+        
+        # 构建日期查询范围
+        start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
+        end_dt = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+        
+        # 查询成品数据
+        products = FinishProduct.objects.filter(
+            bom_id__in=[b["id"] for b in bom_list],
+            test_time__gte=start_dt,
+            test_time__lt=end_dt,
+        ).select_related()
+        
+        # 查询不合格项数据
+        unqualified_records = UnqualifiedItem.objects.filter(
+            finish_product_id__in=products.values("id"),
+        ).select_related()
+        
+        # 构建产品ID到不合格项的映射
+        product_unqualified_map = {}
+        for record in unqualified_records:
+            pid = record.finish_product_id
+            if pid not in product_unqualified_map:
+                product_unqualified_map[pid] = []
+            product_unqualified_map[pid].append(int(record.unqualified_value))
+        
+        # 按日期和BOM统计数据
+        # 结构: data[date][bom_id] = {test_count, fail_count, unqualified_counts: {value: count}}
+        data = {}
+        for date_str in date_list:
+            data[date_str] = {}
+            for bom in bom_list:
+                data[date_str][bom["id"]] = {
+                    "test_count": 0,
+                    "fail_count": 0,
+                    "unqualified_counts": {},
+                }
+        
+        # 统计产品数据
+        for product in products:
+            if product.test_time:
+                test_date = product.test_time.strftime("%Y-%m-%d")
+                bom_id = product.bom_id
+                
+                if test_date in data and bom_id in data[test_date]:
+                    # 测试数量（包括所有状态）
+                    data[test_date][bom_id]["test_count"] += 1
+                    
+                    # 测试不良
+                    if product.status == FinishProduct.STATUS_FAIL:
+                        data[test_date][bom_id]["fail_count"] += 1
+                    
+                    # 不合格项计数
+                    if product.id in product_unqualified_map:
+                        for unq_val in product_unqualified_map[product.id]:
+                            if unq_val not in data[test_date][bom_id]["unqualified_counts"]:
+                                data[test_date][bom_id]["unqualified_counts"][unq_val] = 0
+                            data[test_date][bom_id]["unqualified_counts"][unq_val] += 1
+        
+        # 构建汇总数据（按日期）
+        summary = []
+        for date_str in date_list:
+            date_summary = {
+                "date": date_str,
+                "bom_summaries": {},
+                "total_test": 0,
+                "total_fail": 0,
+            }
+            
+            for bom in bom_list:
+                bom_id = bom["id"]
+                day_data = data[date_str][bom_id]
+                
+                total_test = day_data["test_count"]
+                total_fail = day_data["fail_count"]
+                pass_count = total_test - total_fail
+                pass_rate = round((pass_count / total_test * 100), 1) if total_test > 0 else 0
+                
+                date_summary["bom_summaries"][bom_id] = {
+                    "test_count": total_test if total_test > 0 else None,
+                    "fail_count": total_fail if total_fail > 0 else None,
+                    "pass_rate": pass_rate if total_test > 0 else None,
+                    "unqualified_counts": day_data["unqualified_counts"],
+                }
+                
+                date_summary["total_test"] += total_test
+                date_summary["total_fail"] += total_fail
+            
+            summary.append(date_summary)
+        
+        # 构建汇总行（所有日期合计）
+        total_summary = {}
+        for bom in bom_list:
+            bom_id = bom["id"]
+            total_test = 0
+            total_fail = 0
+            total_unqualified_counts = {}
+            
+            for date_str in date_list:
+                day_data = data[date_str][bom_id]
+                total_test += day_data["test_count"]
+                total_fail += day_data["fail_count"]
+                
+                for unq_val, count in day_data["unqualified_counts"].items():
+                    if unq_val not in total_unqualified_counts:
+                        total_unqualified_counts[unq_val] = 0
+                    total_unqualified_counts[unq_val] += count
+            
+            pass_count = total_test - total_fail
+            pass_rate = round((pass_count / total_test * 100), 1) if total_test > 0 else 0
+            
+            total_summary[bom_id] = {
+                "test_count": total_test if total_test > 0 else None,
+                "fail_count": total_fail if total_fail > 0 else None,
+                "pass_rate": pass_rate if total_test > 0 else None,
+                "unqualified_counts": total_unqualified_counts,
+            }
+        
+        return JsonResponse({
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "dates": date_list,
+                "boms": bom_list,
+                "unqualified_items": [
+                    {"value": int(item["value"]), "label": item["label"]}
+                    for item in unqualified_items
+                ],
+                "summary": summary,
+                "total_summary": total_summary,
+            }
+        })
+    except ValueError as e:
+        return JsonResponse({"code": "400", "msg": f"日期格式错误: {str(e)}"})
+    except Exception as e:
+        logger.error(f"获取关节测试报表失败: {str(e)}", exc_info=True)
+        return JsonResponse({"code": "500", "msg": f"获取报表失败: {str(e)}"})

@@ -37,19 +37,8 @@ def _log_if_available(request, **kwargs):
 
 
 def _parse_page_params(request):
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 10))
-    except (TypeError, ValueError):
-        page_size = 10
-    if page_num < 1:
-        page_num = 1
-    if page_size < 1:
-        page_size = 10
-    return page_num, page_size
+    from core.pagination import parse_page_params
+    return parse_page_params(request)
 
 
 def _dt_str(value):

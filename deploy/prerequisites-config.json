@@ -1,14 +1,14 @@
 {
   "winget": {
     "python": {
-      "id": "Python.Python.3.12",
-      "name": "Python 3.12",
+      "id": "Python.Python.3.13",
+      "name": "Python 3.13",
       "required": true,
       "manualUrl": "https://www.python.org/downloads/windows/"
     },
     "nodejs": {
       "id": "OpenJS.NodeJS.LTS",
-      "name": "Node.js LTS",
+      "name": "Node.js LTS (22.x+)",
       "required": true,
       "manualUrl": "https://nodejs.org/"
     },
@@ -21,9 +21,19 @@
     },
     "vcredist": {
       "id": "Microsoft.VCRedist.2015+.x64",
-      "name": "VC++ 运行库",
+      "name": "VC++ Redistributable",
       "required": false,
       "manualUrl": "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"
+    }
+  },
+  "optionalTools": {
+    "uv": {
+      "name": "uv (faster Python packager)",
+      "pipPackage": "uv",
+      "wingetId": "astral-sh.uv",
+      "manualUrl": "https://github.com/astral-sh/uv/releases",
+      "required": false,
+      "description": "Optional: 5-10x faster venv creation and pip install"
     }
   },
   "mysqlBinPaths": [
@@ -35,5 +45,8 @@
     "D:\\Program Files\\MySQL\\MySQL Server 8.3\\bin"
   ],
   "pythonMinVersion": [3, 10],
-  "pythonMaxVersion": [3, 14]
+  "pythonMaxVersion": [3, 14],
+  "nodeMinVersion": [20, 19],
+  "frontendPort": 3000,
+  "backendPort": 8000
 }

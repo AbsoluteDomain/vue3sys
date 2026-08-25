@@ -1,26 +1,141 @@
 @echo off
+REM =========================================================
+REM   vue3sys - ¥Ú∞¸œÓƒø≥… zip£®∏¯øÕªßª˙“ªº¸≤ø ”√£©
+REM
+REM   πÿº¸…Ëº∆£∫
+REM     - À˘”– PowerShell ¬ﬂº≠∑≈‘⁄ pack-project.ps1£¨±æ bat ÷ª◊ˆµ˜”√°£
+REM       ±‹√‚æ…–¥∑®¿Ô”√ ^ –¯––∆¥≥¨≥§ powershell -Command µº÷¬ CMD/PS Ω‚Œˆ¥ÌŒÛ∂¯…¡ÕÀ°£
+REM     - √ø∏ˆ≤Ω÷ËºÏ≤‚ errorlevel£¨ ß∞‹æÕ goto :error ≤¢ pause°£
+REM       ±£÷§Œﬁ¬€ƒƒ“ª≤Ω ß∞‹£¨¥∞ø⁄∂º≤ªª·¡¢º¥œ˚ ß£¨”√ªß“ª∂®ƒ‹ø¥µΩ±®¥Ì∫Õ»’÷æ¬∑æ∂°£
+REM     - »´≥Ã stdout+stderr –¥»Î logs\pack-yyyyMMdd_HHmmss.log£¨ ß∞‹ ±Ã· æ¥Úø™»’÷æ°£
+REM =========================================================
+
+setlocal EnableExtensions
 chcp 65001 >nul
-title ÊâìÂåÖ vue3sys ÈÉ®ÁΩ≤ÂéãÁº©ÂåÖ
 
-set "ROOT=%~dp0.."
-set "OUT=%~dp0..\vue3sys-deploy.zip"
+REM --- (1) ∂®Œª deploy ƒø¬º ---
+cd /d "%~dp0"
+set "DEPLOY_DIR=%~dp0"
+set "PROJECT_ROOT=%~dp0.."
+for %%I in ("%PROJECT_ROOT%") do set "PROJECT_ROOT=%%~fI"
+for %%I in ("%DEPLOY_DIR%") do set "DEPLOY_DIR=%%~fI"
 
-echo Ê∫êÁõÆÂΩï: %ROOT%
-echo ËæìÂá∫:   %OUT%
-echo ÊéíÈô§: node_modules, venv, .git, __pycache__, dist, .vite
+REM --- (2) ◊º±∏ logs ƒø¬º + »’÷æŒƒº˛ ---
+if not exist "%DEPLOY_DIR%logs" mkdir "%DEPLOY_DIR%logs"
+set "LOG_FILE=%DEPLOY_DIR%logs\pack-%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%.log"
+set "LOG_FILE=%LOG_FILE: =0%"
+
+title vue3sys Pack Project
+
+REM --- (3) ø™≥°∞◊ ---
+cls
+echo.
+echo ============================================================
+echo   vue3sys Pack Project
+echo ============================================================
+echo   Project root : %PROJECT_ROOT%
+echo   Deploy dir   : %DEPLOY_DIR%
+echo   Log file     : %LOG_FILE%
+echo.
+echo   This script will create vue3sys-deploy.zip next to the
+echo   project root, for one-click customer deployment.
+echo.
+echo   [Tip] For offline customers, run first:
+echo         powershell -ExecutionPolicy Bypass -File "%DEPLOY_DIR%pack-offline-deps.ps1"
+echo ============================================================
 echo.
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$root = (Resolve-Path '%ROOT%').Path; ^
-   $out = Join-Path (Split-Path $root -Parent) 'vue3sys-deploy.zip'; ^
-   $stage = Join-Path $env:TEMP ('vue3sys-pack-' + [guid]::NewGuid().ToString('N')); ^
-   New-Item -ItemType Directory -Path $stage | Out-Null; ^
-   $exclude = @('node_modules','venv','.git','__pycache__','.pytest_cache','dist','.vite','htmlcov'); ^
-   robocopy $root $stage /E /XD $exclude /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null; ^
-   if (Test-Path $out) { Remove-Item $out -Force }; ^
-   Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $out -CompressionLevel Optimal; ^
-   Remove-Item $stage -Recurse -Force; ^
-   Write-Host ('ÂÆåÊàê: ' + $out) -ForegroundColor Green"
+REM --- (4) ºÏ≤Èπÿº¸Ω≈±æ¥Ê‘⁄ ---
+if not exist "%DEPLOY_DIR%pack-project.ps1" (
+    echo [FATAL] pack-project.ps1 missing in: %DEPLOY_DIR%
+    goto error
+)
+if not exist "%DEPLOY_DIR%_common.ps1" (
+    echo [FATAL] _common.ps1 missing in: %DEPLOY_DIR%
+    goto error
+)
 
+REM --- (5) ºÏ≤È PowerShell  «∑Òø…”√ ---
+where powershell >nul 2>&1
+if errorlevel 1 (
+    echo [FATAL] powershell.exe not found in PATH. This requires Windows PowerShell 5.1+.
+    goto error
+)
+
+REM --- (6) µ˜”√ pack-project.ps1 £®¥¯ tee –¥»Î»’÷æ£© ---
+echo [Step 1/2] Running pack-project.ps1 ...
+echo         Tip: no prompts. Can take 2-10 min if dist/ or offline bundles exist.
+echo.
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DEPLOY_DIR%pack-project.ps1" 2>&1 | tee "%LOG_FILE%"
+
+REM NOTE: when piping via | tee the errorlevel from powershell is not propagated
+REM through %errorlevel%; detect failure via log or run again to capture exit separately.
+set "PSEXIT=%ERRORLEVEL%"
+
+REM Re-run via a direct invocation to get the real exit code, and append to log if tee lost output.
+if exist "%LOG_FILE%" (
+    findstr /i /c:"PACK COMPLETE" "%LOG_FILE%" >nul 2>&1
+    if errorlevel 1 (
+        REM √˜»∑“‘ÕÀ≥ˆ¬ÎŒ™◊º‘Ÿ≈‹“ª¥Œ
+        echo.
+        echo [Retrying with direct execution for diagnostic exit code...]
+        echo. >> "%LOG_FILE%"
+        echo ============= Direct PS invocation (exit code capture) ============ >> "%LOG_FILE%"
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DEPLOY_DIR%pack-project.ps1" 2>&1 >> "%LOG_FILE%"
+        set "PSEXIT=%ERRORLEVEL%"
+    ) else (
+        set "PSEXIT=0"
+    )
+) else (
+    echo [FATAL] Log file was not generated: %LOG_FILE%
+    goto error
+)
+
+REM --- (7) ∏˘æ›ÕÀ≥ˆ¬Îæˆ∂®≥…π¶ /  ß∞‹ ---
+if "%PSEXIT%"=="0" (
+    echo.
+    echo ============================================================
+    echo   ^>^>^> PACK SUCCESS ^<^<^<
+    echo ============================================================
+    echo   Zip is next to the project root folder.
+    echo   Full log: %LOG_FILE%
+    echo ============================================================
+    echo.
+    goto end
+)
+
+echo.
+echo [FATAL] pack-project.ps1 returned non-zero exit code: %PSEXIT%
+goto error
+
+REM =========================================================
+:error
+REM »Œ∫Œ ß∞‹Ã¯’‚¿Ô£¨”¿‘∂ pause ≤ª…¡ÕÀ
+REM =========================================================
+echo.
+echo ============================================================
+echo   !! PACK FAILED !!
+echo ============================================================
+echo   Please read the error above carefully.
+echo   If nothing useful above, open the log file:
+echo     %LOG_FILE%
+echo.
+echo   Common fixes:
+echo     1. If offline_packages missing: run pack-offline-deps.ps1 first (optional, warning only).
+echo     2. Close programs that lock files (IDE, browser, services using dist/).
+echo     3. Ensure write permission to: %PROJECT_ROOT% (parent dir).
+echo     4. If this bat was opened as non-admin, retry by right-click -^> Run as administrator.
+echo ============================================================
 echo.
 pause
+endlocal
+exit /b 1
+
+REM =========================================================
+:end
+REM ≥…π¶“≤Õ£“ªœ¬£¨»√”√ªßø¥ zip ¬∑æ∂–≈œ¢
+REM =========================================================
+pause
+endlocal
+exit /b 0

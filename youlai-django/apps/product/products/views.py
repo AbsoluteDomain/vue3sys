@@ -126,14 +126,8 @@ def _product_snapshot(product):
 
 def product_list(request):
     # 1. 读取分页和查询参数
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 10))
-    except (TypeError, ValueError):
-        page_size = 10
+    from core.pagination import parse_page_params
+    page_num, page_size = parse_page_params(request)
     product_id = (request.GET.get("productId", "") or "").strip()
     product_name = (request.GET.get("productName", "") or "").strip()
     # 兼容旧参数 keyword（按产品名称搜索）
@@ -154,11 +148,6 @@ def product_list(request):
     sort_prop = (request.GET.get("sortProp", "") or "").strip()
     sort_order = (request.GET.get("sortOrder", "") or "").strip()
 
-
-    if page_num < 1:
-        page_num = 1
-    if page_size < 1:
-        page_size = 10
 
     # 2. 组装查询条件
     products = Product.objects.filter(is_del=0)
@@ -446,14 +435,8 @@ def delete_product(request):
 @require_http_methods(["GET"])
 def warehouse_log_list(request):
     """出入库日志列表"""
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 10))
-    except (TypeError, ValueError):
-        page_size = 10
+    from core.pagination import parse_page_params
+    page_num, page_size = parse_page_params(request)
 
     sn_code = (request.GET.get("sn_code", "") or "").strip()
     material_code = (request.GET.get("material_code", "") or "").strip()
@@ -484,10 +467,24 @@ def warehouse_log_list(request):
     total = qs.count()
     start = (page_num - 1) * page_size
     end = start + page_size
-    page_items = qs.order_by("-created_at")[start:end]
+    page_items = list(qs.order_by("-created_at")[start:end])
+
+    # 批量查询本页涉及的操作人，修复历史记录中 operator_name 为空或为占位'系统'的问题
+    operator_ids = {
+        item.operator_id for item in page_items
+        if item.operator_id is not None
+    }
+    operator_name_map = {}
+    if operator_ids:
+        from apps.system.users.models import User
+        for u in User.objects.filter(id__in=operator_ids).only('id', 'username', 'nickname'):
+            display = (u.nickname or '').strip() or (u.username or '').strip()
+            operator_name_map[u.id] = display
 
     data = []
     for item in page_items:
+        # 优先以查库得到的真实昵称/用户名展示；DB 中的 operator_name 仅作兜底
+        operator_display = operator_name_map.get(item.operator_id) or item.operator_name or ""
         data.append({
             "id": item.id,
             "name": item.name or "",
@@ -497,6 +494,7 @@ def warehouse_log_list(request):
             "storage_status_name": item.get_storage_status_display(),
             "count": item.count,
             "description": item.description or "",
+            "operator_name": operator_display,
             "created_at": format_local_datetime(item.created_at),
         })
 
@@ -728,16 +726,8 @@ def stock_alert_list(request):
         alert_count = sum(1 for a in alerts if a["shortage_type"] == "alert")
 
         # 分页处理
-        try:
-            page_num = int(request.GET.get("pageNum", 1))
-            page_size = int(request.GET.get("pageSize", 20))
-        except (ValueError, TypeError):
-            page_num = 1
-            page_size = 20
-        if page_num < 1:
-            page_num = 1
-        if page_size < 1:
-            page_size = 20
+        from core.pagination import parse_page_params
+        page_num, page_size = parse_page_params(request, default_size=20)
 
         total = len(alerts)
         start = (page_num - 1) * page_size

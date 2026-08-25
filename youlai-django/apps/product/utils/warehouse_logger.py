@@ -45,6 +45,8 @@ def get_operator_info(request) -> Dict[str, Any]:
             result['operator_name'] = user.username
     
     # 尝试从 JWT token 中解析
+    # JWT 中仅包含 user_id 与 tokenVersion，没有 username/nickname 声明，
+    # 因此拿到 user_id 后需要查库以获取真实的昵称/用户名。
     if result['operator_id'] is None:
         try:
             from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -54,15 +56,28 @@ def get_operator_info(request) -> Dict[str, Any]:
                 token = auth_header[7:]
                 validated_token = auth.get_validated_token(token)
                 user_id = validated_token.get('user_id')
-                username = validated_token.get('username', '')
-                nickname = validated_token.get('nickname', '')
-                
-                result['operator_id'] = user_id
-                result['operator_name'] = nickname or username or '系统'
+                if user_id is not None:
+                    resolved_name = _resolve_user_display(user_id)
+                    result['operator_id'] = user_id
+                    result['operator_name'] = resolved_name or '系统'
         except Exception:
             pass
-    
+
     return result
+
+
+def _resolve_user_display(user_id) -> str:
+    """根据 user_id 查询用户昵称或用户名，查不到时返回空串。"""
+    if not user_id:
+        return ''
+    try:
+        from apps.system.users.models import User
+        user = User.objects.filter(id=user_id).only('username', 'nickname').first()
+        if user is None:
+            return ''
+        return (user.nickname or '').strip() or (user.username or '').strip()
+    except Exception:
+        return ''
 
 
 def create_warehouse_log(

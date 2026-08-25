@@ -95,6 +95,11 @@
             <span>{{ row.description || '—' }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="operator_name" label="操作人" width="120" align="center" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.operator_name || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="170" />
       </el-table>
 

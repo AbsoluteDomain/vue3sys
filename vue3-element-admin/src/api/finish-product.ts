@@ -164,3 +164,17 @@ export function addUnqualifiedItem(data: {
     data
   })
 }
+
+// ==================== 关节测试报表 API ====================
+
+export function getJointTestReport(params: {
+  start_date: string
+  end_date: string
+  bom_ids?: string
+}) {
+  return request({
+    url: '/api/v1/finish-product/joint-test-report/',
+    method: 'get',
+    params
+  })
+}

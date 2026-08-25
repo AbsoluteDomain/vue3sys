@@ -12,20 +12,9 @@ def get_module_name(module):
 
 
 def operation_log_list(request):
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 10))
-    except (TypeError, ValueError):
-        page_size = 10
-    
-    if page_num < 1:
-        page_num = 1
-    if page_size < 1:
-        page_size = 10
-    
+    from core.pagination import parse_page_params
+    page_num, page_size = parse_page_params(request)
+
     module = request.GET.get("module", "").strip()
     operation_type = request.GET.get("operationType", "").strip()
     user_name = request.GET.get("userName", "").strip()

@@ -1,12 +1,17 @@
 # Pull latest code on an already-deployed server, sync deps, migrate, then restart.
 # Does NOT overwrite .env / redis.windows.conf (not in git).
+# Supports both GitHub and Gitea remotes (auto-detected).
+# Supports uv (auto-detect if uv in PATH; or pass -UseUv explicitly).
 
 param(
     [switch]$SkipFrontend,
     [switch]$SkipMigrate,
     [switch]$SkipDeps,
     [switch]$NoStart,
-    [string]$Branch = ''
+    [switch]$Offline,
+    [switch]$UseUv,
+    [string]$Branch = '',
+    [string]$Remote = 'origin'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +40,17 @@ function Get-GitBranch {
     }
 }
 
+function Get-GitRemoteUrl {
+    param([string]$RemoteName)
+    Push-Location $paths.ProjectRoot
+    try {
+        $url = (git remote get-url $RemoteName 2>$null).Trim()
+        return $url
+    } finally {
+        Pop-Location
+    }
+}
+
 function Assert-LocalConfig {
     if (-not (Test-Path $paths.BackendEnv)) {
         throw "Missing $($paths.BackendEnv). This script is for servers already configured with configure.ps1"
@@ -51,6 +67,23 @@ if (-not (Test-GitRepo)) {
 }
 
 Assert-LocalConfig
+
+# Show remote info
+$remoteUrl = Get-GitRemoteUrl -RemoteName $Remote
+if ($remoteUrl) {
+    Write-Host "Remote '$Remote': $remoteUrl" -ForegroundColor Gray
+    if ($remoteUrl -match 'gitea') {
+        Write-Ok "Using Gitea remote"
+    } elseif ($remoteUrl -match 'github') {
+        Write-Ok "Using GitHub remote"
+    }
+} else {
+    Write-Warn "Remote '$Remote' not found. Available remotes:"
+    Push-Location $paths.ProjectRoot
+    git remote -v
+    Pop-Location
+    throw "Specify a valid remote with -Remote <name>"
+}
 
 Push-Location $paths.ProjectRoot
 try {
@@ -72,8 +105,8 @@ try {
         Write-Ok "Working tree clean"
     }
 
-    Write-Step "git pull origin $targetBranch"
-    git pull origin $targetBranch
+    Write-Step "git pull $Remote $targetBranch"
+    git pull $Remote $targetBranch
     if ($LASTEXITCODE -ne 0) {
         throw "git pull failed"
     }
@@ -85,7 +118,28 @@ try {
 if (-not $SkipDeps) {
     Write-Step "Sync Python dependencies"
     Push-Location $paths.BackendRoot
-    & $paths.VenvPip install -r requirements.txt
+
+    $offlineDir = Join-Path $paths.BackendRoot 'offline_packages'
+    $useOffline = $Offline -or (Test-Path $offlineDir)
+    $useUv = $UseUv -or (Test-CommandExists 'uv')
+
+    if ($useUv) {
+        Write-Ok "Using uv pip install (faster)"
+        if ($useOffline -and (Test-Path $offlineDir)) {
+            Write-Ok "Offline install from: $offlineDir"
+            & uv pip install --python $paths.VenvPython --find-links $offlineDir -r requirements.txt
+        } else {
+            & uv pip install --python $paths.VenvPython -r requirements.txt
+        }
+    } else {
+        & $paths.VenvPip install --upgrade pip
+        if ($useOffline -and (Test-Path $offlineDir)) {
+            Write-Ok "Offline install from: $offlineDir"
+            & $paths.VenvPip install --no-index --find-links=$offlineDir -r requirements.txt
+        } else {
+            & $paths.VenvPip install -r requirements.txt
+        }
+    }
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         throw "pip install failed"

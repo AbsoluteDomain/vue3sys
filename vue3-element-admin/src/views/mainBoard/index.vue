@@ -2,11 +2,16 @@
   <div v-loading="loading" class="app-container">
     <el-card shadow="never" class="mb-3 board-type-card">
       <div class="flex items-center justify-between flex-wrap gap-3">
-        <span class="font-semibold text-base">库存看板</span>
-        <el-radio-group v-model="boardType" @change="handleBoardTypeChange">
-          <el-radio-button value="finish">成品</el-radio-button>
-          <el-radio-button value="material">物料</el-radio-button>
-        </el-radio-group>
+        <div class="flex items-center gap-3">
+          <span class="font-semibold text-base">库存看板</span>
+          <el-radio-group v-model="boardType" @change="handleBoardTypeChange">
+            <el-radio-button value="finish">成品</el-radio-button>
+            <el-radio-button value="material">物料</el-radio-button>
+          </el-radio-group>
+        </div>
+        <el-button type="primary" @click="openJointReportDialog">
+          <el-icon><DataAnalysis /></el-icon> 关节测试每日报表
+        </el-button>
       </div>
     </el-card>
 
@@ -884,6 +889,177 @@
         <el-button type="primary" @click="saveColumnSettings">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 关节测试每日报表对话框 -->
+    <el-dialog
+      v-model="jointReportVisible"
+      title="关节测试每日报表"
+      width="90%"
+      top="5vh"
+      destroy-on-close
+      class="joint-report-dialog"
+    >
+      <!-- 筛选条件 -->
+      <div class="joint-report-filter">
+        <el-form :inline="true">
+          <el-form-item label="日期范围">
+            <el-date-picker
+              v-model="jointReportDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              :shortcuts="jointReportDateShortcuts"
+            />
+          </el-form-item>
+          <el-form-item label="BOM选择">
+            <el-select
+              v-model="jointReportBomIds"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="请选择BOM（默认全部）"
+              style="min-width: 300px"
+            >
+              <el-option
+                v-for="bom in jointReportBomList"
+                :key="bom.id"
+                :label="bom.bom_model || bom.bom_name"
+                :value="bom.id"
+              >
+                <span>{{ bom.bom_model }}</span>
+                <span style="float: right; color: #8492a6; font-size: 13px">{{ bom.bom_name }}</span>
+              </el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="fetchJointReport">查询</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 报表内容 -->
+      <div v-loading="jointReportLoading" class="joint-report-content">
+        <div v-if="jointReportData.dates?.length" class="joint-report-table-wrapper">
+          <el-table
+            :data="jointReportTableData"
+            border
+            style="width: 100%"
+            class="joint-report-table"
+            size="small"
+            max-height="calc(100vh - 280px)"
+          >
+            <!-- 左侧固定列：日期/不良项 -->
+            <el-table-column
+              label="日期/不良项"
+              width="150"
+              fixed="left"
+              align="center"
+              class-name="corner-header-col"
+            >
+              <template #header>
+                <div class="corner-header">
+                  <span class="corner-header__col">日期</span>
+                  <span class="corner-header__row">不良项</span>
+                </div>
+              </template>
+              <template #default="{ row }">
+                <template v-if="row._isSummary">
+                  <div class="summary-label">
+                    <div>测试数量</div>
+                    <div>不良数</div>
+                    <div>合格率</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="unqualified-label">
+                    <div class="label-title" :class="{ 'text-danger': row._isFirst }">{{ row._unqualifiedLabel }}</div>
+                  </div>
+                </template>
+              </template>
+            </el-table-column>
+
+            <!-- 动态列：日期 × BOM -->
+            <el-table-column
+              v-for="date in jointReportData.dates"
+              :key="date"
+              :label="date.split('-')[2]"
+              align="center"
+            >
+              <!-- 每个BOM作为子列 -->
+              <el-table-column
+                v-for="bom in jointReportData.boms"
+                :key="bom.id"
+                :label="bom.bom_model || bom.bom_name || ''"
+                width="120"
+                align="center"
+              >
+                <template #header>
+                  <div class="bom-header" :title="bom.bom_name">
+                    {{ (bom.bom_model || bom.bom_name || '').substring(0, 10) }}
+                  </div>
+                </template>
+                <template #default="{ row }">
+                  <!-- 汇总行 -->
+                  <template v-if="row._isSummary">
+                    <div class="report-cell">
+                      <div class="report-sub-cell test-count">
+                        {{ getSummaryCell(date, bom.id, 'test_count') }}
+                      </div>
+                      <div class="report-sub-cell fail-count">
+                        {{ getSummaryCell(date, bom.id, 'fail_count') }}
+                      </div>
+                      <div class="report-sub-cell pass-rate">
+                        {{ getSummaryCell(date, bom.id, 'pass_rate') }}
+                      </div>
+                    </div>
+                  </template>
+                  <!-- 不合格项行 -->
+                  <template v-else>
+                    <div class="report-cell">
+                      {{ getUnqualifiedCell(date, bom.id, row._unqualifiedValue) }}
+                    </div>
+                  </template>
+                </template>
+              </el-table-column>
+            </el-table-column>
+
+            <!-- 合计列 -->
+            <el-table-column
+              label="合计"
+              width="120"
+              align="center"
+              fixed="right"
+            >
+              <template #header>
+                <div class="header-cell" style="height: 60px;">合计</div>
+              </template>
+              <template #default="{ row }">
+                <template v-if="row._isSummary">
+                  <div class="report-cell summary-cell">
+                    <div class="report-sub-cell">{{ getTotalSummaryCell(row, 'test_count') }}</div>
+                    <div class="report-sub-cell">{{ getTotalSummaryCell(row, 'fail_count') }}</div>
+                    <div class="report-sub-cell">{{ getTotalSummaryCell(row, 'pass_rate') }}</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="report-cell">
+                    {{ getTotalUnqualifiedCell(row) }}
+                  </div>
+                </template>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <el-empty v-else-if="!jointReportLoading" description="暂无数据，请选择日期范围后点击查询" />
+      </div>
+
+      <template #footer>
+        <el-button @click="jointReportVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -893,11 +1069,11 @@ defineOptions({
 });
 
 import { ref, computed, onMounted, watch } from "vue";
-import { getProductList } from "@/api/product";
-import { getFinishProductDailyStats, getFinishProductBoardDetail } from "@/api/finish-product";
+import { getProductList, getBomList as getBomListApi } from "@/api/product";
+import { getFinishProductDailyStats, getFinishProductBoardDetail, getJointTestReport } from "@/api/finish-product";
 import ECharts from "@/components/ECharts/index.vue";
 import DictTag from "@/components/DictTag/index.vue";
-import { InfoFilled, Setting, Refresh } from "@element-plus/icons-vue";
+import { InfoFilled, Setting, Refresh, DataAnalysis } from "@element-plus/icons-vue";
 import { useFinishProductTableColumns, FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY } from "@/composables/useFinishProductTableColumns";
 import { useDictStore } from "@/store";
 
@@ -1603,6 +1779,258 @@ const handleBoardTypeChange = () => {
   }
 };
 
+// ==================== 关节测试每日报表 ====================
+
+const jointReportVisible = ref(false);
+const jointReportLoading = ref(false);
+// 从localStorage恢复筛选状态，切换页面不重置
+const jointReportDateRange = ref<[string, string] | null>(
+  (() => {
+    try {
+      const saved = localStorage.getItem('jointReportDateRange');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  })()
+);
+const jointReportBomIds = ref<number[]>(
+  (() => {
+    try {
+      const saved = localStorage.getItem('jointReportBomIds');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  })()
+);
+const jointReportBomList = ref<any[]>([]);
+
+// 监听筛选状态变化并持久化
+watch(jointReportDateRange, (val) => {
+  try {
+    if (val) localStorage.setItem('jointReportDateRange', JSON.stringify(val));
+    else localStorage.removeItem('jointReportDateRange');
+  } catch {}
+});
+watch(jointReportBomIds, (val) => {
+  try {
+    localStorage.setItem('jointReportBomIds', JSON.stringify(val));
+  } catch {}
+});
+const jointReportData = ref<any>({
+  dates: [],
+  boms: [],
+  unqualified_items: [],
+  summary: [],
+  total_summary: {},
+});
+
+// 日期快捷选项
+const jointReportDateShortcuts = [
+  {
+    text: '最近7天',
+    value: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 6);
+      return [formatDate(start), formatDate(end)];
+    },
+  },
+  {
+    text: '最近30天',
+    value: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 29);
+      return [formatDate(start), formatDate(end)];
+    },
+  },
+  {
+    text: '本月',
+    value: () => {
+      const end = new Date();
+      const start = new Date(end.getFullYear(), end.getMonth(), 1);
+      return [formatDate(start), formatDate(end)];
+    },
+  },
+];
+
+// 计算表格数据
+const jointReportTableData = computed(() => {
+  const rows: any[] = [];
+  const unqualifiedItems = jointReportData.value.unqualified_items || [];
+  
+  // 添加汇总行（测试数量、不良数、合格率）
+  rows.push({
+    _isSummary: true,
+    _rowType: 'summary',
+  });
+  
+  // 添加不合格项行
+  for (const item of unqualifiedItems) {
+    rows.push({
+      _isSummary: false,
+      _unqualifiedValue: item.value,
+      _unqualifiedLabel: item.label,
+    });
+  }
+  
+  return rows;
+});
+
+// 获取汇总单元格内容
+const getSummaryCell = (date: string, bomId: number, field: string) => {
+  const summary = jointReportData.value.summary?.find((s: any) => s.date === date);
+  if (!summary || !summary.bom_summaries?.[bomId]) return '';
+  
+  const bomSummary = summary.bom_summaries[bomId];
+  const value = bomSummary[field];
+  
+  if (value === null || value === undefined || value === 0) return '';
+  
+  if (field === 'pass_rate') return `${value}%`;
+  return value;
+};
+
+// 获取不合格项单元格内容
+const getUnqualifiedCell = (date: string, bomId: number, unqualifiedValue: number) => {
+  const summary = jointReportData.value.summary?.find((s: any) => s.date === date);
+  if (!summary || !summary.bom_summaries?.[bomId]) return '';
+  
+  const bomSummary = summary.bom_summaries[bomId];
+  const count = bomSummary.unqualified_counts?.[unqualifiedValue];
+  
+  if (!count) return '';
+  return count;
+};
+
+// 获取合计单元格内容（汇总行）
+const getTotalSummaryCell = (row: any, field: string) => {
+  const totalSummary = jointReportData.value.total_summary || {};
+  const boms = jointReportData.value.boms || [];
+  
+  if (boms.length === 0) return '';
+  
+  let totalValue = 0;
+  let hasValue = false;
+  
+  for (const bom of boms) {
+    const bomSummary = totalSummary[bom.id];
+    if (bomSummary) {
+      const value = bomSummary[field];
+      if (value !== null && value !== undefined && value !== 0) {
+        hasValue = true;
+        if (field === 'pass_rate') {
+          // 合格率需要重新计算
+          const testCount = bomSummary.test_count || 0;
+          const failCount = bomSummary.fail_count || 0;
+          const passCount = testCount - failCount;
+          if (testCount > 0) {
+            totalValue += passCount;
+          }
+        } else {
+          totalValue += value;
+        }
+      }
+    }
+  }
+  
+  if (!hasValue && totalValue === 0) return '';
+  
+  if (field === 'pass_rate') {
+    // 计算总合格率
+    let totalTest = 0;
+    for (const bom of boms) {
+      const bomSummary = totalSummary[bom.id];
+      if (bomSummary) {
+        totalTest += bomSummary.test_count || 0;
+      }
+    }
+    const totalPass = totalValue;
+    if (totalTest === 0) return '';
+    return `${((totalPass / totalTest) * 100).toFixed(1)}%`;
+  }
+  
+  return totalValue;
+};
+
+// 获取合计单元格内容（不合格项行）
+const getTotalUnqualifiedCell = (row: any) => {
+  const totalSummary = jointReportData.value.total_summary || {};
+  const boms = jointReportData.value.boms || [];
+  const unqualifiedValue = row._unqualifiedValue;
+  
+  if (boms.length === 0) return '';
+  
+  let totalCount = 0;
+  let hasValue = false;
+  
+  for (const bom of boms) {
+    const bomSummary = totalSummary[bom.id];
+    if (bomSummary?.unqualified_counts?.[unqualifiedValue]) {
+      hasValue = true;
+      totalCount += bomSummary.unqualified_counts[unqualifiedValue];
+    }
+  }
+  
+  if (!hasValue) return '';
+  return totalCount;
+};
+
+// 打开报表对话框
+const openJointReportDialog = async () => {
+  jointReportVisible.value = true;
+  
+  // 加载所有BOM列表
+  if (jointReportBomList.value.length === 0) {
+    try {
+      const res = await getBomListApi({ pageNum: 1, pageSize: 1000 });
+      jointReportBomList.value = res?.list || [];
+    } catch (e) {
+      console.error('获取BOM列表失败', e);
+    }
+  }
+  
+  // 默认日期范围（仅首次未设置时）
+  if (!jointReportDateRange.value) {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 6);
+    jointReportDateRange.value = [formatDate(start), formatDate(end)];
+  }
+  
+  // 自动加载数据
+  await fetchJointReport();
+};
+
+// 获取报表数据
+const fetchJointReport = async () => {
+  if (!jointReportDateRange.value) return;
+  
+  jointReportLoading.value = true;
+  try {
+    const params: any = {
+      start_date: jointReportDateRange.value[0],
+      end_date: jointReportDateRange.value[1],
+    };
+    
+    if (jointReportBomIds.value.length > 0) {
+      params.bom_ids = jointReportBomIds.value.join(',');
+    }
+    
+    // 注意：响应拦截器在成功时直接返回data，所以res就是数据本身
+    const res = await getJointTestReport(params);
+    jointReportData.value = res || {
+      dates: [],
+      boms: [],
+      unqualified_items: [],
+      summary: [],
+      total_summary: {},
+    };
+  } catch (e) {
+    console.error('获取关节测试报表失败', e);
+  } finally {
+    jointReportLoading.value = false;
+  }
+};
+
 onMounted(() => {
   loadColumnSettings();
   dictStore.loadDictItems('storage_status', true);
@@ -1684,5 +2112,195 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px 12px;
+}
+
+// ==================== 关节测试每日报表样式 ====================
+
+.joint-report-filter {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+
+.joint-report-content {
+  min-height: 300px;
+}
+
+.joint-report-table-wrapper {
+  overflow-x: auto;
+}
+
+// 表格主题样式
+.joint-report-table {
+  :deep(.el-table__header-wrapper th) {
+    background-color: var(--el-fill-color-light) !important;
+    color: var(--el-text-color-primary) !important;
+    font-weight: bold;
+    text-align: center;
+  }
+  
+  :deep(.el-table__body td) {
+    text-align: center;
+  }
+  
+  :deep(.el-table__body tr:hover > td) {
+    background-color: var(--el-fill-color-blank) !important;
+  }
+  
+  :deep(.el-table__fixed-header-wrapper),
+  :deep(.el-table__fixed-right-header-wrapper) {
+    th {
+      background-color: var(--el-fill-color-light) !important;
+    }
+  }
+  
+  // 对角线表头样式
+  :deep(.corner-header-col .cell) {
+    padding: 0 !important;
+    height: 100%;
+  }
+}
+
+// 对角线表头
+.corner-header {
+  position: relative;
+  width: 100%;
+  height: 60px;
+  overflow: hidden;
+  
+  // 对角线
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    // 使用渐变画对角线：右上→左下
+    background: linear-gradient(
+      to left bottom,
+      transparent 49.3%,
+      var(--el-border-color) 49.3%,
+      var(--el-border-color) 50.7%,
+      transparent 50.7%
+    );
+    pointer-events: none;
+  }
+  
+  &__col {
+    position: absolute;
+    right: 6px;
+    top: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+  }
+  
+  &__row {
+    position: absolute;
+    left: 6px;
+    bottom: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+  }
+}
+
+.report-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  font-size: 13px;
+}
+
+.report-sub-cell {
+  padding: 2px 8px;
+  line-height: 1.4;
+  min-height: 18px;
+}
+
+.summary-cell {
+  background-color: var(--el-color-success-light-9);
+  font-weight: 600;
+}
+
+.summary-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  
+  > div {
+    padding: 4px 0;
+    line-height: 1.4;
+  }
+}
+
+.unqualified-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  
+  .label-title {
+    font-size: 13px;
+    color: var(--el-text-color-regular);
+  }
+}
+
+.bom-header {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.test-count {
+  color: var(--el-color-primary);
+  font-weight: 500;
+}
+
+.fail-count {
+  color: var(--el-color-danger);
+  font-weight: 500;
+}
+
+.pass-rate {
+  color: var(--el-color-success);
+  font-weight: 500;
+}
+
+// 报表对话框
+.joint-report-dialog {
+  :deep(.el-dialog__body) {
+    padding: 16px 20px;
+  }
+  
+  :deep(.el-table__cell) {
+    padding: 0;
+  }
+  
+  :deep(.el-table__cell .cell) {
+    padding: 4px 8px;
+  }
+}
+
+.text-danger {
+  color: var(--el-color-danger);
 }
 </style>

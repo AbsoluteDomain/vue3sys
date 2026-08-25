@@ -191,24 +191,46 @@ if (-not $SkipMySQL) {
             Write-Warn "MySQL may show GUI installer. Set root password."
             $null = Install-WingetPackage -Id $config.winget.mysql.id -Name $config.winget.mysql.name -ManualUrl $config.winget.mysql.manualUrl
             Start-Sleep -Seconds 5
+            # Broadcast environment change so newly opened windows see PATH updates.
+            Broadcast-EnvironmentChange | Out-Null
+            # Immediately reload PATH from registry for THIS session
             Refresh-SessionPath
             Start-MySqlServiceIfNeeded -Config $config | Out-Null
         }
     }
 }
 
+# Ensure every installer's PATH change is picked up.
+# Many installers write to Machine\User Environment\Path but the running PowerShell
+# session still holds the OLD snapshot captured at deploy-bat launch time.
+# 1) Tell Explorer / the Desktop to reload env (so newly opened cmd windows see it)
+# 2) Refresh this-session $env:Path from registry
+Broadcast-EnvironmentChange | Out-Null
 Refresh-SessionPath
+
 $mysqlBin = Find-MySqlBinDirectory -Config $config
 if ($mysqlBin) {
     Add-PathToSession $mysqlBin
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if ($userPath -notlike "*$mysqlBin*") {
         [Environment]::SetEnvironmentVariable('Path', "$mysqlBin;$userPath", 'User')
-        Write-Ok "Added MySQL bin to PATH: $mysqlBin"
+        Write-Ok "Added MySQL bin to User PATH: $mysqlBin"
+        Broadcast-EnvironmentChange | Out-Null
+        Refresh-SessionPath
     }
 }
 
+# After installing Node.js + pnpm, reload PATH + broadcast, so a subsequent
+# install-deps.ps1 (same deploy bat session) actually finds node/pnpm.
 Install-PnpmGlobal | Out-Null
+Broadcast-EnvironmentChange | Out-Null
+Refresh-SessionPath
+# In case pnpm just got installed but Test-CommandExists still fails, add it via resolver.
+$pnpmBin = Find-PnpmPath
+if ($pnpmBin) { Add-PathToSession $pnpmBin }
+$nodeBin = Find-NodeBinDirectory
+if ($nodeBin) { Add-PathToSession $nodeBin }
+
 Start-MySqlServiceIfNeeded -Config $config | Out-Null
 
 Write-Step "Re-check"

@@ -131,14 +131,16 @@
       <div class="table-toolbar">
         <el-checkbox v-model="collapseMode">折叠模式</el-checkbox>
         <div class="toolbar-actions">
+          <el-button type="success" @click="openQuickActionDialog">
+            <el-icon><Operation /></el-icon> 快捷操作
+          </el-button>
           <el-button type="warning" @click="handleAssemble">
             <el-icon><Box /></el-icon> 组装产品
           </el-button>
           <el-button @click="openColumnDialog">
             <el-icon><Setting /></el-icon> 列展示
           </el-button>
-        </div>
-      </div>
+        </div>      </div>
 
       <el-table
         :data="filteredTableData"
@@ -812,12 +814,69 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 快捷操作主对话框 -->
+    <el-dialog
+      v-model="quickActionVisible"
+      title="快捷操作"
+      width="520px"
+      destroy-on-close
+    >
+      <div class="quick-action-buttons">
+        <el-button
+          type="success"
+          size="large"
+          @click="handleQuickActionSelect('pass')"
+          :loading="quickActionSubmitting"
+        >
+          测试合格
+        </el-button>
+        <el-button
+          type="danger"
+          size="large"
+          @click="handleQuickActionSelect('fail')"
+          :loading="quickActionSubmitting"
+        >
+          测试不良
+        </el-button>
+      </div>
+      <template #footer>
+        <el-button @click="quickActionVisible = false">取消</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 快捷操作SN码输入对话框 -->
+    <el-dialog
+      v-model="quickActionSnVisible"
+      :title="quickActionSnTitle"
+      width="420px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <el-form label-width="80px">
+        <el-form-item label="SN码">
+          <el-input
+            v-model="quickActionSnCode"
+            placeholder="请输入SN码"
+            maxlength="255"
+            clearable
+            @keyup.enter="handleQuickActionSnConfirm"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="quickActionSnVisible = false">取消</el-button>
+        <el-button type="primary" :loading="quickActionSnSubmitting" @click="handleQuickActionSnConfirm">
+          确认
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
-import { Search, Refresh, Setting, Box, WarningFilled, Plus } from '@element-plus/icons-vue'
+import { Search, Refresh, Setting, Box, WarningFilled, Plus, Operation } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
 import { createRepair, getBomList } from '@/api/product'
@@ -949,6 +1008,15 @@ const unqualifiedDetailItems = ref([])
 const unqualifiedDetailLoading = ref(false)
 const newUnqualifiedValue = ref(null)
 const unqualifiedDetailSubmitting = ref(false)
+
+// 快捷操作相关状态
+const quickActionVisible = ref(false)
+const quickActionSubmitting = ref(false)
+const quickActionSnVisible = ref(false)
+const quickActionSnTitle = ref('')
+const quickActionSnCode = ref('')
+const quickActionSnSubmitting = ref(false)
+const quickActionType = ref('')
 
 // 过滤仅显示关节类型的BOM
 const jointBomList = computed(() => {
@@ -1646,6 +1714,95 @@ const checkJointConsistency = async () => {
   }
 }
 
+// ==================== 快捷操作相关方法 ====================
+
+// 打开快捷操作主对话框
+const openQuickActionDialog = () => {
+  quickActionVisible.value = true
+}
+
+// 选择快捷操作类型（测试合格/测试不良）
+const handleQuickActionSelect = (type) => {
+  quickActionType.value = type
+  quickActionSnTitle.value = type === 'pass' ? '测试合格' : '测试不良'
+  quickActionSnCode.value = ''
+  quickActionSnVisible.value = true
+}
+
+// 获取当前时间字符串（YYYY-MM-DD HH:mm:ss）
+const nowStr = () => {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// SN码确认：根据SN查找成品并执行对应操作
+const handleQuickActionSnConfirm = async () => {
+  const snCode = quickActionSnCode.value?.trim()
+  if (!snCode) {
+    ElMessage.warning('请输入SN码')
+    return
+  }
+  quickActionSnSubmitting.value = true
+  try {
+    const res = await getFinishProductList({ sn_code: snCode, pageNum: 1, pageSize: 1 })
+    const list = res?.list || []
+    if (list.length === 0) {
+      ElMessage.error(`未找到SN码为「${snCode}」的成品`)
+      return
+    }
+    const product = list[0]
+    if (quickActionType.value === 'pass') {
+      await executeQuickActionPass(product)
+    } else {
+      await executeQuickActionFail(product)
+    }
+    quickActionSnVisible.value = false
+    quickActionVisible.value = false
+  } catch (e) {
+    console.error('快捷操作失败', e)
+  } finally {
+    quickActionSnSubmitting.value = false
+  }
+}
+
+// 执行测试合格快捷操作（复用 handleEdit 填充 formData，复用 doSaveProduct 保存）
+const executeQuickActionPass = (product) => {
+  // 复用现有的 handleEdit 填充 formData（会打开编辑对话框，随后关闭）
+  handleEdit(product)
+  dialogVisible.value = false
+  // 覆盖固定字段
+  const now = nowStr()
+  formData.inventory_stock = INVENTORY_IN
+  formData.status = STATUS_PASS
+  formData.stock_in_time = now
+  formData.test_time = now
+  formData.description = '扫码入库'
+  // 复用现有的 doSaveProduct 保存
+  return doSaveProduct()
+}
+
+// 执行测试不良快捷操作（复用 handleEdit 填充 formData，复用不合格项选择对话框）
+const executeQuickActionFail = async (product) => {
+  // 复用现有的 handleEdit 填充 formData
+  handleEdit(product)
+  dialogVisible.value = false
+  // 覆盖固定字段
+  const now = nowStr()
+  formData.inventory_stock = 0
+  formData.status = 3
+  formData.test_time = now
+  formData.description = '扫码不良'
+  // 加载已有不合格项并弹出选择对话框（复用现有的 handleUnqualifiedSelectConfirm 流程）
+  try {
+    const items = await getUnqualifiedItems({ finish_product_id: formData.id })
+    selectedUnqualifiedValues.value = (items || []).map(item => item.unqualified_value)
+  } catch {
+    selectedUnqualifiedValues.value = []
+  }
+  unqualifiedSelectVisible.value = true
+}
+
 onMounted(() => {
   loadColumnSettings()
   dictStore.loadDictItems('storage_status', true)
@@ -1883,4 +2040,19 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 13px;
 }
+
+.quick-action-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 20px 0;
+}
+
+.quick-action-buttons .el-button {
+  width: 180px;
+  height: 64px;
+  font-size: 16px;
+  font-weight: 500;
+}
 </style>
+

@@ -34,19 +34,8 @@ def _parse_date_param(value):
 
 def _parse_page_params(request):
     """解析分页参数。"""
-    try:
-        page_num = int(request.GET.get("pageNum", 1))
-    except (TypeError, ValueError):
-        page_num = 1
-    try:
-        page_size = int(request.GET.get("pageSize", 20))
-    except (TypeError, ValueError):
-        page_size = 20
-    if page_num < 1:
-        page_num = 1
-    if page_size < 1:
-        page_size = 20
-    return page_num, page_size
+    from core.pagination import parse_page_params
+    return parse_page_params(request, default_size=20)
 
 
 def _serialize_order(order):

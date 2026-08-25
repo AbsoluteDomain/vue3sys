@@ -17,4 +17,6 @@ urlpatterns = [
     path("unqualified/save/", views.save_unqualified_items, name="save_unqualified_items"),
     path("unqualified/delete/", views.delete_unqualified_item, name="delete_unqualified_item"),
     path("unqualified/add/", views.add_unqualified_item, name="add_unqualified_item"),
+    # 关节测试报表
+    path("joint-test-report/", views.joint_test_report, name="joint_test_report"),
 ]

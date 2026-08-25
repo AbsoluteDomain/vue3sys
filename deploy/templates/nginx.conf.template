@@ -1,0 +1,90 @@
+# ============================================================
+#  vue3sys Nginx production config (Windows 示例)
+#  把 {{PROJECT_ROOT}} 替换为实际项目根目录，例如 C:/vue3sys
+#  或直接把 dist/ 放到 nginx/html/ 目录下按需修改。
+# ============================================================
+
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    keepalive_timeout  65;
+    client_max_body_size  200m;
+    gzip  on;
+    gzip_min_length  1k;
+    gzip_types  text/plain application/javascript text/css application/json application/xml image/svg+xml;
+
+    # ============= vue3sys server =============
+    server {
+        listen       80;
+        server_name  localhost;
+        charset      utf-8;
+
+        # --- 前端 SPA 静态文件（dist 目录） ---
+        # 例：把 vue3-element-admin/dist/ 整体拷贝到 C:/nginx/html/vue3sys
+        # 或直接指向 D:/vue3sys/vue3-element-admin/dist
+        location / {
+            root   {{PROJECT_ROOT}}/vue3-element-admin/dist;
+            index  index.html;
+            try_files  $uri $uri/ /index.html;
+        }
+
+        # --- 后端 API：/prod-api/  ->  http://127.0.0.1:8000/ ---
+        # 开发机前端 .env.production 里 VITE_APP_BASE_API=/prod-api
+        # 因此前端请求 /prod-api/xxx 会被代理到 http://127.0.0.1:8000/xxx
+        location /prod-api/ {
+            proxy_pass         http://127.0.0.1:8000/;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_read_timeout  300s;
+            proxy_send_timeout  300s;
+        }
+
+        # --- 兼容开发模式的 /api/（可选，开发调 Nginx 时有用） ---
+        location /api/ {
+            proxy_pass         http://127.0.0.1:8000/;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        }
+
+        # --- WebSocket /ws/  ->  后端 Django Channels (Daphne) ---
+        location /ws/ {
+            proxy_pass         http://127.0.0.1:8000/ws/;
+            proxy_http_version 1.1;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_read_timeout  86400s;
+            proxy_send_timeout  86400s;
+        }
+
+        # --- Django admin / static 文件（collectstatic 后生成） ---
+        # 先在后端执行: venv\Scripts\python.exe manage.py collectstatic --noinput
+        # 会生成 {{PROJECT_ROOT}}/youlai-django/staticfiles/
+        location /static/ {
+            alias  {{PROJECT_ROOT}}/youlai-django/staticfiles/;
+            expires 30d;
+        }
+
+        # --- Django media 文件（上传的文件目录） ---
+        location /media/ {
+            alias  {{PROJECT_ROOT}}/youlai-django/media/;
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
