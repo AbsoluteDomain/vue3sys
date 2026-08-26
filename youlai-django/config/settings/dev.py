@@ -25,37 +25,20 @@ DATABASES = {
     }
 }
 
-# 开发环境 Redis 设置
-#REDIS_PASSWORD = env_str('REDIS_PASSWORD', '')
-#_redis_auth = f":{REDIS_PASSWORD}@" if REDIS_PASSWORD else ""
-#CACHES = {
-#    'default': {
-#        'BACKEND': 'django_redis.cache.RedisCache',
-#        'LOCATION': (
-#            'redis://localhost:6379/0',
-#        ),
-#        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
-#    }
-#}
+# 开发环境 Redis 设置（从环境变量读取，适配不同部署环境）
+REDIS_HOST = env_str('REDIS_HOST', 'localhost')
+REDIS_PORT = env_int('REDIS_PORT', 6379)
+REDIS_PASSWORD = env_str('REDIS_PASSWORD', '')
+REDIS_DB = env_int('REDIS_DB', 0)
 
-
-# 开发环境 Redis 设置
-# 1. 直接设置密码为 123456 (或者保留环境变量读取，但默认值改为 123456)
-REDIS_PASSWORD = env_str('REDIS_PASSWORD', '123456') 
-
-# 2. 构建认证字符串 (如果有密码则是 :123456@, 否则是空字符串)
 _redis_auth = f":{REDIS_PASSWORD}@" if REDIS_PASSWORD else ""
 
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        # 3. 【关键修改】动态构建 LOCATION，将密码嵌入 URL
-        # 结果将是: redis://:123456@localhost:6379/0
-        'LOCATION': f'redis://{_redis_auth}localhost:6379/0',
-        
+        'LOCATION': f'redis://{_redis_auth}{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            # 4. 【关键修改】显式传递密码给 OPTIONS，确保兼容性
             'PASSWORD': REDIS_PASSWORD,
         },
     }
