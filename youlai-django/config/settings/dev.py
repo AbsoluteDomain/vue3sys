@@ -27,7 +27,7 @@ DATABASES = {
 
 # 开发环境 Redis 设置（从环境变量读取，适配不同部署环境）
 REDIS_HOST = env_str('REDIS_HOST', 'localhost')
-REDIS_PORT = env_int('REDIS_PORT', 6379)
+REDIS_PORT = env_int('REDIS_PORT', 6380)
 REDIS_PASSWORD = env_str('REDIS_PASSWORD', '')
 REDIS_DB = env_int('REDIS_DB', 0)
 
@@ -40,6 +40,9 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'PASSWORD': REDIS_PASSWORD,
+            # 超时保护：Redis 不可用时快速失败（降级放行），避免阻塞每个请求
+            'SOCKET_CONNECT_TIMEOUT': 1.0,
+            'SOCKET_TIMEOUT': 1.0,
         },
     }
 }

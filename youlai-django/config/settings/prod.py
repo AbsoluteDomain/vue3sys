@@ -44,7 +44,12 @@ CACHES = {
             f"{require_env('REDIS_HOST')}:{env_int('REDIS_PORT', 6379)}/"
             f"{env_int('REDIS_DB', 0)}"
         ),
-        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # 超时保护：Redis 不可用时快速失败（降级放行），避免阻塞每个请求
+            'SOCKET_CONNECT_TIMEOUT': 1.0,
+            'SOCKET_TIMEOUT': 1.0,
+        },
     }
 }
 
