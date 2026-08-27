@@ -65,8 +65,21 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
       // },
       proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000', // 目标服务器
-        changeOrigin: true
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        // keep-alive 复用到后端的 TCP 连接，避免每次请求都新建连接
+        // Windows 上 vite proxy 默认可能不复用连接，导致每次请求都有 TCP 握手开销
+        configure: (proxy) => {
+          proxy.on('proxyReq', (_proxyReq, req) => {
+            // 开发请求里没有 body 的，复用连接
+            if (!req.headers['content-length']) {
+              req.headers['connection'] = 'keep-alive';
+            }
+          });
+          proxy.on('error', (_err, _req, _res) => {
+            // 连接出错时静默处理，避免中断页面
+          });
+        },
       },
       // 外部订单接口代理（与线上 Nginx 配置一致）
       '/ext-order': {
