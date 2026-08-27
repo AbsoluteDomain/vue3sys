@@ -33,6 +33,8 @@ DATABASES = {
         'HOST': require_env('DB_HOST'),
         'PORT': env_int('DB_PORT', 3306),
         'OPTIONS': {'charset': 'utf8mb4'},
+        # 连接复用：避免每个请求都新建 MySQL 连接（首次握手 2s，复用后 <1ms）
+        'CONN_MAX_AGE': 60,
     }
 }
 
