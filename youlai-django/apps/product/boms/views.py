@@ -187,7 +187,7 @@ def _parse_bom_type(value, required=False):
     return bom_type
 
 
-def _serialize_recipe(row, bom_name=None, product_meta_map=None, pid_map=None):
+def _serialize_recipe(row, bom_name=None, product_meta_map=None, pid_map=None, semi_finished_codes=None):
     part = _recipe_part_info(row)
     bind_id = part["product_id"]
     # 解析当前有效产品 ID（产品删除重建后通过 material_code 回退）
@@ -195,17 +195,20 @@ def _serialize_recipe(row, bom_name=None, product_meta_map=None, pid_map=None):
     if pid_map and bind_id:
         eff_id = pid_map.get(bind_id, bind_id)
     meta = _product_meta_from_map(product_meta_map, eff_id)
+    mc = meta["part_material_code"] or (row.material_code or "")
+    is_semi = bool(semi_finished_codes and mc and mc in semi_finished_codes)
     return {
         "id": row.id,
         "bom_id": row.bom_id,
         "bom_name": bom_name,
         "part_product_id": eff_id,
         "part_product_name": part["product_name"] or meta.get("name") or "",
-        "part_material_code": meta["part_material_code"] or (row.material_code or ""),
+        "part_material_code": mc,
         "part_product_type": meta["part_product_type"],
         "part_product_type_name": meta["part_product_type_name"],
         "part_unit": meta.get("unit") or "",
         "part_quantity": part["quantity"],
+        "is_semi_finished": is_semi,
         "raw_material_id": row.raw_material_id,
         "raw_material_name": row.raw_material_name,
         "raw_material_quantity": row.raw_material_quantity,
@@ -680,9 +683,11 @@ def bom_detail(request):
     pid_map = build_effective_pid_map(recipes)
     effective_ids = list(set(pid_map.values()))
     meta_map = _build_product_meta_map(effective_ids)
+    semi_finished_codes = _build_semi_finished_map(meta_map)
     payload = _serialize_bom_header(bom, len(recipes))
     payload["recipes"] = [
-        _serialize_recipe(r, _bom_display_name(bom), meta_map, pid_map) for r in recipes
+        _serialize_recipe(r, _bom_display_name(bom), meta_map, pid_map, semi_finished_codes)
+        for r in recipes
     ]
     return JsonResponse({"code": "00000", "msg": "成功", "data": payload})
 
@@ -869,12 +874,29 @@ def update_bom(request):
         return JsonResponse({"code": "500", "msg": f"更新失败: {str(e)}"})
 
 
+def _build_semi_finished_map(product_meta_map):
+    """批量查询 BomList，返回有对应 BOM 的 material_code 集合"""
+    material_codes = [
+        m["part_material_code"]
+        for m in product_meta_map.values()
+        if m.get("part_material_code")
+    ]
+    if not material_codes:
+        return set()
+    return set(
+        BomList.objects.filter(
+            material_code__in=material_codes, is_del=0
+        ).values_list("material_code", flat=True)
+    )
+
+
 def _collect_assembly_requirements(recipes, assemble_qty):
     """汇总组装所需各零件数量（按有效产品 ID 聚合，支持物料编码回退）"""
     pid_map = build_effective_pid_map(recipes)
     # 预加载有效产品元信息，避免逐条查询
     effective_ids = list(set(pid_map.values()))
     meta_map = _build_product_meta_map(effective_ids)
+    semi_finished_codes = _build_semi_finished_map(meta_map)
 
     requirements = {}
     for recipe in recipes:
@@ -892,11 +914,14 @@ def _collect_assembly_requirements(recipes, assemble_qty):
             requirements[eff_id]["required"] += needed
         else:
             meta = _product_meta_from_map(meta_map, eff_id)
+            mc = meta.get("part_material_code") or ""
             requirements[eff_id] = {
                 "product_id": eff_id,
                 "product_name": meta.get("name") or part["product_name"],
                 "product_type": meta["part_product_type"],
                 "product_type_name": meta["part_product_type_name"],
+                "material_code": mc,
+                "is_semi_finished": bool(mc and mc in semi_finished_codes),
                 "required": needed,
             }
     return list(requirements.values())
@@ -926,6 +951,7 @@ def assemble_bom(request):
 
         consumed = []
         consumed_details = []
+        pending_binding = []
         finish_products_created = []
 
         with transaction.atomic():
@@ -933,6 +959,23 @@ def assemble_bom(request):
                 requirements = _collect_assembly_requirements(recipes, assemble_qty)
 
                 for req in requirements:
+                    # 半成品（有对应 BOM 的物料）跳过扣库，待成品绑定 parent_sn_code 时再扣
+                    if req.get("is_semi_finished"):
+                        pending_binding.append(
+                            {
+                                "product_id": req["product_id"],
+                                "product_name": req["product_name"],
+                                "product_type": req["product_type"],
+                                "product_type_name": req["product_type_name"],
+                                "quantity": req["required"],
+                                "material_code": req.get("material_code", ""),
+                            }
+                        )
+                        consumed_details.append(
+                            f"{req['product_name']} - {req['required']}（半成品，需绑定父级SN码）"
+                        )
+                        continue
+
                     product = Product.objects.select_for_update().get(
                         id=req["product_id"], is_del=0
                     )
@@ -992,6 +1035,7 @@ def assemble_bom(request):
             target_name=_bom_log_label(bom),
             after_data={
                 "consumed": consumed,
+                "pending_binding": pending_binding,
                 "assemble_quantity": assemble_qty,
                 "deduct_materials": deduct_materials,
             },
@@ -1005,7 +1049,10 @@ def assemble_bom(request):
 
         msg = "组装成功，已生成成品"
         if deduct_materials:
-            msg += "并扣减库存"
+            if pending_binding:
+                msg += "，已扣减原材料库存，半成品需绑定父级SN码"
+            else:
+                msg += "并扣减库存"
         else:
             msg += "（未扣减物料）"
 
@@ -1021,6 +1068,7 @@ def assemble_bom(request):
                     "assemble_quantity": assemble_qty,
                     "deduct_materials": deduct_materials,
                     "consumed": consumed,
+                    "pending_binding": pending_binding,
                     "finish_products": finish_products_created,
                 },
             }

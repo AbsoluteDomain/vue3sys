@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="组装产品"
-    width="640px"
+    width="740px"
     destroy-on-close
     @closed="handleClosed"
   >
@@ -47,7 +47,7 @@
 
     <div v-if="previewLines.length" class="preview-block">
       <div class="preview-title">
-        {{ formData.deduct_materials ? '将消耗以下库存：' : 'BOM 零件明细（不扣减库存）：' }}
+        {{ formData.deduct_materials ? '将扣减原材料库存（半成品需绑定后扣减）：' : 'BOM 零件明细（不扣减库存）：' }}
       </div>
       <el-table :data="previewLines" border stripe size="small" max-height="280">
         <el-table-column prop="product_name" label="产品名称" min-width="140" show-overflow-tooltip />
@@ -62,7 +62,14 @@
         <el-table-column prop="required" label="合计消耗" width="90" align="right" />
         <el-table-column prop="stock" label="当前库存" width="90" align="right">
           <template #default="{ row }">
-            <span :class="{ 'stock-warn': row.stock < row.required }">{{ row.stock }}</span>
+            <span v-if="row.is_semi_finished" class="semi-text">需绑定</span>
+            <span v-else :class="{ 'stock-warn': row.stock < row.required }">{{ row.stock }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" width="130" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_semi_finished" type="warning" size="small">半成品（需绑定）</el-tag>
+            <span v-else class="material-text">原材料</span>
           </template>
         </el-table-column>
       </el-table>
@@ -208,8 +215,8 @@ const handleExportExcel = async () => {
         row.product_type_name || formatProductTypeLabel(row.product_type),
         row.per_unit,
         row.required,
-        row.stock,
-        row.stock < row.required ? '库存不足' : '充足'
+        row.is_semi_finished ? '需绑定' : row.stock,
+        row.is_semi_finished ? '半成品（需绑定）' : (row.stock < row.required ? '库存不足' : '充足')
       ])
     })
 
@@ -232,19 +239,35 @@ const handleExportExcel = async () => {
   }
 }
 
-const loadBomOptions = () =>
-  getBomList({ pageNum: 1, pageSize: 2000 }).then((res) => {
-    bomOptions.value = res?.list || []
-  })
+const loadBomOptions = async () => {
+  const all = []
+  let pageNum = 1
+  const pageSize = 100
+  let total = 0
+  do {
+    const res = await getBomList({ pageNum, pageSize })
+    all.push(...(res?.list || []))
+    total = res?.total ?? 0
+    pageNum++
+  } while (all.length < total)
+  bomOptions.value = all
+}
 
-const loadProductStock = () =>
-  getProductList({ pageNum: 1, pageSize: 2000 }).then((res) => {
-    const map = {}
+const loadProductStock = async () => {
+  const map = {}
+  let pageNum = 1
+  const pageSize = 100
+  let total = 0
+  do {
+    const res = await getProductList({ pageNum, pageSize })
     ;(res?.list || []).forEach((p) => {
       map[p.id] = p.quantity ?? 0
     })
-    productStockMap.value = map
-  })
+    total = res?.total ?? 0
+    pageNum++
+  } while (Object.keys(map).length < total)
+  productStockMap.value = map
+}
 
 const buildPreview = () => {
   const qty = formData.quantity || 1
@@ -262,6 +285,7 @@ const buildPreview = () => {
         product_name: r.part_product_name,
         product_type: r.part_product_type,
         product_type_name: r.part_product_type_name || '',
+        is_semi_finished: !!r.is_semi_finished,
         per_unit: perUnit,
         required,
         stock: productStockMap.value[pid] ?? 0
@@ -317,7 +341,10 @@ const handleSubmit = () => {
         ElMessage.warning('该 BOM 没有可组装的零件明细')
         return
       }
-      const insufficient = previewLines.value.filter((l) => l.stock < l.required)
+      // 半成品跳过库存校验，待绑定时再扣
+      const insufficient = previewLines.value.filter(
+        (l) => !l.is_semi_finished && l.stock < l.required
+      )
       if (insufficient.length) {
         ElMessage.warning(`「${insufficient[0].product_name}」库存不足，无法组装`)
         return
@@ -326,9 +353,15 @@ const handleSubmit = () => {
 
     const bom = getSelectedBom()
     const bomLabel = bom ? formatBomShortLabel(bom) : formData.bom_id
-    const confirmMsg = formData.deduct_materials
-      ? `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？将扣减对应零件库存。`
+    const semiCount = previewLines.value.filter((l) => l.is_semi_finished).length
+    let confirmMsg = formData.deduct_materials
+      ? `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？将扣减原材料库存`
       : `确定按 BOM「${bomLabel}」组装 ${formData.quantity} 套？本次不扣减零件库存，仅生成成品。`
+    if (formData.deduct_materials && semiCount > 0) {
+      confirmMsg += `，半成品（${semiCount} 项）需到成品管理页面绑定父级SN码后扣减库存。`
+    } else if (formData.deduct_materials) {
+      confirmMsg += '。'
+    }
 
     ElMessageBox.confirm(confirmMsg, '确认组装', { type: 'warning' })
       .then(() => {
@@ -339,12 +372,24 @@ const handleSubmit = () => {
           deduct_materials: formData.deduct_materials
         })
       })
-      .then(() => {
-        ElMessage.success(
-          formData.deduct_materials
-            ? '组装成功，已生成成品并扣减库存'
-            : '组装成功，已生成成品（未扣减物料）'
-        )
+      .then((res) => {
+        const pending = res?.pending_binding || []
+        if (pending.length) {
+          const summary = pending
+            .map((p) => `${p.product_type_name || '半成品'}×${p.quantity}`)
+            .join('、')
+          ElMessageBox.alert(
+            `该 BOM 包含半成品（${summary}），请到成品管理页面绑定父级SN码后完成组装。`,
+            '组装完成',
+            { type: 'warning', confirmButtonText: '知道了' }
+          )
+        } else {
+          ElMessage.success(
+            formData.deduct_materials
+              ? '组装成功，已生成成品并扣减库存'
+              : '组装成功，已生成成品（未扣减物料）'
+          )
+        }
         emit('success')
         visible.value = false
       })
@@ -381,5 +426,13 @@ defineExpose({ open })
 .stock-warn {
   color: #f56c6c;
   font-weight: 600;
+}
+.semi-text {
+  color: #e6a23c;
+  font-weight: 600;
+}
+.material-text {
+  color: #909399;
+  font-size: 12px;
 }
 </style>
