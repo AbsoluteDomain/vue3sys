@@ -30,7 +30,12 @@ class CorsMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        response = self.get_response(request)
+        # CORS 预检请求（OPTIONS）：直接返回 200，不走 Django 后续中间件链
+        # 避免 CSRF / 认证中间件把 OPTIONS 拦掉导致浏览器 CORS 失败
+        if request.method == "OPTIONS":
+            response = JsonResponse({"code": "00000", "msg": "preflight ok"})
+        else:
+            response = self.get_response(request)
         response["Access-Control-Allow-Origin"] = "*"
         response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Request-Id"
         response["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
