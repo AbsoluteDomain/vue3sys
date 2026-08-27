@@ -12,9 +12,12 @@ const retriedConfigs = new WeakSet<InternalAxiosRequestConfig>();
 // 生产环境（npm run build 后）走 nginx 反代，用相对路径
 const apiUrl = import.meta.env.VITE_APP_API_URL;
 const baseApi = import.meta.env.VITE_APP_BASE_API;
-const fullBaseURL = apiUrl && import.meta.env.DEV
-  ? (apiUrl.replace(/\/$/, "") + baseApi)
-  : baseApi;
+// 开发环境：直连 Django，baseURL 只取 host（不带 /api 前缀），
+// 因为 API 路径本身已经包含 /api/v1/...
+// 生产环境：走相对路径 /prod-api 或 /api，由 nginx 反代
+const fullBaseURL = import.meta.env.DEV
+  ? (apiUrl || '').replace(/\/$/, '')  // http://localhost:8000
+  : baseApi;                           // /api 或 /prod-api
 
 console.log("🚀 当前环境配置的 BaseURL:", fullBaseURL);
 
