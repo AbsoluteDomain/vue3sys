@@ -3,7 +3,7 @@
 """
 
 from datetime import timedelta
- 
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django_redis import get_redis_connection
@@ -12,21 +12,41 @@ from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
- 
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 User = get_user_model()
- 
- 
+
+
+def _safe_redis_get(key, default=None):
+    """安全地读 Redis：连不上或出错时降级返回 default，不让登录/刷新接口挂掉。"""
+    try:
+        return get_redis_connection("default").get(key)
+    except Exception as e:
+        logger.warning("Redis 不可用，降级放行（key=%s）: %s", key, e)
+        return default
+
+
+def _safe_redis_delete(key):
+    """安全地删 Redis key：连不上时静默忽略。"""
+    try:
+        get_redis_connection("default").delete(key)
+    except Exception as e:
+        logger.warning("Redis 不可用，跳过 delete（key=%s）: %s", key, e)
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         """在基础 JWT 上附加自定义声明"""
         token = super().get_token(user)
- 
-        redis_conn = get_redis_connection("default")
+
         version_key = f"auth:user:token_version:{user.id}"
-        current_version = redis_conn.get(version_key)
+        current_version = _safe_redis_get(version_key)
         token_version = int(current_version) if current_version is not None else 0
- 
+
         token["tokenVersion"] = token_version
 
         return token
@@ -38,16 +58,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             captcha_code = self.initial_data.get("captchaCode")
             if not captcha_key or not captcha_code:
                 raise ValidationError({"code": "A0410", "msg": "缺少验证码信息（captchaId/captchaCode）"})
- 
-            redis_conn = get_redis_connection("default")
-            stored_value = redis_conn.get(captcha_key)
+
+            stored_value = _safe_redis_get(captcha_key)
             if not stored_value:
                 raise ValidationError({"code": "A0242", "msg": "用户验证码过期"})
- 
+
             if captcha_code.lower() != stored_value.decode("utf-8").lower():
                 raise ValidationError({"code": "A0240", "msg": "验证码错误"})
- 
-            redis_conn.delete(captcha_key)
+
+            _safe_redis_delete(captcha_key)
  
         # 检查用户状态
         username = attrs.get('username')
@@ -98,10 +117,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Redis 会话模式
         import uuid
         redis_conn = get_redis_connection("default")
- 
+
         user = self.user
         user_id = user.id
- 
+
         access_token = uuid.uuid4().hex
         refresh_token = uuid.uuid4().hex
 
@@ -129,11 +148,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             ],
             "roles": roles,
         }
- 
-        redis_conn.setex(f"auth:token:access:{access_token}", access_expires_in, str(online_user))
-        redis_conn.setex(f"auth:token:refresh:{refresh_token}", refresh_expires_in, str(online_user))
-        redis_conn.setex(f"auth:user:access:{user_id}", access_expires_in, access_token)
-        redis_conn.setex(f"auth:user:refresh:{user_id}", refresh_expires_in, refresh_token)
+
+        try:
+            redis_conn.setex(f"auth:token:access:{access_token}", access_expires_in, str(online_user))
+            redis_conn.setex(f"auth:token:refresh:{refresh_token}", refresh_expires_in, str(online_user))
+            redis_conn.setex(f"auth:user:access:{user_id}", access_expires_in, access_token)
+            redis_conn.setex(f"auth:user:refresh:{user_id}", refresh_expires_in, refresh_token)
+        except Exception as e:
+            logger.warning("Redis 不可用，跳过会话写入（用户 %s）: %s", user_id, e)
  
         return {
             "code": "00000",
@@ -169,9 +191,8 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
                 token_version = refresh_payload.get("tokenVersion", 0)
 
                 if user_id is not None:
-                    redis_conn = get_redis_connection("default")
                     version_key = f"auth:user:token_version:{user_id}"
-                    current_version = redis_conn.get(version_key)
+                    current_version = _safe_redis_get(version_key)
                     current_version_int = int(current_version) if current_version is not None else 0
 
                     if token_version < current_version_int:
