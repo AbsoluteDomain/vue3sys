@@ -8,6 +8,8 @@ import time
 import uuid
 from contextvars import ContextVar
 
+from django.http import JsonResponse
+
 logger = logging.getLogger(__name__)
 
 # 上下文变量
@@ -44,7 +46,6 @@ class CorsMiddleware:
 
     def process_exception(self, request, exception):
         # 即使抛异常也加 CORS 头
-        from django.http import JsonResponse
         response = JsonResponse({"code": "500", "msg": str(exception)}, status=500)
         response["Access-Control-Allow-Origin"] = "*"
         return response
