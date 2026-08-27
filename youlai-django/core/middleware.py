@@ -19,6 +19,32 @@ status_var: ContextVar[str] = ContextVar("status", default="-")
 cost_ms_var: ContextVar[str] = ContextVar("cost_ms", default="-")
 
 
+class CorsMiddleware:
+    """轻量 CORS 中间件，开发/生产都能用。
+
+    让前端开发环境可直接直连 Django（绕过 vite proxy 的性能瓶颈），
+    也让生产环境部署更灵活。
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Request-Id"
+        response["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response["Access-Control-Max-Age"] = "3600"
+        return response
+
+    def process_exception(self, request, exception):
+        # 即使抛异常也加 CORS 头
+        from django.http import JsonResponse
+        response = JsonResponse({"code": "500", "msg": str(exception)}, status=500)
+        response["Access-Control-Allow-Origin"] = "*"
+        return response
+
+
 class RequestContextFilter(logging.Filter):
     """日志过滤器，注入请求上下文信息。"""
 

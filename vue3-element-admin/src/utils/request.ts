@@ -7,9 +7,20 @@ import { AuthStorage, redirectToLogin } from "@/utils/auth";
 
 // 记录已重试的请求，防止无限循环
 const retriedConfigs = new WeakSet<InternalAxiosRequestConfig>();
-console.log("🚀 当前环境配置的 BaseURL:", import.meta.env.VITE_APP_BASE_API);
+
+// 开发环境直连 Django，绕过 vite proxy（Windows 上 vite proxy 性能差，经转发慢几百倍）
+// 生产环境（npm run build 后）走 nginx 反代，用相对路径
+const apiUrl = import.meta.env.VITE_APP_API_URL;
+const baseApi = import.meta.env.VITE_APP_BASE_API;
+const fullBaseURL = apiUrl && import.meta.env.DEV
+  ? (apiUrl.replace(/\/$/, "") + baseApi)
+  : baseApi;
+
+console.log("🚀 当前环境配置的 BaseURL:", fullBaseURL);
+
 // HTTP 请求实例
 const http = axios.create({
+  baseURL: fullBaseURL,
   timeout: 50000,
   headers: { "Content-Type": "application/json;charset=utf-8" },
   paramsSerializer: (params) => qs.stringify(params, { arrayFormat: "repeat" }),
