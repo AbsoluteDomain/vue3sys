@@ -43,7 +43,7 @@ Redis/redis.windows-service.conf
 # ==============================
 # 数据库备份（含业务数据，勿提交；首次部署用 deploy/import-database.ps1）
 # ==============================
-youlai_admin_django.sql
+youlai_admin_django*.sql
 *.sql.bak
 
 # ==============================
@@ -57,6 +57,7 @@ deploy/logs/
 # 临时产物与备份（脚本运行残留）
 # ==============================
 youlai-django/test_output.txt
+youlai-django/test_*.py
 deploy/_bat_utf8_backup_*/
 
 # ==============================
@@ -64,6 +65,7 @@ deploy/_bat_utf8_backup_*/
 # ==============================
 .idea/
 .vscode/
+.trae/
 .DS_Store
 Thumbs.db
 .history/
