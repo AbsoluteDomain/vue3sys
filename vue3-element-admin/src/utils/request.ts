@@ -8,16 +8,11 @@ import { AuthStorage, redirectToLogin } from "@/utils/auth";
 // 记录已重试的请求，防止无限循环
 const retriedConfigs = new WeakSet<InternalAxiosRequestConfig>();
 
-// 开发环境直连 Django，绕过 vite proxy（Windows 上 vite proxy 性能差，经转发慢几百倍）
-// 生产环境（npm run build 后）走 nginx 反代，用相对路径
-const apiUrl = import.meta.env.VITE_APP_API_URL;
-const baseApi = import.meta.env.VITE_APP_BASE_API;
-// 开发环境：直连 Django，baseURL 只取 host（不带 /api 前缀），
-// 因为 API 路径本身已经包含 /api/v1/...
-// 生产环境：走相对路径 /prod-api 或 /api，由 nginx 反代
-const fullBaseURL = import.meta.env.DEV
-  ? (apiUrl || '').replace(/\/$/, '')  // http://localhost:8000
-  : baseApi;                           // /api 或 /prod-api
+// baseURL 为空：API 路径本身已带 /api/v1/... 前缀
+// 开发环境由 vite proxy 匹配 /api 前缀转发到 Django
+// 生产环境由 nginx 匹配 /api 前缀转发到 Django
+// 这样无论从哪台机器访问 dev server，浏览器请求都指向 dev server 所在机器的后端
+const fullBaseURL = '';
 
 console.log("🚀 当前环境配置的 BaseURL:", fullBaseURL);
 
