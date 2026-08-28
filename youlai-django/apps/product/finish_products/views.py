@@ -1351,18 +1351,18 @@ def warehouse_log_list(request):
             qs = qs.filter(module=module)
         if operator_name:
             qs = qs.filter(operator_name__icontains=operator_name)
-        if start_date:
-            try:
-                start = datetime.strptime(str(start_date).strip()[:10], "%Y-%m-%d").date()
-                qs = qs.filter(created_at__date__gte=start)
-            except (TypeError, ValueError):
-                pass
-        if end_date:
-            try:
-                end = datetime.strptime(str(end_date).strip()[:10], "%Y-%m-%d").date()
-                qs = qs.filter(created_at__date__lte=end)
-            except (TypeError, ValueError):
-                pass
+        if start_date or end_date:
+            # 用本地时区全天范围比较，避免 __date 查询依赖 MySQL 时区表（未加载时 CONVERT_TZ 返回 NULL 导致结果为空）
+            start_day = _parse_date_param(start_date)
+            end_day = _parse_date_param(end_date)
+            if start_day and end_day and start_day > end_day:
+                start_day, end_day = end_day, start_day
+            if not start_day:
+                start_day = end_day
+            if not end_day:
+                end_day = start_day
+            range_start, range_end = local_day_range_datetimes(start_day, end_day)
+            qs = qs.filter(created_at__gte=range_start, created_at__lte=range_end)
 
         total = qs.count()
         start = (page_num - 1) * page_size

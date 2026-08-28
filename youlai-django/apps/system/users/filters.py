@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import django_filters
 from django.db.models import Q
-from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 
 from apps.system.users.models import User
 
@@ -68,24 +70,59 @@ class UserFilter(django_filters.FilterSet):
         return queryset.filter(roles__id__in=role_id_list)
 
     def filter_create_time(self, queryset, name, value):
-        """创建时间范围：`start,end`，使用 `parse_datetime` 解析。"""
-        if not value:
-            return queryset
-        parts = str(value).split(",")
-        if len(parts) != 2:
-            return queryset
-        start_time, end_time = parts[0].strip(), parts[1].strip()
-        start_dt = parse_datetime(start_time) if start_time else None
-        end_dt = parse_datetime(end_time) if end_time else None
+        """创建时间范围筛选。
 
-        # 结束日期拼接 23:59:59，包含当天所有数据
-        if end_dt is None and end_time and len(end_time) == 10:
-            from datetime import datetime, time
+        兼容两种传参：
+        1) 重复参数：`createTime=start&createTime=end`（前端日期范围组件的默认格式）
+        2) 逗号分隔：`createTime=start,end`
+
+        支持两种时间格式：
+        - `YYYY-MM-DD HH:mm:ss`
+        - `YYYY-MM-DD`（开始值按当天 00:00:00 处理，结束值按当天 23:59:59 处理，确保包含结束日全天）
+        """
+        data = getattr(self, "data", None)
+
+        start_time, end_time = "", ""
+        if data is not None:
             try:
-                end_dt = datetime.combine(datetime.strptime(end_time, "%Y-%m-%d").date(), time(23, 59, 59))
+                values = [v for v in data.getlist("createTime") if v]
+            except Exception:
+                values = []
+            if len(values) >= 2:
+                start_time, end_time = values[0], values[-1]
+            elif len(values) == 1:
+                parts = str(values[0]).split(",")
+                if len(parts) == 2:
+                    start_time, end_time = parts[0].strip(), parts[1].strip()
+
+        if not (start_time or end_time):
+            return queryset
+
+        def _parse_bound(v, is_end):
+            v = str(v).strip()
+            if not v:
+                return None
+            try:
+                return datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 pass
+            try:
+                day_start = datetime.strptime(v[:10], "%Y-%m-%d")
+            except ValueError:
+                return None
+            if is_end:
+                return day_start + timedelta(days=1) - timedelta(seconds=1)
+            return day_start
 
-        if start_dt and end_dt:
-            return queryset.filter(date_joined__gte=start_dt, date_joined__lte=end_dt)
+        start_dt = _parse_bound(start_time, is_end=False) if start_time else None
+        end_dt = _parse_bound(end_time, is_end=True) if end_time else None
+        if start_dt is not None and start_dt.tzinfo is None:
+            start_dt = timezone.make_aware(start_dt)
+        if end_dt is not None and end_dt.tzinfo is None:
+            end_dt = timezone.make_aware(end_dt)
+
+        if start_dt is not None:
+            queryset = queryset.filter(date_joined__gte=start_dt)
+        if end_dt is not None:
+            queryset = queryset.filter(date_joined__lte=end_dt)
         return queryset

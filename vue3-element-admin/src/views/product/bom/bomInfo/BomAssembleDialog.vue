@@ -62,14 +62,7 @@
         <el-table-column prop="required" label="合计消耗" width="90" align="right" />
         <el-table-column prop="stock" label="当前库存" width="90" align="right">
           <template #default="{ row }">
-            <span v-if="row.is_semi_finished" class="semi-text">需绑定</span>
-            <span v-else :class="{ 'stock-warn': row.stock < row.required }">{{ row.stock }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="备注" width="130" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.is_semi_finished" type="warning" size="small">半成品（需绑定）</el-tag>
-            <span v-else class="material-text">原材料</span>
+            <span :class="{ 'stock-warn': row.stock < row.required }">{{ row.stock }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -215,8 +208,8 @@ const handleExportExcel = async () => {
         row.product_type_name || formatProductTypeLabel(row.product_type),
         row.per_unit,
         row.required,
-        row.is_semi_finished ? '需绑定' : row.stock,
-        row.is_semi_finished ? '半成品（需绑定）' : (row.stock < row.required ? '库存不足' : '充足')
+        row.stock,
+        row.stock < row.required ? '库存不足' : '充足'
       ])
     })
 
@@ -426,13 +419,5 @@ defineExpose({ open })
 .stock-warn {
   color: #f56c6c;
   font-weight: 600;
-}
-.semi-text {
-  color: #e6a23c;
-  font-weight: 600;
-}
-.material-text {
-  color: #909399;
-  font-size: 12px;
 }
 </style>

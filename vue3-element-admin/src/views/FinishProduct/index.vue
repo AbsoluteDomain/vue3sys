@@ -845,17 +845,32 @@
       </template>
     </el-dialog>
 
-    <!-- 快捷操作SN码输入对话框 -->
+    <!-- 快捷操作SN码输入对话框（测试合格支持批量） -->
     <el-dialog
       v-model="quickActionSnVisible"
       :title="quickActionSnTitle"
-      width="420px"
+      width="480px"
       :close-on-click-modal="false"
       destroy-on-close
     >
       <el-form label-width="80px">
         <el-form-item label="SN码">
+          <div v-if="quickActionType === 'pass'" class="quick-sn-list">
+            <el-input
+              v-for="(sn, index) in quickActionSnList"
+              :key="index"
+              :ref="(el) => setQuickSnRef(el, index)"
+              v-model="quickActionSnList[index]"
+              placeholder="请输入SN码，按回车填写下一个"
+              clearable
+              @keyup.enter="addQuickSnInput"
+            />
+            <el-button class="quick-sn-add" @click="addQuickSnInput">
+              <el-icon><Plus /></el-icon> 填写下一个
+            </el-button>
+          </div>
           <el-input
+            v-else
             v-model="quickActionSnCode"
             placeholder="请输入SN码"
             maxlength="255"
@@ -867,7 +882,7 @@
       <template #footer>
         <el-button @click="quickActionSnVisible = false">取消</el-button>
         <el-button type="primary" :loading="quickActionSnSubmitting" @click="handleQuickActionSnConfirm">
-          确认
+          {{ quickActionType === 'pass' ? '保存' : '确认' }}
         </el-button>
       </template>
     </el-dialog>
@@ -875,7 +890,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue'
 import { Search, Refresh, Setting, Box, WarningFilled, Plus, Operation } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
@@ -1017,6 +1032,9 @@ const quickActionSnTitle = ref('')
 const quickActionSnCode = ref('')
 const quickActionSnSubmitting = ref(false)
 const quickActionType = ref('')
+// 测试合格批量：SN码输入框列表（每个元素对应一个输入框）
+const quickActionSnList = ref([''])
+const quickSnInputRefs = []
 
 // 过滤仅显示关节类型的BOM
 const jointBomList = computed(() => {
@@ -1726,6 +1744,9 @@ const handleQuickActionSelect = (type) => {
   quickActionType.value = type
   quickActionSnTitle.value = type === 'pass' ? '测试合格' : '测试不良'
   quickActionSnCode.value = ''
+  // 测试合格支持批量：初始化SN码输入框列表
+  quickActionSnList.value = ['']
+  quickSnInputRefs.length = 0
   quickActionSnVisible.value = true
 }
 
@@ -1736,63 +1757,156 @@ const nowStr = () => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-// SN码确认：根据SN查找成品并执行对应操作
-const handleQuickActionSnConfirm = async () => {
-  const snCode = quickActionSnCode.value?.trim()
-  if (!snCode) {
-    ElMessage.warning('请输入SN码')
-    return
-  }
-  quickActionSnSubmitting.value = true
-  try {
-    const res = await getFinishProductList({ sn_code: snCode, pageNum: 1, pageSize: 1 })
-    const list = res?.list || []
-    if (list.length === 0) {
-      ElMessage.error(`未找到SN码为「${snCode}」的成品`)
-      return
-    }
-    const product = list[0]
-    if (quickActionType.value === 'pass') {
-      await executeQuickActionPass(product)
-    } else {
-      await executeQuickActionFail(product)
-    }
-    quickActionSnVisible.value = false
-    quickActionVisible.value = false
-  } catch (e) {
-    console.error('快捷操作失败', e)
-  } finally {
-    quickActionSnSubmitting.value = false
-  }
+// 记录SN码输入框引用，便于新增后自动聚焦
+const setQuickSnRef = (el, index) => {
+  if (el) quickSnInputRefs[index] = el
 }
 
-// 执行测试合格快捷操作（复用 handleEdit 填充 formData，复用 doSaveProduct 保存）
-const executeQuickActionPass = (product) => {
-  // 复用现有的 handleEdit 填充 formData（会打开编辑对话框，随后关闭）
+// 新增下一个SN码输入框并聚焦
+const addQuickSnInput = async () => {
+  quickActionSnList.value.push('')
+  await nextTick()
+  quickSnInputRefs[quickActionSnList.value.length - 1]?.focus()
+}
+
+// 按SN码查找成品，找不到返回 null
+const findProductBySn = async (snCode) => {
+  const res = await getFinishProductList({ sn_code: snCode, pageNum: 1, pageSize: 1 })
+  return res?.list?.[0] || null
+}
+
+// 复用 handleEdit 填充 formData，并覆盖为「测试合格入库」字段（保存由调用方执行）
+const fillQuickPassForm = (product) => {
   handleEdit(product)
   dialogVisible.value = false
-  // 覆盖固定字段
   const now = nowStr()
   formData.inventory_stock = INVENTORY_IN
   formData.status = STATUS_PASS
   formData.stock_in_time = now
   formData.test_time = now
   formData.description = '扫码入库'
+}
+
+// 复用 handleEdit 填充 formData，并覆盖为「测试不良」字段（保存由调用方执行）
+const fillQuickFailForm = (product) => {
+  handleEdit(product)
+  dialogVisible.value = false
+  const now = nowStr()
+  formData.inventory_stock = 0
+  formData.status = 3
+  formData.test_time = now
+  formData.description = '扫码不良'
+}
+
+// SN码确认：测试合格支持批量，测试不良保持单个SN流程
+const handleQuickActionSnConfirm = async () => {
+  // 测试不良：保持原有单个SN流程
+  if (quickActionType.value !== 'pass') {
+    const snCode = quickActionSnCode.value?.trim()
+    if (!snCode) {
+      ElMessage.warning('请输入SN码')
+      return
+    }
+    quickActionSnSubmitting.value = true
+    try {
+      const product = await findProductBySn(snCode)
+      if (!product) {
+        ElMessage.error(`未找到SN码为「${snCode}」的成品`)
+        return
+      }
+      await executeQuickActionFail(product)
+      quickActionSnVisible.value = false
+      quickActionVisible.value = false
+    } catch (e) {
+      console.error('快捷操作失败', e)
+    } finally {
+      quickActionSnSubmitting.value = false
+    }
+    return
+  }
+
+  // 测试合格：收集所有输入框中的SN码（去空、去重）
+  const snCodes = quickActionSnList.value
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.indexOf(s) === i)
+  if (!snCodes.length) {
+    ElMessage.warning('请输入SN码')
+    return
+  }
+  quickActionSnSubmitting.value = true
+  try {
+    // 单个SN：保持原流程
+    if (snCodes.length === 1) {
+      const product = await findProductBySn(snCodes[0])
+      if (!product) {
+        ElMessage.error(`未找到SN码为「${snCodes[0]}」的成品`)
+        return
+      }
+      await executeQuickActionPass(product)
+      quickActionSnVisible.value = false
+      quickActionVisible.value = false
+      return
+    }
+    // 批量：逐个查找并保存，最后汇总结果
+    const results = []
+    for (const sn of snCodes) {
+      try {
+        const product = await findProductBySn(sn)
+        if (!product) {
+          results.push({ sn, ok: false, reason: '未找到' })
+          continue
+        }
+        fillQuickPassForm(product)
+        await saveProduct()
+        results.push({ sn, ok: true })
+      } catch {
+        results.push({ sn, ok: false, reason: '保存失败' })
+      }
+    }
+    submitting.value = false
+    quickActionSnVisible.value = false
+    quickActionVisible.value = false
+    getList()
+    checkJointConsistency()
+    showBatchResult(results)
+  } finally {
+    quickActionSnSubmitting.value = false
+  }
+}
+
+// 转义HTML，防止SN码中的特殊字符破坏提示内容
+const escapeHtml = (str) =>
+  String(str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
+
+// 展示批量操作结果汇总
+const showBatchResult = (results) => {
+  const okCount = results.filter((r) => r.ok).length
+  const failList = results.filter((r) => !r.ok)
+  if (!failList.length) {
+    ElMessage.success(`批量操作完成：成功 ${okCount} 个`)
+    return
+  }
+  const lines = failList.map((f) => `${escapeHtml(f.sn)}（${f.reason}）`).join('<br/>')
+  ElMessageBox.alert(
+    `成功 ${okCount} 个，失败 ${failList.length} 个：<br/>${lines}`,
+    '批量操作结果',
+    { type: 'warning', dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
+  )
+}
+
+// 执行测试合格快捷操作（复用 handleEdit 填充 formData，复用 doSaveProduct 保存）
+const executeQuickActionPass = (product) => {
+  fillQuickPassForm(product)
   // 复用现有的 doSaveProduct 保存
   return doSaveProduct()
 }
 
 // 执行测试不良快捷操作（复用 handleEdit 填充 formData，复用不合格项选择对话框）
 const executeQuickActionFail = async (product) => {
-  // 复用现有的 handleEdit 填充 formData
-  handleEdit(product)
-  dialogVisible.value = false
-  // 覆盖固定字段
-  const now = nowStr()
-  formData.inventory_stock = 0
-  formData.status = 3
-  formData.test_time = now
-  formData.description = '扫码不良'
+  fillQuickFailForm(product)
   // 加载已有不合格项并弹出选择对话框（复用现有的 handleUnqualifiedSelectConfirm 流程）
   try {
     const items = await getUnqualifiedItems({ finish_product_id: formData.id })
@@ -2053,6 +2167,17 @@ onMounted(() => {
   height: 64px;
   font-size: 16px;
   font-weight: 500;
+}
+
+.quick-sn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.quick-sn-add {
+  width: 100%;
 }
 </style>
 

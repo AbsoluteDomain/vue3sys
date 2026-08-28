@@ -1,7 +1,8 @@
 # apps/system/users/views.py
 import json
 # 1. 引入 Django 的核心响应类 (相当于 Flask 的 jsonify)
-from core.datetime import format_local_datetime
+from datetime import datetime
+from core.datetime import format_local_datetime, local_day_range_datetimes
 from django.db.models import F, Q
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -459,10 +460,25 @@ def warehouse_log_list(request):
                 qs = qs.filter(storage_status=storage_status_int)
         except (TypeError, ValueError):
             pass
-    if start_date:
-        qs = qs.filter(created_at__date__gte=start_date)
-    if end_date:
-        qs = qs.filter(created_at__date__lte=end_date)
+
+    def _parse_date(value):
+        try:
+            return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return None
+
+    start_day = _parse_date(start_date)
+    end_day = _parse_date(end_date)
+    if start_day or end_day:
+        # 用本地时区全天范围比较，避免 __date 查询依赖 MySQL 时区表（未加载时 CONVERT_TZ 返回 NULL 导致结果为空）
+        if start_day and end_day and start_day > end_day:
+            start_day, end_day = end_day, start_day
+        if not start_day:
+            start_day = end_day
+        if not end_day:
+            end_day = start_day
+        range_start, range_end = local_day_range_datetimes(start_day, end_day)
+        qs = qs.filter(created_at__gte=range_start, created_at__lte=range_end)
 
     total = qs.count()
     start = (page_num - 1) * page_size
