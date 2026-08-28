@@ -1233,10 +1233,10 @@ const getList = () => {
 }
 
 // 折叠模式专用：循环拉取所有页（后端单页上限 100）
-const loadAllPages = async (baseParams: { [key: string]: any }) => {
+const loadAllPages = async (baseParams) => {
   const pageSize = 100  // 匹配后端 MAX_PAGE_SIZE
   let pageNum = 1
-  const allList: any[] = []
+  const allList = []
   let total = 0
   while (true) {
     const resp = await getFinishProductList({ ...baseParams, pageNum, pageSize })
