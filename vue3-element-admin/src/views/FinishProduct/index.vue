@@ -1199,29 +1199,54 @@ const formatFinishProductLabel = (row) => {
 const getList = () => {
   loading.value = true
   const params = buildListParams()
-  // 折叠模式：一次性加载所有数据，由前端分页，确保每页显示 pageSize 条可见数据
   if (collapseMode.value) {
-    params.pageNum = 1
-    params.pageSize = 9999
-  }
-  getFinishProductList(params)
-    .then((response) => {
-      tableData.value = response?.list || []
-      backendTotal.value = response?.total || 0
-      // 折叠模式下防止当前页越界
-      if (collapseMode.value) {
+    // 折叠模式：循环分页加载全部数据（后端 MAX_PAGE_SIZE=100，不能一次全拿）
+    loadAllPages(params)
+      .then(({ allList, total }) => {
+        tableData.value = allList
+        backendTotal.value = total
+        // 折叠模式下防止当前页越界
         const maxPage = Math.max(1, Math.ceil(visibleData.value.length / queryParams.pageSize))
         if (queryParams.pageNum > maxPage) {
           queryParams.pageNum = 1
         }
-      }
-    })
-    .catch(() => {
-      ElMessage.error('获取成品列表失败')
-    })
-    .finally(() => {
-      loading.value = false
-    })
+      })
+      .catch(() => {
+        ElMessage.error('获取成品列表失败')
+      })
+      .finally(() => {
+        loading.value = false
+      })
+  } else {
+    getFinishProductList(params)
+      .then((response) => {
+        tableData.value = response?.list || []
+        backendTotal.value = response?.total || 0
+      })
+      .catch(() => {
+        ElMessage.error('获取成品列表失败')
+      })
+      .finally(() => {
+        loading.value = false
+      })
+  }
+}
+
+// 折叠模式专用：循环拉取所有页（后端单页上限 100）
+const loadAllPages = async (baseParams: { [key: string]: any }) => {
+  const pageSize = 100  // 匹配后端 MAX_PAGE_SIZE
+  let pageNum = 1
+  const allList: any[] = []
+  let total = 0
+  while (true) {
+    const resp = await getFinishProductList({ ...baseParams, pageNum, pageSize })
+    const list = resp?.list || []
+    total = resp?.total || 0
+    allList.push(...list)
+    if (allList.length >= total || list.length < pageSize) break
+    pageNum++
+  }
+  return { allList, total }
 }
 
 const handleSearch = () => {
