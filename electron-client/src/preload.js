@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   backendUrl: backendUrl,
 
   // 获取应用版本
-  getVersion: () => process.env.npm_package_version || "1.0.0",
+  getVersion: () => process.env.npm_package_version || "1.3.1",
 
   // 平台信息
   platform: process.platform,

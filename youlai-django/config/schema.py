@@ -7,7 +7,7 @@ Version: 0.0.1
 SPECTACULAR_SETTINGS = {
     "TITLE": "youlai-django",
     "DESCRIPTION": "youlai 全家桶（Python/Django）权限管理后台接口文档",
-    "VERSION": "1.0",
+    "VERSION": "1.3.1",
     "SERVE_INCLUDE_SCHEMA": False,
     "SCHEMA_PATH_PREFIX": r"/api",
     "SWAGGER_UI_SETTINGS": {
