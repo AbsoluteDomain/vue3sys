@@ -1,0 +1,10 @@
+# pnpm 11+ 设置必须放在 pnpm-workspace.yaml（.npmrc 只读 auth/registry）
+# 局域网离线环境：避免 pnpm 访问 registry 超时拖慢 dev 启动
+
+# 信任已提交的 lockfile，跳过 install 时的 supply-chain re-verification pass
+# 该 pass 默认会逐包访问 registry 查 metadata，局域网无外网时超时拖慢启动 20+ 秒
+# 需 pnpm >= 11.3.0
+trustLockfile: true
+
+# 跳过 pnpm run 前的依赖验证，避免 dev 时也触发联网验证
+verifyDepsBeforeRun: false
