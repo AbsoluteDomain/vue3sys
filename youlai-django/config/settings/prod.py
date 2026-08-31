@@ -49,8 +49,8 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             # 超时保护：Redis 不可用时快速失败（降级放行），避免阻塞每个请求
-            'SOCKET_CONNECT_TIMEOUT': 1.0,
-            'SOCKET_TIMEOUT': 1.0,
+            'SOCKET_CONNECT_TIMEOUT': 0.3,
+            'SOCKET_TIMEOUT': 0.3,
         },
     }
 }

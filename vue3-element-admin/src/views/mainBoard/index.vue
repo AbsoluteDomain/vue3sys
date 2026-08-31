@@ -161,9 +161,9 @@
     <template v-else>
       <el-card shadow="never" class="mb-3">
         <div class="flex items-center justify-between flex-wrap gap-3">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
             <span class="text-sm text-[--el-text-color-regular]">统计周期：</span>
-            <el-select v-model="periodType" placeholder="选择周期" style="width: 140px" @change="onPeriodChange">
+            <el-select v-model="periodType" placeholder="快捷选择" style="width: 140px" @change="onPeriodChange" clearable>
               <el-option label="今日" value="today" />
               <el-option label="本周" value="week" />
               <el-option label="本月" value="month" />
@@ -171,6 +171,18 @@
               <el-option label="近7天" value="7d" />
               <el-option label="近30天" value="30d" />
             </el-select>
+            <span class="text-sm text-[--el-text-color-secondary]">或</span>
+            <el-date-picker
+              v-model="finishDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              :shortcuts="dateRangeShortcuts"
+              @change="onCustomDateChange"
+            />
           </div>
           <div class="flex items-center gap-3">
             <span class="text-sm text-[--el-text-color-regular]">BOM类型：</span>
@@ -1259,6 +1271,85 @@ const periodType = ref("30d");
 const bomType = ref("");
 const NEW_BOARD_DATE_RANGE_STORAGE_KEY = "new-board-date-range";
 
+/** el-date-picker 自定义日期范围的快捷选项 */
+const dateRangeShortcuts = [
+  {
+    text: "最近3天",
+    value: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 2);
+      return [start, end];
+    },
+  },
+  {
+    text: "最近7天",
+    value: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 6);
+      return [start, end];
+    },
+  },
+  {
+    text: "最近30天",
+    value: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 29);
+      return [start, end];
+    },
+  },
+  {
+    text: "上周",
+    value: () => {
+      const now = new Date();
+      const day = now.getDay() || 7;
+      const thisMon = new Date(now);
+      thisMon.setDate(now.getDate() - day + 1);
+      const lastMon = new Date(thisMon);
+      lastMon.setDate(thisMon.getDate() - 7);
+      const lastSun = new Date(thisMon);
+      lastSun.setDate(thisMon.getDate() - 1);
+      return [lastMon, lastSun];
+    },
+  },
+  {
+    text: "本月",
+    value: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return [start, new Date()];
+    },
+  },
+  {
+    text: "上月",
+    value: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0);
+      return [start, end];
+    },
+  },
+  {
+    text: "本季度",
+    value: () => {
+      const now = new Date();
+      const q = Math.floor(now.getMonth() / 3);
+      const start = new Date(now.getFullYear(), q * 3, 1);
+      return [start, new Date()];
+    },
+  },
+  {
+    text: "本年至今",
+    value: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), 0, 1);
+      return [start, new Date()];
+    },
+  },
+];
+
 function computeDateRangeByPeriod(period: string): [string, string] {
   const now = new Date();
   let start: Date;
@@ -1296,6 +1387,15 @@ function computeDateRangeByPeriod(period: string): [string, string] {
 
 function onPeriodChange() {
   finishDateRange.value = computeDateRangeByPeriod(periodType.value);
+  fetchFinishData();
+}
+
+/** 用户通过 el-date-picker 选择自定义日期范围时触发 */
+function onCustomDateChange(_val: unknown) {
+  // 选了自定义日期后清空快捷周期下拉，避免两个选择器显示不一致
+  if (periodType.value !== "") {
+    periodType.value = "";
+  }
   fetchFinishData();
 }
 
