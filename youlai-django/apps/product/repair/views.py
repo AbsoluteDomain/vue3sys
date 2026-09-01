@@ -25,7 +25,9 @@ def list_repair_products(request):
         
         sn_map = {}
         for record in repair_records:
-            if record.sn_code not in sn_map:
+            # 复合 key：product_id + sn_code，避免不同产品空 SN 码被合并
+            group_key = (record.product_id, record.sn_code or "")
+            if group_key not in sn_map:
                 product = product_map.get(record.product_id)
                 bom_name = ""
                 if product:
@@ -36,18 +38,18 @@ def list_repair_products(request):
                     except:
                         pass
                 
-                sn_map[record.sn_code] = {
+                sn_map[group_key] = {
                     "product_id": record.product_id,
-                    "sn_code": record.sn_code,
+                    "sn_code": record.sn_code or "",
                     "bom_name": bom_name,
                     "repair_cnt": 0,
                     "last_repair_time": "",
                 }
-            sn_map[record.sn_code]["repair_cnt"] += 1
+            sn_map[group_key]["repair_cnt"] += 1
             if record.create_time:
                 time_str = record.create_time.strftime("%Y-%m-%d %H:%M:%S")
-                if time_str > sn_map[record.sn_code]["last_repair_time"]:
-                    sn_map[record.sn_code]["last_repair_time"] = time_str
+                if time_str > sn_map[group_key]["last_repair_time"]:
+                    sn_map[group_key]["last_repair_time"] = time_str
         
         result = list(sn_map.values())
         result.sort(key=lambda x: x["last_repair_time"], reverse=True)
@@ -102,8 +104,12 @@ def create_repair(request):
         except FinishProduct.DoesNotExist:
             return JsonResponse({"code": "400", "msg": "成品不存在"})
         
-        if not product.sn_code:
-            return JsonResponse({"code": "400", "msg": "该成品没有SN码，无法创建返修计划"})
+        # sn_code 可选：请求体里显式传了(哪怕空字符串)就用传的；
+        # 没传则从 product 自动取（兼容成品管理页的调用方式）
+        if "sn_code" in body:
+            sn_code = (body.get("sn_code") or "").strip()
+        else:
+            sn_code = product.sn_code or ""
         
         max_repair_cnt = Repair.objects.filter(
             product_id=product.id,
@@ -112,7 +118,7 @@ def create_repair(request):
         
         Repair.objects.create(
             product_id=product.id,
-            sn_code=product.sn_code,
+            sn_code=sn_code,
             repair_cnt=max_repair_cnt + 1,
             repair_info=repair_info.strip(),
         )

@@ -267,9 +267,11 @@ async function handleSubmit() {
   
   saving.value = true
   try {
+    // 显式传 sn_code 为空：返修管理页创建的是返修计划，不是记录具体 SN 码
     await createRepair({
       product_id: formData.product_id,
       repair_info: finalRepairInfo,
+      sn_code: '',
     })
     ElMessage.success('创建成功')
     dialogVisible.value = false
