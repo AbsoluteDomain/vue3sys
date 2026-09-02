@@ -15,15 +15,18 @@ MODULE_DISPLAY_NAMES = {
 DESCRIPTION_MAX_LENGTH = 500
 
 
-def log_operation(user_id, user_name, module, operation_type, target_id, target_name, 
+def _request_id(request):
+    return getattr(request, "request_id", "-")
+
+
+def log_operation(user_id, user_name, module, operation_type, target_id, target_name,
                   before_data=None, after_data=None, description="", ip=None,
                   module_name=None):
     """记录操作日志"""
     try:
         if user_id is None or not user_name:
             return
-        
-        # 构建日志数据
+
         if description and len(description) > DESCRIPTION_MAX_LENGTH:
             description = description[: DESCRIPTION_MAX_LENGTH - 3] + "..."
 
@@ -38,16 +41,14 @@ def log_operation(user_id, user_name, module, operation_type, target_id, target_
             "description": description,
             "ip": ip,
         }
-        
-        # 只在有数据时添加字段
+
         if before_data:
             log_data["before_data"] = json.dumps(before_data, ensure_ascii=False)
         if after_data:
             log_data["after_data"] = json.dumps(after_data, ensure_ascii=False)
-        
+
         OperationLog.objects.create(**log_data)
     except Exception as e:
-        # 记录日志失败不应该影响主业务
         logger.error(f"记录操作日志失败: {str(e)}")
 
 
@@ -58,9 +59,12 @@ def log_operation_from_request(request, **kwargs):
     try:
         operator = get_request_operator(request)
         if not operator:
+            has_auth = bool(request.META.get("HTTP_AUTHORIZATION"))
             logger.warning(
-                "跳过操作日志：无法解析操作用户 path=%s",
+                "跳过操作日志：无法解析操作用户 request_id=%s path=%s has_auth=%s",
+                _request_id(request),
                 getattr(request, "path", ""),
+                has_auth,
             )
             return
         user_id, user_name = operator
@@ -72,4 +76,9 @@ def log_operation_from_request(request, **kwargs):
             **kwargs,
         )
     except Exception as e:
-        logger.error(f"记录操作日志失败: {str(e)}")
+        logger.error(
+            "记录操作日志失败 request_id=%s path=%s err=%s",
+            _request_id(request),
+            getattr(request, "path", ""),
+            str(e),
+        )
