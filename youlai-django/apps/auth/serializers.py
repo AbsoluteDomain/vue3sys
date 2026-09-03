@@ -43,6 +43,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         """在基础 JWT 上附加自定义声明"""
         token = super().get_token(user)
 
+        # 用户身份声明（后端解析操作人时直接用，零查库零 Redis）
+        from apps.auth.utils.auth_utils import inject_user_claims
+        inject_user_claims(token, user)
+
         version_key = f"auth:user:token_version:{user.id}"
         current_version = _safe_redis_get(version_key)
         token_version = int(current_version) if current_version is not None else 0
@@ -90,8 +94,17 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         # 用新的 tokenVersion 重新生成 token
         new_refresh = self.get_token(self.user)
+
+        # AccessToken 由 RefreshToken.access_token 属性派生，SimpleJWT 默认
+        # 不继承 refresh 的自定义声明，显式注入一次 user_name/nickname +
+        # tokenVersion，保证实际请求用的 access token 里所有声明齐全。
+        from apps.auth.utils.auth_utils import inject_user_claims
+        new_access = new_refresh.access_token
+        inject_user_claims(new_access, self.user)
+        new_access["tokenVersion"] = new_refresh.get("tokenVersion", 0)
+
         data["refresh"] = str(new_refresh)
-        data["access"] = str(new_refresh.access_token)
+        data["access"] = str(new_access)
 
         session_type = getattr(settings, 'SESSION_TYPE', 'jwt')
  
@@ -204,15 +217,21 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
         refresh = RefreshToken(raw_refresh_token)
         data["refresh"] = str(refresh)
 
-        # 更新新生成的 access token 中的 tokenVersion
+        # 更新新生成的 access token 中的 tokenVersion（以及 user_name/nickname，
+        # 避免 refresh 后的新 access token 丢失用户身份声明）
         new_access_token = data.get("access")
         if new_access_token:
-            import jwt
+            import jwt as pyjwt
             jwt_secret = settings.SIMPLE_JWT.get("SIGNING_KEY", settings.SECRET_KEY)
             jwt_algorithm = settings.SIMPLE_JWT.get("ALGORITHM", "HS256")
-            payload = jwt.decode(new_access_token, jwt_secret, algorithms=[jwt_algorithm])
+            payload = pyjwt.decode(new_access_token, jwt_secret, algorithms=[jwt_algorithm])
             payload["tokenVersion"] = token_version
-            new_access_token = jwt.encode(payload, jwt_secret, algorithm=jwt_algorithm)
+            # 用 refresh token 中的 user_name/nickname（它们来自登录时的注入，
+            # access token 由 refresh token 派生应该也继承了，但保险起见再补一次）
+            refresh_payload = refresh.payload if hasattr(refresh, 'payload') else {}
+            payload["user_name"] = refresh_payload.get("user_name", "")
+            payload["nickname"] = refresh_payload.get("nickname", "")
+            new_access_token = pyjwt.encode(payload, jwt_secret, algorithm=jwt_algorithm)
             data["access"] = new_access_token
 
         token_type = "Bearer"

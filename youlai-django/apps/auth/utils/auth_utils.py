@@ -344,3 +344,26 @@ def generate_captcha():
         "captchaId": captcha_id,
         "captchaBase64": captcha_base64
     }
+
+
+def inject_user_claims(token, user):
+    """向 JWT Token（SimpleJWT Token 实例）注入 user_name / nickname。
+
+    统一所有登录/刷新入口的 payload 声明，让后端解析操作人时：
+      1. decode JWT 直接从 payload 拿 user_name —— 零查库、零 Redis
+      2. payload 没有时才 fallback 查库（兼容旧 token）
+
+    Args:
+        token: SimpleJWT 的 Token/RefreshToken 实例（payload 属性可写）
+        user: Django User 实例
+
+    Returns:
+        注入完成的 token（同一个对象，原地修改）
+    """
+    if user is None:
+        return token
+    username = (getattr(user, 'username', None) or '').strip()
+    nickname = (getattr(user, 'nickname', None) or '').strip()
+    token["user_name"] = username
+    token["nickname"] = nickname
+    return token

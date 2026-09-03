@@ -28,14 +28,11 @@ def _extract_bearer_token(request):
 def _jwt_fallback_resolve(token):
     """纯 JWT 签名解码（不依赖 Redis / 不跑 VersionedJWTAuthentication 那套逻辑）。
 
-    Function-based view（@csrf_exempt/@require_http_methods）不走 DRF 的认证流程，
-    靠 VersionedJWTAuthentication.authenticate(request) 时，内部会访问 Redis 查
-    tokenVersion/blacklist。一旦 Redis 慢或连不上，authenticate 会 catch 后直接
-    返回原 token，再走 DRF 的 get_user() 流程——这些在 Django 纯函数视图里都不稳定。
+    优先从 payload 直接拿 user_name / nickname（登录时注入，零查库），
+    payload 没有时才 fallback 查 User 表（兼容旧 token）。
 
-    直接用 TokenBackend.decode 拿 user_id 是 O(1) 且不依赖外部服务，用来解析操作日志
-    的用户名绰绰有余（操作日志是「谁做了什么」记录，不需要 tokenVersion 强校验，
-    JWT 本身未过期未篡改就可信）。
+    用来解析操作日志 / 仓库日志的操作人绰绰有余 —— 操作日志是「谁做了什么」
+    记录，JWT 本身未过期未篡改就可信，不需要 tokenVersion 强校验。
     """
     if not token:
         return None
@@ -55,6 +52,14 @@ def _jwt_fallback_resolve(token):
         logger.debug("JWT fallback 解析失败: %s", exc)
         return None
 
+    # --- 优先从 payload 拿（零查库） ---
+    payload_name = (token_data.get("user_name") or "").strip()
+    payload_nickname = (token_data.get("nickname") or "").strip()
+    display_name = payload_nickname or payload_name
+    if display_name:
+        return user_id, display_name
+
+    # --- Fallback：查 User 表（兼容旧 token） ---
     User = get_user_model()
     db_user = (
         User.objects.filter(id=user_id)
@@ -63,7 +68,7 @@ def _jwt_fallback_resolve(token):
     )
     if not db_user:
         return None
-    username = db_user.username or db_user.nickname
+    username = (db_user.nickname or db_user.username or "").strip()
     if not username:
         return None
     return db_user.id, username

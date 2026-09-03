@@ -81,13 +81,22 @@ class AuthViewSet(ViewSet):
 
         refresh = RefreshToken.for_user(user)
 
+        # 用户身份声明（后端解析操作人时直接用，零查库零 Redis）
+        from apps.auth.utils.auth_utils import inject_user_claims
+        inject_user_claims(refresh, user)
+
         redis_conn = get_redis_connection("default")
         version_key = f"auth:user:token_version:{user.id}"
         current_version = redis_conn.get(version_key)
         token_version = int(current_version) if current_version is not None else 0
         refresh["tokenVersion"] = token_version
 
-        access_token = str(refresh.access_token)
+        # AccessToken 由 refresh 派生，显式继承 refresh 上的全部自定义声明
+        access = refresh.access_token
+        inject_user_claims(access, user)
+        access["tokenVersion"] = token_version
+
+        access_token = str(access)
         refresh_token = str(refresh)
         token_type = "Bearer"
         expires_in = int(settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME").total_seconds())
