@@ -19,11 +19,10 @@ def get_operator_info(request) -> Dict[str, Any]:
     """
     从请求中获取当前操作人的信息
     
-    Args:
-        request: Django HTTP 请求对象
-        
-    Returns:
-        Dict包含 operator_id 和 operator_name
+    解析优先级（与 operation_logs.get_request_operator 保持一致，避免两套逻辑漂移）：
+      1. 纯 JWT fallback（不依赖 Redis，对 function-based view 最稳）
+      2. request.user（DRF @api_view / Django AuthenticationMiddleware 场景）
+      3. JWTAuthentication.get_validated_token 兜底（旧链路，保留兼容）
     """
     result = {
         'operator_id': None,
@@ -33,35 +32,50 @@ def get_operator_info(request) -> Dict[str, Any]:
     if request is None:
         return result
     
-    # 尝试从 request.user 获取
-    if hasattr(request, 'user') and request.user.is_authenticated:
+    # --- 1. 纯 JWT fallback（复用 operation_logs 已验证过的稳定路径） ---
+    try:
+        from apps.system.operation_logs.request_user import _extract_bearer_token, _jwt_fallback_resolve
+        operator = _jwt_fallback_resolve(_extract_bearer_token(request))
+        if operator:
+            uid, uname = operator
+            result['operator_id'] = uid
+            result['operator_name'] = uname
+            return result
+    except Exception:
+        pass
+    
+    # --- 2. request.user ---
+    if hasattr(request, 'user') and getattr(request.user, 'is_authenticated', False):
         user = request.user
         result['operator_id'] = user.id
-        # 获取昵称，如果没有昵称则使用用户名
         nickname = getattr(user, 'nickname', None)
         if nickname:
             result['operator_name'] = nickname
         elif hasattr(user, 'username'):
             result['operator_name'] = user.username
+        return result
     
-    # 尝试从 JWT token 中解析
-    # JWT 中仅包含 user_id 与 tokenVersion，没有 username/nickname 声明，
-    # 因此拿到 user_id 后需要查库以获取真实的昵称/用户名。
-    if result['operator_id'] is None:
-        try:
-            from rest_framework_simplejwt.authentication import JWTAuthentication
-            auth = JWTAuthentication()
-            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-            if auth_header and auth_header.startswith('Bearer '):
-                token = auth_header[7:]
-                validated_token = auth.get_validated_token(token)
-                user_id = validated_token.get('user_id')
-                if user_id is not None:
-                    resolved_name = _resolve_user_display(user_id)
-                    result['operator_id'] = user_id
-                    result['operator_name'] = resolved_name or '系统'
-        except Exception:
-            pass
+    # --- 3. 兜底：手动 JWT 解析（不依赖 Redis 的纯签名校验） ---
+    try:
+        from rest_framework_simplejwt.backends import TokenBackend
+        from django.conf import settings
+        
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+            jwt_settings = getattr(settings, "SIMPLE_JWT", {})
+            backend = TokenBackend(
+                algorithm=jwt_settings.get("ALGORITHM", "HS256"),
+                signing_key=jwt_settings.get("SIGNING_KEY", settings.SECRET_KEY),
+            )
+            token_data = backend.decode(token, verify=True)
+            user_id = token_data.get('user_id')
+            if user_id is not None:
+                resolved_name = _resolve_user_display(user_id)
+                result['operator_id'] = user_id
+                result['operator_name'] = resolved_name or '系统'
+    except Exception:
+        pass
 
     return result
 
