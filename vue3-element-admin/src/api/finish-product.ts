@@ -104,6 +104,14 @@ export function bindJointsToArm(data: {
   })
 }
 
+// 专用不分页接口：返回全部可绑定关节（避免列表接口 max_page_size=100 截断）
+export function getBindableJoints() {
+  return request({
+    url: '/api/v1/finish-product/bindable-joints/',
+    method: 'get'
+  })
+}
+
 export function getWarehouseLogList(params: {
   pageNum?: number
   pageSize?: number

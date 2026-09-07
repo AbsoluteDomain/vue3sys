@@ -435,7 +435,7 @@ async function loadPlanDates() {
           if (!item.is_expired && item.shortage_details && item.shortage_details.length > 0) {
             item.shortage_details.forEach(detail => {
               if (detail.shortage && detail.shortage > 0) {
-                const key = detail.product_name + '_' + detail.material_code
+                const key = String(detail.product_id)
                 if (!shortageMap[key]) {
                   shortageMap[key] = {
                     product_name: detail.product_name,

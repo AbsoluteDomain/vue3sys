@@ -12,7 +12,6 @@ from apps.product.boms.models import AssemblyRecipe, BomList
 from apps.product.utils.warehouse_logger import create_warehouse_log, log_inventory_operation
 
 logger = logging.getLogger(__name__)
-from apps.product.boms.utils import build_effective_pid_map
 from apps.product.products.models import Product, WarehouseLog
 from core.datetime import format_local_datetime, local_date_key, local_day_range_datetimes
 from core.datetime import make_local_aware, parse_local_datetime_text
@@ -1209,8 +1208,7 @@ def rollback_finish_product(request):
             if not recipes:
                 return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法回退"})
 
-            # 构建有效产品 ID 映射（产品删除重建后通过 material_code 回退）
-            pid_map = build_effective_pid_map(recipes)
+            # 直接使用绑定的产品 ID（流程上禁止删除被引用产品，无需 material_code 回退）
 
             for recipe in recipes:
                 part = _recipe_part_info(recipe)
@@ -1221,8 +1219,8 @@ def rollback_finish_product(request):
                 if per_unit < 1:
                     raise ValueError(f"零件「{part['product_name']}」用量无效")
 
-                # 解析当前有效产品 ID
-                eff_id = pid_map.get(bind_id, bind_id)
+                # 直接使用绑定的产品 ID
+                eff_id = bind_id
                 product = Product.objects.select_for_update().get(id=eff_id, is_del=0)
                 before_qty = product.quantity if product.quantity is not None else 0
                 product.quantity = before_qty + per_unit
@@ -1403,6 +1401,49 @@ def warehouse_log_list(request):
 
 
 @csrf_exempt
+@require_http_methods(["GET"])
+def bindable_joints(request):
+    """返回全部可绑定关节（不分页）。
+
+    可绑定条件：bom_type=0（关节）、status=2（测试通过）、inventory_stock=1（已入库）、
+    parent_sn_code 为空（未绑定）、sn_code 非空。
+    专用接口，避免 finish_product_list 的 max_page_size=100 截断导致漏关节。
+    """
+    # 仅取关节对应的 BOM（type=0）
+    joint_bom_ids = list(
+        BomList.objects.filter(type=0, is_del=0).values_list("id", flat=True)
+    )
+    if not joint_bom_ids:
+        return JsonResponse({"code": "00000", "msg": "成功", "data": {"list": []}})
+
+    qs = (
+        FinishProduct.objects.filter(
+            bom_id__in=joint_bom_ids,
+            status=FinishProduct.STATUS_PASS,
+            inventory_stock=FinishProduct.INVENTORY_IN,
+            parent_sn_code="",
+        )
+        .exclude(sn_code__isnull=True)
+        .exclude(sn_code="")
+        .order_by("-id")
+    )
+
+    items = list(qs)
+    bom_ids = {item.bom_id for item in items if item.bom_id}
+    bom_map = {bom.id: bom for bom in BomList.objects.filter(id__in=bom_ids, is_del=0)} if bom_ids else {}
+
+    return JsonResponse(
+        {
+            "code": "00000",
+            "msg": "成功",
+            "data": {
+                "list": [_serialize_finish_product(item, bom_map) for item in items],
+                "total": len(items),
+            },
+        }
+    )
+
+
 @require_http_methods(["POST"])
 def bind_joints_to_arm(request):
     """批量绑定多个关节到指定机械臂"""

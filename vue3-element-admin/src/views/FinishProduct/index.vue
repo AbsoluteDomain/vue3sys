@@ -893,7 +893,7 @@
 import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue'
 import { Search, Refresh, Setting, Box, WarningFilled, Plus, Operation } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
+import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getBindableJoints, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
 import { createRepair, getBomList } from '@/api/product'
 import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
 import BomAssembleDialog from '../product/bom/bomInfo/BomAssembleDialog.vue'
@@ -1661,20 +1661,10 @@ const handleBindJoints = async (row) => {
   bindJointLoading.value = true
   loadJointBomList()
 
-  // 加载全量数据，确保可绑定的关节列表不受当前页限制
+  // 加载全部可绑定关节（专用不分页接口，避免 max_page_size=100 截断）
   try {
-    const res = await getFinishProductList({
-      pageNum: 1,
-      pageSize: 9999,
-      bom_type: '0',
-      status: STATUS_PASS,
-      inventory_stock: INVENTORY_IN
-    })
-    // 用后端返回的数据过滤出未绑定的关节
-    const allData = res?.list || []
-    bindJointData.value = allData.filter(
-      item => !item.parent_sn_code && item.sn_code
-    )
+    const res = await getBindableJoints()
+    bindJointData.value = res?.list || []
   } catch (e) {
     console.error('加载全量关节数据失败', e)
     bindJointData.value = []

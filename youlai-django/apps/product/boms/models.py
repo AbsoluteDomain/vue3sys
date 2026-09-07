@@ -56,6 +56,20 @@ class BomList(models.Model):
 
     )
 
+    finished_product_id = models.IntegerField(
+
+        null=True,
+
+        blank=True,
+
+        verbose_name="成品产品ID",
+
+        help_text="关联 products.id，作为 BOM 对应成品的唯一关联键",
+
+    )
+
+
+
     is_del = models.IntegerField(default=0, verbose_name="删除标记")
 
     type = models.IntegerField(

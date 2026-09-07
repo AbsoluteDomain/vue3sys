@@ -12,6 +12,7 @@ urlpatterns = [
     path("check-joint-consistency/", views.check_joint_stock_consistency, name="check_joint_stock_consistency"),
     path("warehouse-log/list/", views.warehouse_log_list, name="warehouse_log_list"),
     path("bind-joints/", views.bind_joints_to_arm, name="bind_joints_to_arm"),
+    path("bindable-joints/", views.bindable_joints, name="bindable_joints"),
     # 不合格项 API
     path("unqualified/list/", views.list_unqualified_items, name="list_unqualified_items"),
     path("unqualified/save/", views.save_unqualified_items, name="save_unqualified_items"),

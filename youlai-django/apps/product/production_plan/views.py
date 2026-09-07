@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from apps.product.boms.models import AssemblyRecipe, BomList
-from apps.product.boms.utils import build_bom_requirements, build_effective_pid_map
+from apps.product.boms.utils import build_bom_requirements
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
 
@@ -64,7 +64,7 @@ def calculate_production_requirements(request):
         # 合并本次计划和历史计划涉及的 BOM，统一构建需求映射（支持物料编码回退）
         all_bom_ids = set(plan_bom_ids)
         all_bom_ids.update(p.bom_id for p in previous_plans if p.bom_id)
-        bom_requirements, pid_map = _build_bom_requirements(all_bom_ids)
+        bom_requirements = _build_bom_requirements(all_bom_ids)
 
         # 收集所有有效产品 ID，批量加载库存
         all_product_ids = set()
@@ -87,15 +87,19 @@ def calculate_production_requirements(request):
                 if not bom:
                     continue
 
-                # 成品入库（通过 BOM 物料编码匹配有效产品）
-                if bom.material_code:
-                    produced_product = Product.objects.filter(
+                # 成品入库（通过 BomList.finished_product_id 直接关联）
+                fp_id = bom.finished_product_id
+                if not fp_id and bom.material_code:
+                    # 过渡兜底：未回填 finished_product_id 时按 material_code 匹配
+                    fp = Product.objects.filter(
                         material_code=bom.material_code, is_del=0
                     ).first()
-                    if produced_product:
-                        stock_map[produced_product.id] = (
-                            stock_map.get(produced_product.id, 0) + plan.quantity
-                        )
+                    if fp:
+                        fp_id = fp.id
+                if fp_id:
+                    stock_map[fp_id] = (
+                        stock_map.get(fp_id, 0) + plan.quantity
+                    )
 
                 # 原料消耗（使用有效产品 ID）
                 reqs = bom_requirements.get(bom.id, {})
@@ -343,7 +347,7 @@ def save_production_plan(request):
                 # 合并区间内计划的 BOM，统一构建需求映射（支持物料编码回退）
                 in_range_bom_ids = {p.bom_id for p in in_range_plans if p.bom_id}
                 in_range_bom_ids.update(bom_ids)
-                in_range_requirements, _ = _build_bom_requirements(in_range_bom_ids)
+                in_range_requirements = _build_bom_requirements(in_range_bom_ids)
 
                 for pp in in_range_plans:
                     reqs = in_range_requirements.get(pp.bom_id, {})
@@ -354,7 +358,7 @@ def save_production_plan(request):
                         )
 
             # 构建 bom_requirements 映射（使用有效产品 ID）
-            bom_requirements, _ = _build_bom_requirements(bom_ids)
+            bom_requirements = _build_bom_requirements(bom_ids)
 
             # 计算所有未来计划的计划缺料数据
             future_plans = ProductionPlan.objects.filter(plan_date__gte=date_obj)
@@ -383,7 +387,7 @@ def save_production_plan(request):
 def _build_stock_map_for_boms(bom_items):
     """根据 BOM 列表构建当前库存快照（使用有效产品 ID，支持物料编码回退）"""
     bom_ids = [item.get("id") for item in bom_items if item.get("id")]
-    bom_requirements, _ = _build_bom_requirements(bom_ids)
+    bom_requirements = _build_bom_requirements(bom_ids)
 
     product_ids = set()
     for req_map in bom_requirements.values():
@@ -458,7 +462,7 @@ def list_production_plan(request):
         # 预先批量计算每个BOM的需求 {bom_id: {product_id: required_qty}}
         # (提前到此处，供后续 all_product_ids / _consume_plan_stock 复用，避免 N+1 查询)
         # 使用有效产品 ID（产品删除重建后通过 material_code 回退）
-        bom_requirements, _ = _build_bom_requirements(bom_ids)
+        bom_requirements = _build_bom_requirements(bom_ids)
 
         all_product_ids = set()
         for req_pid in bom_requirements.values():
@@ -473,20 +477,25 @@ def list_production_plan(request):
         # 保存数据库实际库存 (用于短缺判定)
         db_stock_map = dict(stock_map)
 
-        # 预先批量计算每个BOM对应的成品（通过material_code匹配，避免 N+1）
+        # 预先批量计算每个BOM对应的成品（通过 finished_product_id 关联，避免 N+1）
         bom_product_map = {}
         if bom_ids:
-            bom_material_codes = {
-                b.id: b.material_code
-                for b in bom_map.values()
-                if b.material_code
+            # 主路径：直接从 BomList.finished_product_id 取
+            for bid, bom in bom_map.items():
+                if bom.finished_product_id:
+                    bom_product_map[bid] = bom.finished_product_id
+            # 过渡兜底：未回填 finished_product_id 的 BOM，按 material_code 批量匹配
+            missing_code_boms = {
+                bid: bom.material_code
+                for bid, bom in bom_map.items()
+                if not bom.finished_product_id and bom.material_code
             }
-            if bom_material_codes:
+            if missing_code_boms:
                 finished_products = Product.objects.filter(
-                    material_code__in=list(bom_material_codes.values()), is_del=0
+                    material_code__in=list(missing_code_boms.values()), is_del=0
                 )
                 code_to_pid = {p.material_code: p.id for p in finished_products}
-                for bid, mcode in bom_material_codes.items():
+                for bid, mcode in missing_code_boms.items():
                     if mcode in code_to_pid:
                         bom_product_map[bid] = code_to_pid[mcode]
 
@@ -710,7 +719,7 @@ def _check_plan_shortage_with_stock(boms, bom_map, stock_map, plan_shortage_map=
 
     # 收集本次计划涉及的所有 BOM 的 recipe，构建有效产品 ID 映射（支持物料编码回退）
     bom_ids_in_plan = [bom_item.get("id") for bom_item in boms if bom_item.get("id")]
-    bom_requirements, pid_map = _build_bom_requirements(bom_ids_in_plan)
+    bom_requirements = _build_bom_requirements(bom_ids_in_plan)
 
     # 有效产品 ID 集合
     plan_product_ids = set()

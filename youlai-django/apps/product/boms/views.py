@@ -13,7 +13,6 @@ from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
 from .models import AssemblyRecipe, BomList
-from .utils import build_effective_pid_map, resolve_effective_product
 
 from apps.system.operation_logs.utils import (
     format_bom_assemble_description,
@@ -103,6 +102,8 @@ def _lookup_product_part_meta(product_id):
         "part_product_type": product.type,
         "part_product_type_name": product_type_label(product.type),
         "part_material_code": product.material_code or "",
+        "unit": product.unit or "",
+        "name": product.name,
     }
 
 
@@ -136,6 +137,7 @@ def _serialize_bom_header(bom, recipe_count=0):
         "bom_model": bom.bom_model,
         "bom_name": bom.bom_name or "",
         "material_code": bom.material_code or "",
+        "finished_product_id": bom.finished_product_id or "",
         "type": bom.type,
         "type_name": bom.get_type_display(),
         "recipe_count": recipe_count,
@@ -157,6 +159,7 @@ def _bom_header_snapshot(bom):
         "bom_model": bom.bom_model,
         "bom_name": bom.bom_name or "",
         "material_code": bom.material_code or "",
+        "finished_product_id": bom.finished_product_id,
         "type": bom.type,
     }
 
@@ -169,7 +172,18 @@ def _parse_bom_header_fields(body):
     material_code = (
         body.get("material_code") or body.get("materialCode") or ""
     ).strip() or None
-    return bom_model, bom_name, material_code
+    # 成品产品 ID（关联 products.id，可空）
+    finished_product_id = body.get("finished_product_id") or body.get("finishedProductId")
+    if finished_product_id in ("", None):
+        finished_product_id = None
+    else:
+        try:
+            finished_product_id = int(finished_product_id)
+        except (TypeError, ValueError):
+            raise ValueError("成品产品ID无效")
+        if not Product.objects.filter(id=finished_product_id, is_del=0).exists():
+            raise ValueError("成品产品不存在")
+    return bom_model, bom_name, material_code, finished_product_id
 
 
 def _parse_bom_type(value, required=False):
@@ -187,22 +201,20 @@ def _parse_bom_type(value, required=False):
     return bom_type
 
 
-def _serialize_recipe(row, bom_name=None, product_meta_map=None, pid_map=None, semi_finished_codes=None):
+def _serialize_recipe(row, bom_name=None, product_meta_map=None, semi_finished_pids=None):
     part = _recipe_part_info(row)
-    bind_id = part["product_id"]
-    # 解析当前有效产品 ID（产品删除重建后通过 material_code 回退）
-    eff_id = bind_id
-    if pid_map and bind_id:
-        eff_id = pid_map.get(bind_id, bind_id)
+    # 直接使用绑定的产品 ID（流程上禁止删除被引用产品，无需 material_code 回退）
+    eff_id = part["product_id"]
     meta = _product_meta_from_map(product_meta_map, eff_id)
-    mc = meta["part_material_code"] or (row.material_code or "")
-    is_semi = bool(semi_finished_codes and mc and mc in semi_finished_codes)
+    mc = meta.get("part_material_code") or ""
+    is_semi = bool(semi_finished_pids and eff_id and eff_id in semi_finished_pids)
     return {
         "id": row.id,
         "bom_id": row.bom_id,
         "bom_name": bom_name,
         "part_product_id": eff_id,
-        "part_product_name": part["product_name"] or meta.get("name") or "",
+        # 优先使用实时产品表名称（库存改名后立即生效）；产品已删除时回退冗余字段
+        "part_product_name": meta.get("name") or part["product_name"] or "",
         "part_material_code": mc,
         "part_product_type": meta["part_product_type"],
         "part_product_type_name": meta["part_product_type_name"],
@@ -259,8 +271,6 @@ def _recipe_fields_from_product(bom, product_id, quantity):
         "component_id": product.id,
         "component_name": product.name,
         "component_quantity": qty,
-        # 冗余存储物料编码，产品删除重建后可通过编码回溯
-        "material_code": product.material_code or "",
     }
     return fields
 
@@ -375,7 +385,8 @@ def _export_row_from_bom_recipe(bom, recipe=None):
         "type": bom.type,
         "type_name": bom.get_type_display(),
         "part_product_id": part["product_id"] or "",
-        "part_product_name": part["product_name"],
+        # 优先使用实时产品表名称（库存改名后立即生效）；产品已删除时回退冗余字段
+        "part_product_name": meta.get("name") or part["product_name"],
         "part_product_type": meta["part_product_type"],
         "part_product_type_name": meta["part_product_type_name"],
         "part_quantity": part["quantity"] if part["quantity"] is not None else "",
@@ -419,20 +430,21 @@ def bom_list(request):
 
 def _serialize_bom_export_item(bom):
     recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
-    pid_map = build_effective_pid_map(recipes)
-    effective_ids = list(set(pid_map.values()))
+    # 直接使用绑定的产品 ID（流程上禁止删除被引用产品，无需 material_code 回退）
+    effective_ids = [_recipe_part_info(r)["product_id"] for r in recipes]
+    effective_ids = [pid for pid in effective_ids if pid]
     meta_map = _build_product_meta_map(effective_ids)
     recipe_items = []
     for recipe in recipes:
         part = _recipe_part_info(recipe)
-        bind_id = part["product_id"]
-        eff_id = pid_map.get(bind_id, bind_id) if bind_id else bind_id
+        eff_id = part["product_id"]
         meta = _product_meta_from_map(meta_map, eff_id)
         recipe_items.append(
             {
                 "part_product_id": eff_id,
-                "part_product_name": part["product_name"] or meta.get("name") or "",
-                "part_material_code": meta["part_material_code"] or (recipe.material_code or ""),
+                # 优先使用实时产品表名称（库存改名后立即生效）；产品已删除时回退冗余字段
+                "part_product_name": meta.get("name") or part["product_name"] or "",
+                "part_material_code": meta.get("part_material_code") or "",
                 "part_product_type": meta["part_product_type"],
                 "part_product_type_name": meta["part_product_type_name"],
                 "part_quantity": part["quantity"],
@@ -443,6 +455,7 @@ def _serialize_bom_export_item(bom):
         "bom_model": bom.bom_model,
         "bom_name": bom.bom_name or "",
         "material_code": bom.material_code or "",
+        "finished_product_id": bom.finished_product_id or "",
         "type": bom.type,
         "type_name": bom.get_type_display(),
         "recipes": recipe_items,
@@ -546,10 +559,18 @@ def _create_bom_from_import_item(item):
         "bom_model": item.get("bom_model"),
         "bom_name": item.get("bom_name"),
         "material_code": item.get("material_code"),
+        "finished_product_id": item.get("finished_product_id"),
         "type": item.get("type"),
         "recipes": item.get("recipes") or [],
     }
-    bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+    bom_model, bom_name, material_code, finished_product_id = _parse_bom_header_fields(body)
+
+    # 导入兜底：未显式指定 finished_product_id 但有 material_code 时自动解析
+    if not finished_product_id and material_code:
+        fp = Product.objects.filter(material_code=material_code, is_del=0).first()
+        if fp:
+            finished_product_id = fp.id
+
     _assert_bom_not_exists_for_import(bom_model, material_code)
 
     bom_type = _parse_bom_type(body.get("type"))
@@ -563,6 +584,7 @@ def _create_bom_from_import_item(item):
             bom_model=bom_model,
             bom_name=bom_name,
             material_code=material_code,
+            finished_product_id=finished_product_id,
             is_del=0,
             type=bom_type,
         )
@@ -679,14 +701,14 @@ def bom_detail(request):
         return JsonResponse({"code": "404", "msg": "BOM 不存在"})
 
     recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
-    # 构建 bind_id -> 有效产品 ID 映射（产品删除重建后通过 material_code 回退）
-    pid_map = build_effective_pid_map(recipes)
-    effective_ids = list(set(pid_map.values()))
+    # 直接使用绑定的产品 ID（流程上禁止删除被引用产品，无需 material_code 回退）
+    effective_ids = [_recipe_part_info(r)["product_id"] for r in recipes]
+    effective_ids = [pid for pid in effective_ids if pid]
     meta_map = _build_product_meta_map(effective_ids)
-    semi_finished_codes = _build_semi_finished_map(meta_map)
+    semi_finished_pids = _build_semi_finished_pids(meta_map)
     payload = _serialize_bom_header(bom, len(recipes))
     payload["recipes"] = [
-        _serialize_recipe(r, _bom_display_name(bom), meta_map, pid_map, semi_finished_codes)
+        _serialize_recipe(r, _bom_display_name(bom), meta_map, semi_finished_pids)
         for r in recipes
     ]
     return JsonResponse({"code": "00000", "msg": "成功", "data": payload})
@@ -697,7 +719,7 @@ def bom_detail(request):
 def create_bom(request):
     try:
         body = json.loads(request.body or "{}")
-        bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+        bom_model, bom_name, material_code, finished_product_id = _parse_bom_header_fields(body)
 
         bom_type = _parse_bom_type(body.get("type"))
         if bom_type is None:
@@ -708,6 +730,7 @@ def create_bom(request):
                 bom_model=bom_model,
                 bom_name=bom_name,
                 material_code=material_code,
+                finished_product_id=finished_product_id,
                 is_del=0,
                 type=bom_type,
             )
@@ -752,7 +775,7 @@ def update_bom(request):
         bom_id = body.get("id")
         if not bom_id:
             return JsonResponse({"code": "400", "msg": "缺少 BOM ID"})
-        bom_model, bom_name, material_code = _parse_bom_header_fields(body)
+        bom_model, bom_name, material_code, finished_product_id = _parse_bom_header_fields(body)
 
         bom_type = _parse_bom_type(body.get("type"))
 
@@ -761,14 +784,15 @@ def update_bom(request):
 
         with transaction.atomic():
             bom = BomList.objects.get(id=int(bom_id), is_del=0)
-            
+
             # 保存修改前的数据
             before_data = _bom_header_snapshot(bom)
 
             bom.bom_model = bom_model
             bom.bom_name = bom_name
             bom.material_code = material_code
-            update_fields = ["bom_model", "bom_name", "material_code"]
+            bom.finished_product_id = finished_product_id
+            update_fields = ["bom_model", "bom_name", "material_code", "finished_product_id"]
             if bom_type is not None:
                 bom.type = bom_type
                 update_fields.append("type")
@@ -874,38 +898,60 @@ def update_bom(request):
         return JsonResponse({"code": "500", "msg": f"更新失败: {str(e)}"})
 
 
-def _build_semi_finished_map(product_meta_map):
-    """批量查询 BomList，返回有对应 BOM 的 material_code 集合"""
+def _build_semi_finished_pids(product_meta_map):
+    """返回有对应 BOM 的成品 product_id 集合
+
+    通过 BomList.finished_product_id 关联（主路径）；
+    过渡期对未回填 finished_product_id 的 BOM 按 material_code 兜底匹配。
+    """
+    product_ids = [pid for pid in product_meta_map.keys() if pid]
+    if not product_ids:
+        return set()
+
+    # 主路径：通过 finished_product_id 关联
+    semi_pids = set(
+        BomList.objects.filter(
+            finished_product_id__in=product_ids, is_del=0
+        ).values_list("finished_product_id", flat=True)
+    )
+
+    # 过渡兜底：未回填 finished_product_id 的 BOM，按 material_code 匹配
     material_codes = [
-        m["part_material_code"]
+        m.get("part_material_code")
         for m in product_meta_map.values()
         if m.get("part_material_code")
     ]
-    if not material_codes:
-        return set()
-    return set(
-        BomList.objects.filter(
-            material_code__in=material_codes, is_del=0
-        ).values_list("material_code", flat=True)
-    )
+    if material_codes:
+        code_to_pid = {
+            m["part_material_code"]: pid
+            for pid, m in product_meta_map.items()
+            if m.get("part_material_code")
+        }
+        fallback_boms = BomList.objects.filter(
+            material_code__in=material_codes, is_del=0,
+            finished_product_id__isnull=True,
+        )
+        for bom in fallback_boms:
+            pid = code_to_pid.get(bom.material_code)
+            if pid:
+                semi_pids.add(pid)
+    return semi_pids
 
 
 def _collect_assembly_requirements(recipes, assemble_qty):
-    """汇总组装所需各零件数量（按有效产品 ID 聚合，支持物料编码回退）"""
-    pid_map = build_effective_pid_map(recipes)
+    """汇总组装所需各零件数量（按产品 ID 直接聚合，无需 material_code 回退）"""
     # 预加载有效产品元信息，避免逐条查询
-    effective_ids = list(set(pid_map.values()))
+    effective_ids = [_recipe_part_info(r)["product_id"] for r in recipes]
+    effective_ids = [pid for pid in effective_ids if pid]
     meta_map = _build_product_meta_map(effective_ids)
-    semi_finished_codes = _build_semi_finished_map(meta_map)
+    semi_finished_pids = _build_semi_finished_pids(meta_map)
 
     requirements = {}
     for recipe in recipes:
         part = _recipe_part_info(recipe)
-        bind_id = part["product_id"]
-        if not bind_id:
+        eff_id = part["product_id"]
+        if not eff_id:
             continue
-        # 解析当前有效产品 ID（产品删除重建后通过 material_code 回退）
-        eff_id = pid_map.get(bind_id, bind_id)
         per_unit = part["quantity"] or 0
         if per_unit < 1:
             raise ValueError(f"零件「{part['product_name']}」用量无效")
@@ -921,7 +967,7 @@ def _collect_assembly_requirements(recipes, assemble_qty):
                 "product_type": meta["part_product_type"],
                 "product_type_name": meta["part_product_type_name"],
                 "material_code": mc,
-                "is_semi_finished": bool(mc and mc in semi_finished_codes),
+                "is_semi_finished": bool(eff_id in semi_finished_pids),
                 "required": needed,
             }
     return list(requirements.values())

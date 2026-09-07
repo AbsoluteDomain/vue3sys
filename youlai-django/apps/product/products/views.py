@@ -406,7 +406,31 @@ def delete_product(request):
 
         # 2. 删除
         product = Product.objects.get(id=product_id, is_del=0)
-        
+
+        # 引用校验：被 BOM/生产计划引用的产品不允许删除（请使用编辑功能替代删除）
+        from django.db.models import Q
+        from apps.product.boms.models import AssemblyRecipe, BomList
+        from apps.product.production_plan.models import ProductionPlan
+        if AssemblyRecipe.objects.filter(
+            Q(raw_material_id=product.id) | Q(component_id=product.id)
+        ).exists():
+            return JsonResponse(
+                {"code": "400", "msg": "该产品被 BOM 明细引用，不能删除（请先解除 BOM 引用或编辑产品代替删除）"}
+            )
+        finished_bom_ids = list(
+            BomList.objects.filter(
+                finished_product_id=product.id, is_del=0
+            ).values_list("id", flat=True)
+        )
+        if finished_bom_ids:
+            if ProductionPlan.objects.filter(bom_id__in=finished_bom_ids).exists():
+                return JsonResponse(
+                    {"code": "400", "msg": "该产品作为 BOM 成品被生产计划引用，不能删除"}
+                )
+            return JsonResponse(
+                {"code": "400", "msg": "该产品作为 BOM 成品被引用，不能删除"}
+            )
+
         # 保存删除前的数据
         before_data = _product_snapshot(product)
         
@@ -617,7 +641,7 @@ def stock_alert_list(request):
 
         # 通过共享辅助函数构建 BOM 需求映射（使用有效产品 ID，支持物料编码回退）
         from apps.product.boms.utils import build_bom_requirements
-        bom_requirements, _ = build_bom_requirements(future_bom_ids)
+        bom_requirements = build_bom_requirements(future_bom_ids)
 
         # 收集所有在未来计划的BOM中使用到的有效产品ID
         bom_product_ids = set()
