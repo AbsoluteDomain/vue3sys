@@ -14,6 +14,9 @@
         <el-form-item label="BOM名称" prop="bom_name">
           <el-input v-model="formData.bom_name" placeholder="请输入BOM名称（可选）" style="max-width: 400px" />
         </el-form-item>
+        <el-form-item label="物料编码" prop="material_code">
+          <el-input v-model="formData.material_code" placeholder="请输入BOM自身的物料编码（可选）" style="max-width: 400px" />
+        </el-form-item>
         <el-form-item label="成品产品" prop="finished_product_id">
           <el-select
             v-model="formData.finished_product_id"
@@ -23,7 +26,7 @@
             clearable
             :remote-method="searchFinishedProducts"
             :loading="finishedProductLoading"
-            placeholder="输入名称或ID搜索成品产品"
+            placeholder="输入名称或ID搜索关联的成品产品（可选）"
             style="max-width: 400px"
             @visible-change="onFinishedSelectVisible"
           >
@@ -148,6 +151,7 @@ const formData = reactive({
   id: null,
   bom_model: '',
   bom_name: '',
+  material_code: '',
   finished_product_id: null,
   type: 0
 })
@@ -323,6 +327,7 @@ const resetForm = (row = {}) => {
   formData.id = row.id || null
   formData.bom_model = row.bom_model || ''
   formData.bom_name = row.bom_name || ''
+  formData.material_code = row.material_code || ''
   formData.finished_product_id = row.finished_product_id || null
   formData.type = row.type ?? 0
   recipeLines.value = []
@@ -341,6 +346,7 @@ const open = async (row = {}) => {
     const detail = await getBomDetail({ id: row.id })
     formData.bom_model = detail.bom_model || formData.bom_model
     formData.bom_name = detail.bom_name || ''
+    formData.material_code = detail.material_code || ''
     formData.finished_product_id = detail.finished_product_id || null
     formData.type = detail.type ?? 0
     if (formData.finished_product_id) {
@@ -390,6 +396,7 @@ const handleSubmit = () => {
       id: formData.id,
       bom_model: formData.bom_model,
       bom_name: formData.bom_name || undefined,
+      material_code: formData.material_code || undefined,
       finished_product_id: formData.finished_product_id || undefined,
       type: formData.type,
       recipes: lines.map((line) => ({
