@@ -1912,7 +1912,9 @@ def joint_test_report(request):
         # 统计产品数据
         for product in products:
             if product.test_time:
-                test_date = product.test_time.strftime("%Y-%m-%d")
+                # 按北京时区取日期，直接对 UTC aware 的 test_time strftime
+                # 会把北京 00:00-08:00 的测试归到前一天
+                test_date = local_date_key(product.test_time)
                 bom_id = product.bom_id
                 
                 if test_date in data and bom_id in data[test_date]:

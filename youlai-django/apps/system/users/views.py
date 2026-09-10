@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
+from core.datetime import format_local_datetime
 from core.exceptions.business import BusinessException
 from core.permissions.decorators import permission_required
 from core.permissions.perms import HasPerm
@@ -403,7 +404,7 @@ def export_users_to_excel_bytes(*, keywords: str, status, dept_id, role_ids: str
             gender_text = "男"
         elif user.gender == 2:
             gender_text = "女"
-        create_time_str = user.date_joined.strftime("%Y/%m/%d %H:%M:%S") if user.date_joined else ""
+        create_time_str = format_local_datetime(user.date_joined, "%Y/%m/%d %H:%M:%S") or "" if user.date_joined else ""
 
         worksheet.cell(row=row_num, column=1, value=user.username)
         worksheet.cell(row=row_num, column=2, value=user.nickname)

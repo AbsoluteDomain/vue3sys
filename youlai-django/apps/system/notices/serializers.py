@@ -3,6 +3,7 @@
  """
  
 from rest_framework import serializers
+from core.datetime import format_local_datetime
 from core.serializers import BigIntAsStringField, StandardModelSerializer
 
 from apps.system.notices.models import Notice, UserNotice
@@ -319,7 +320,5 @@ class NoticeMyPageSerializer(StandardModelSerializer):
         return "系统"
     
     def get_publishTime(self, obj):
-        """格式化发布时间"""
-        if obj.notice.publish_time:
-            return obj.notice.publish_time.strftime('%Y-%m-%d %H:%M')
-        return None
+        """格式化发布时间（转北京时间，ORM 读出的 publish_time 是 UTC）"""
+        return format_local_datetime(obj.notice.publish_time, '%Y-%m-%d %H:%M')

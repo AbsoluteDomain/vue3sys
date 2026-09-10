@@ -1,11 +1,11 @@
 import json
-from datetime import datetime
 
 from django.db.models import Max, Q
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from core.datetime import format_local_datetime
 from apps.product.finish_products.models import FinishProduct
 
 from .models import Repair
@@ -46,10 +46,11 @@ def list_repair_products(request):
                     "last_repair_time": "",
                 }
             sn_map[group_key]["repair_cnt"] += 1
-            if record.create_time:
-                time_str = record.create_time.strftime("%Y-%m-%d %H:%M:%S")
-                if time_str > sn_map[group_key]["last_repair_time"]:
-                    sn_map[group_key]["last_repair_time"] = time_str
+            # ORM 读出的 create_time 是 UTC aware datetime，必须转北京时间，
+            # 直接 strftime 会少 8 小时
+            time_str = format_local_datetime(record.create_time) or ""
+            if time_str and time_str > sn_map[group_key]["last_repair_time"]:
+                sn_map[group_key]["last_repair_time"] = time_str
         
         result = list(sn_map.values())
         result.sort(key=lambda x: x["last_repair_time"], reverse=True)
@@ -78,7 +79,7 @@ def get_product_repair_history(request):
                 "id": repair.id,
                 "repair_cnt": repair.repair_cnt,
                 "repair_info": repair.repair_info,
-                "create_time": repair.create_time.strftime("%Y-%m-%d %H:%M:%S") if repair.create_time else "",
+                "create_time": format_local_datetime(repair.create_time) or "",
             })
         
         return JsonResponse({"code": "00000", "msg": "成功", "data": result})
