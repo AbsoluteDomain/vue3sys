@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -1421,8 +1422,8 @@ def bindable_joints(request):
             bom_id__in=joint_bom_ids,
             status=FinishProduct.STATUS_PASS,
             inventory_stock=FinishProduct.INVENTORY_IN,
-            parent_sn_code="",
         )
+        .filter(Q(parent_sn_code="") | Q(parent_sn_code__isnull=True))
         .exclude(sn_code__isnull=True)
         .exclude(sn_code="")
         .order_by("-id")
