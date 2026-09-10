@@ -21,7 +21,13 @@ DATABASES = {
         'PASSWORD': env_str('DB_PASSWORD', 'root'),
         'HOST': env_str('DB_HOST', '127.0.0.1'),
         'PORT': env_int('DB_PORT', 3306),
-        'OPTIONS': {'charset': 'utf8mb4'},
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            # USE_TZ=False，数据库直接存北京时间。固定连接会话时区为 +08:00，
+            # 不依赖 MySQL 服务器自身的时区配置；带 DEFAULT CURRENT_TIMESTAMP 的列
+            # 在 INSERT 漏写时间时同样填入北京时间，与 ORM 写入保持一致。
+            'init_command': "SET time_zone='+08:00'",
+        },
         # 连接复用：避免每个请求都新建 MySQL 连接（首次握手 2s，复用后 <1ms）
         'CONN_MAX_AGE': 60,
     }

@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 import django_filters
 from django.db.models import Q
-from django.utils import timezone
 
+from core.datetime import make_local_aware
 from apps.system.users.models import User
 
 
@@ -117,9 +117,9 @@ class UserFilter(django_filters.FilterSet):
         start_dt = _parse_bound(start_time, is_end=False) if start_time else None
         end_dt = _parse_bound(end_time, is_end=True) if end_time else None
         if start_dt is not None and start_dt.tzinfo is None:
-            start_dt = timezone.make_aware(start_dt)
+            start_dt = make_local_aware(start_dt)
         if end_dt is not None and end_dt.tzinfo is None:
-            end_dt = timezone.make_aware(end_dt)
+            end_dt = make_local_aware(end_dt)
 
         if start_dt is not None:
             queryset = queryset.filter(date_joined__gte=start_dt)

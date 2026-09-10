@@ -25,6 +25,7 @@ from apps.system.logs.models import Log
 from core.response import error, success
 from core.openapi import resp
 from core.viewsets import BaseModelViewSet
+from core.datetime import make_local_aware
 
 @extend_schema(tags=["12.统计分析"])
 class VisitViewSet(BaseModelViewSet):
@@ -72,8 +73,8 @@ class VisitViewSet(BaseModelViewSet):
             return error("开始日期和结束日期不能为空")
 
         try:
-            start_date = timezone.make_aware(datetime.strptime(start_date_str, '%Y-%m-%d'))
-            end_date = timezone.make_aware(datetime.strptime(end_date_str, '%Y-%m-%d'))
+            start_date = make_local_aware(datetime.strptime(start_date_str, '%Y-%m-%d'))
+            end_date = make_local_aware(datetime.strptime(end_date_str, '%Y-%m-%d'))
             end_date = end_date + timedelta(days=1)
         except ValueError:
             return error("日期格式不正确，请使用 YYYY-MM-DD 格式")

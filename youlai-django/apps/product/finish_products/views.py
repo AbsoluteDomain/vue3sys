@@ -1874,8 +1874,8 @@ def joint_test_report(request):
         unqualified_items.sort(key=lambda x: (x.get("sort") or 0, int(x.get("value", 0))))
         
         # 构建日期查询范围
-        start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
-        end_dt = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+        start_dt = make_local_aware(datetime.combine(start_date, datetime.min.time()))
+        end_dt = make_local_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
         
         # 查询成品数据
         products = FinishProduct.objects.filter(

@@ -5,8 +5,8 @@ import logging
 
 import django_filters
 from django.db.models import Q
-from django.utils import timezone
 
+from core.datetime import make_local_aware
 from apps.system.logs.models import Log
 
 
@@ -61,7 +61,8 @@ class LogFilter(django_filters.FilterSet):
         - `YYYY-MM-DD`（结束日期会按当天 23:59:59 处理，确保“包含结束日”）
 
         时区处理：
-        - 项目开启 `USE_TZ=True`，这里会将 naive datetime 转为 aware datetime。
+        - 通过 core.datetime.make_local_aware 适配 USE_TZ 开关，
+          保证查询边界的 aware/naive 属性与配置一致。
         """
         data = getattr(self, "data", None)
         if data is None:
@@ -111,7 +112,7 @@ class LogFilter(django_filters.FilterSet):
             try:
                 start_dt = _parse_start(str(start_time))
                 if start_dt.tzinfo is None:
-                    start_dt = timezone.make_aware(start_dt)
+                    start_dt = make_local_aware(start_dt)
                 _logger.debug("logs filter createTime parsed start_dt=%s", start_dt)
                 queryset = queryset.filter(create_time__gte=start_dt)
             except ValueError:
@@ -122,7 +123,7 @@ class LogFilter(django_filters.FilterSet):
             try:
                 end_dt = _parse_end(str(end_time))
                 if end_dt.tzinfo is None:
-                    end_dt = timezone.make_aware(end_dt)
+                    end_dt = make_local_aware(end_dt)
                 _logger.debug("logs filter createTime parsed end_dt=%s", end_dt)
                 queryset = queryset.filter(create_time__lte=end_dt)
             except ValueError:

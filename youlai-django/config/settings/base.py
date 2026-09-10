@@ -103,7 +103,9 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
-USE_TZ = True
+# 纯内网单一时区部署：关闭时区支持，数据库直接存北京时间字面值，
+# 数据库工具/页面/Excel 导出时间完全一致，无需任何时区换算。
+USE_TZ = False
 
 # 静态文件 (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
