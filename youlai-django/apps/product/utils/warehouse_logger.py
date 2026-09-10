@@ -31,7 +31,18 @@ def get_operator_info(request) -> Dict[str, Any]:
     
     if request is None:
         return result
-    
+
+    # --- 0. 优先复用 JwtRequiredMiddleware 已验签的 payload（写操作必经鉴权，必为有效 token） ---
+    payload = (getattr(request, "META", None) or {}).get("_JWT_PAYLOAD")
+    if payload and payload.get("user_id"):
+        display_name = (payload.get("nickname") or payload.get("user_name") or "").strip()
+        if display_name:
+            return {
+                'operator_id': payload.get("user_id"),
+                'operator_name': display_name,
+            }
+        # 旧 token payload 无姓名声明 → 落到下方查库路径，按 user_id 查昵称
+
     # --- 1. 纯 JWT fallback（复用 operation_logs 已验证过的稳定路径） ---
     try:
         from apps.system.operation_logs.request_user import _extract_bearer_token, _jwt_fallback_resolve

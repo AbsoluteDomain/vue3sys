@@ -84,6 +84,14 @@ def get_request_operator(request):
     """
     User = get_user_model()
 
+    # --- 0. 优先复用 JwtRequiredMiddleware 已验签的 payload（写操作必经鉴权，必为有效 token） ---
+    payload = (getattr(request, "META", None) or {}).get("_JWT_PAYLOAD")
+    if payload and payload.get("user_id"):
+        display_name = (payload.get("nickname") or payload.get("user_name") or "").strip()
+        if display_name:
+            return payload.get("user_id"), display_name
+        # 旧 token payload 无姓名声明 → 落到下方查库路径
+
     # --- 1. JWT fallback（不依赖 Redis，稳定性最高） ---
     operator = _jwt_fallback_resolve(_extract_bearer_token(request))
     if operator:

@@ -51,6 +51,100 @@ class CorsMiddleware:
         return response
 
 
+class JwtRequiredMiddleware:
+    """对 /api/v1/ 下的「写操作」强制 JWT 鉴权。
+
+    背景：部分纯 Django 函数视图（@csrf_exempt，如出入库、关节绑定、BOM 装配）
+    没有 DRF 认证层，access token 过期后业务仍会执行成功，导致仓库日志/操作日志
+    写入 operator_name='系统' 且 operator_id=NULL 的脏数据，且无法追溯真实操作人。
+
+    本中间件在请求进入视图前统一校验 access token 的签名与有效期：
+      - 校验失败 → 直接返回 401 + A0230，前端拦截器收到后自动用 refresh token
+        换新 access token 并重试原请求（对用户无感）；refresh 也失效则跳转登录页。
+      - 校验通过 → 把 payload 挂到 request.META['_JWT_PAYLOAD']，供日志解析复用，
+        避免重复解码，并保证写操作一定能拿到真实操作人。
+
+    设计要点：
+      - 只拦截写操作（POST/PUT/PATCH/DELETE）；GET/HEAD/OPTIONS 放行（不产生操作人记录）
+      - 纯 JWT 签名 + exp 校验，不依赖 Redis（Redis 故障不影响车间作业）
+      - tokenVersion/黑名单等强安全校验仍由 DRF 视图的 VersionedJWTAuthentication 负责
+      - 认证白名单（登录/刷新/验证码/短信/微信登录/登出）直接放行
+    """
+
+    # 无需 access token 即可访问的路径前缀
+    EXEMPT_PREFIXES = (
+        "/api/v1/auth/login",             # 账号密码登录（含 /login/sms）
+        "/api/v1/auth/sms/code",          # 发送短信验证码
+        "/api/v1/auth/captcha",           # 图形验证码
+        "/api/v1/auth/refresh-token",     # 刷新令牌（携带的是 refresh token）
+        "/api/v1/auth/logout",            # 登出（旧 token 可能已失效）
+        "/api/v1/auth/wechat/",           # 微信小程序登录/绑定
+    )
+
+    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def _unauthorized(self, msg="登录状态已过期，请重新登录"):
+        # code=A0230 + HTTP 401，与前端 request.ts 的自动刷新重试契约对齐
+        return JsonResponse(
+            {"code": "A0230", "msg": msg, "data": None},
+            status=401,
+        )
+
+    def __call__(self, request):
+        path = request.path or ""
+
+        # 非业务 API、非写操作、CORS 预检：直接放行
+        if (
+            not path.startswith("/api/v1/")
+            or request.method not in self.WRITE_METHODS
+        ):
+            return self.get_response(request)
+
+        # 认证白名单放行
+        if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
+            return self.get_response(request)
+
+        # 提取 Bearer token
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "") or ""
+        if not auth_header.startswith("Bearer "):
+            return self._unauthorized("未检测到登录凭证，请先登录")
+        raw_token = auth_header[7:].strip()
+        if not raw_token:
+            return self._unauthorized("未检测到登录凭证，请先登录")
+
+        # 纯 JWT 校验（签名 + 过期时间），不依赖 Redis
+        try:
+            from rest_framework_simplejwt.backends import TokenBackend
+            from django.conf import settings
+
+            jwt_settings = getattr(settings, "SIMPLE_JWT", {})
+            backend = TokenBackend(
+                algorithm=jwt_settings.get("ALGORITHM", "HS256"),
+                signing_key=jwt_settings.get("SIGNING_KEY", settings.SECRET_KEY),
+            )
+            payload = backend.decode(raw_token, verify=True)
+        except Exception as exc:
+            logger.info(
+                "[JWT中间件] 写操作鉴权失败 path=%s method=%s err=%s",
+                path, request.method, exc,
+            )
+            return self._unauthorized()
+
+        # 必须是 access token 且带 user_id
+        if payload.get("token_type") and payload.get("token_type") != "access":
+            return self._unauthorized("登录凭证类型无效，请重新登录")
+        if not payload.get("user_id"):
+            return self._unauthorized("登录凭证无效，请重新登录")
+
+        # 挂载解析结果，供 warehouse_logger / operation_logs 直接复用
+        request.META["_JWT_PAYLOAD"] = payload
+
+        return self.get_response(request)
+
+
 class RequestContextFilter(logging.Filter):
     """日志过滤器，注入请求上下文信息。"""
 
@@ -134,6 +228,7 @@ class RequestContextMiddleware:
 
 
 __all__ = [
+    "JwtRequiredMiddleware",
     "RequestContextFilter",
     "RequestContextMiddleware",
     "request_id_var",
