@@ -56,10 +56,11 @@ def get_operator_info(request) -> Dict[str, Any]:
         return result
     
     # --- 3. 兜底：手动 JWT 解析（不依赖 Redis 的纯签名校验） ---
+    jwt_decode_error = None
     try:
         from rest_framework_simplejwt.backends import TokenBackend
         from django.conf import settings
-        
+
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         if auth_header.startswith('Bearer '):
             token = auth_header[7:]
@@ -74,8 +75,42 @@ def get_operator_info(request) -> Dict[str, Any]:
                 resolved_name = _resolve_user_display(user_id)
                 result['operator_id'] = user_id
                 result['operator_name'] = resolved_name or '系统'
-    except Exception:
-        pass
+    except Exception as exc:
+        jwt_decode_error = f"{type(exc).__name__}: {exc}"
+
+    # --- 诊断日志：所有解析路径都失败时记录原因，用于定位"系统"操作人问题 ---
+    if result['operator_id'] is None:
+        try:
+            from django.conf import settings
+            meta = getattr(request, 'META', {}) or {}
+            auth_header = meta.get('HTTP_AUTHORIZATION', '') or ''
+            has_bearer = auth_header.startswith('Bearer ')
+            diag = {
+                'path': getattr(request, 'path', ''),
+                'method': getattr(request, 'method', ''),
+                'has_bearer': has_bearer,
+                'user_attr': str(getattr(request, 'user', None)),
+                'jwt_error': jwt_decode_error,
+            }
+            if has_bearer:
+                try:
+                    # 不验签仅看 payload 的 exp，区分"过期"与"无 token"
+                    import jwt as _pyjwt
+                    unverified = _pyjwt.decode(
+                        auth_header[7:],
+                        options={'verify_signature': False, 'verify_exp': False},
+                    )
+                    import datetime
+                    exp = unverified.get('exp')
+                    diag['token_exp'] = datetime.datetime.fromtimestamp(exp).isoformat() if exp else None
+                    diag['now'] = datetime.datetime.now().isoformat()
+                    diag['token_user_id'] = unverified.get('user_id')
+                    diag['has_name_claims'] = bool(unverified.get('user_name') or unverified.get('nickname'))
+                except Exception as exc2:
+                    diag['inspect_error'] = f"{type(exc2).__name__}: {exc2}"
+            logger.warning("[库存日志-操作人解析失败] %s", diag)
+        except Exception:
+            pass
 
     return result
 
