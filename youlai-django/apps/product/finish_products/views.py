@@ -1445,6 +1445,7 @@ def bindable_joints(request):
     )
 
 
+@csrf_exempt
 @require_http_methods(["POST"])
 def bind_joints_to_arm(request):
     """批量绑定多个关节到指定机械臂"""
