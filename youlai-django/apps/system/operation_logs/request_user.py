@@ -7,12 +7,66 @@ from django.contrib.auth import get_user_model
 logger = logging.getLogger(__name__)
 
 
+def _clean_ip(raw):
+    """从代理头取值中清洗出单个 IP：跳过 unknown/空值，去除端口、方括号。"""
+    if not raw:
+        return ""
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part or part.lower() == "unknown":
+            continue
+        # IPv6 带端口：[::1]:8080
+        if part.startswith("["):
+            part = part[1:].split("]", 1)[0]
+        # IPv4 带端口：192.168.1.10:51234
+        elif part.count(":") == 1 and "." in part:
+            part = part.split(":", 1)[0]
+        return part
+    return ""
+
+
 def get_client_ip(request):
-    """获取客户端 IP"""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
+    """获取客户端真实 IP（兼容 nginx / vite proxy / Electron 本地代理）。
+
+    优先级：
+      1. X-Real-IP —— 可信代理按 TCP 直连地址写入（nginx 常用，客户端无法伪造）
+      2. X-Forwarded-For —— 代理链，取第一个非 unknown（vite xfwd / nginx）
+      3. Forwarded（RFC 7239）
+      4. REMOTE_ADDR —— 直连兜底（Electron 直连后端时即为用户电脑 IP）
+    """
+    meta = getattr(request, "META", None) or {}
+
+    real_ip = _clean_ip(meta.get("HTTP_X_REAL_IP"))
+    forwarded_for = _clean_ip(meta.get("HTTP_X_FORWARDED_FOR"))
+    forwarded_raw = meta.get("HTTP_FORWARDED") or ""
+    remote_addr = meta.get("REMOTE_ADDR") or ""
+
+    # 临时诊断：把所有 IP 相关头打出来，确认代理头是否到达 Django
+    logger.info(
+        "[get_client_ip 诊断] path=%s REMOTE_ADDR=%s | X-Real-IP=%r | X-Forwarded-For=%r | Forwarded=%r",
+        getattr(request, "path", ""),
+        remote_addr,
+        meta.get("HTTP_X_REAL_IP"),
+        meta.get("HTTP_X_FORWARDED_FOR"),
+        forwarded_raw,
+    )
+
+    if real_ip:
+        return real_ip
+
+    if forwarded_for:
+        return forwarded_for
+
+    if forwarded_raw:
+        # 形如：for=192.0.2.60;proto=http;by=203.0.113.43
+        for item in forwarded_raw.split(";"):
+            item = item.strip()
+            if item.lower().startswith("for="):
+                ip = _clean_ip(item[4:].strip('"'))
+                if ip:
+                    return ip
+
+    return remote_addr
 
 
 def _extract_bearer_token(request):

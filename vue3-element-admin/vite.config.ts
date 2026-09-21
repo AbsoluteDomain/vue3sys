@@ -67,6 +67,8 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        // 透传客户端真实 IP（x-forwarded-for），否则后端日志记录的全是 127.0.0.1
+        xfwd: true,
         // keep-alive 复用到后端的 TCP 连接，避免每次请求都新建连接
         // Windows 上 vite proxy 默认可能不复用连接，导致每次请求都有 TCP 握手开销
         configure: (proxy) => {

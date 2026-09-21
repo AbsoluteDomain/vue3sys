@@ -13,6 +13,7 @@ from user_agents import parse  # 引入 user-agents 库用于解析浏览器信�
 from apps.system.logs.models import Log
 from apps.system.users.models import User  # 从自定义的 User 模型中获取
 from apps.system.utils.utils import get_ip_location
+from apps.system.operation_logs.request_user import get_client_ip
 
 
 def log_api(content, module):
@@ -42,7 +43,7 @@ def log_api(content, module):
 
             # 记录日志
             execution_time = int((time.time() - start_time) * 1000)  # 毫秒
-            ip = request.META.get("REMOTE_ADDR")
+            ip = get_client_ip(request)
             location = get_ip_location(ip)
 
             # 处理 location 的拆分，确保正确访问省份和城市

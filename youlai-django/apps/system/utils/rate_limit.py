@@ -6,6 +6,7 @@ from functools import wraps
 from django.http import HttpRequest
 from django_redis import get_redis_connection
 from core.response import error
+from apps.system.operation_logs.request_user import get_client_ip
 
 
 def ip_rate_limit(seconds: int = 60):
@@ -19,12 +20,8 @@ def ip_rate_limit(seconds: int = 60):
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(self, request: HttpRequest, *args, **kwargs):
-            # 获取客户端IP
-            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-            if x_forwarded_for:
-                ip = x_forwarded_for.split(',')[0]
-            else:
-                ip = request.META.get('REMOTE_ADDR')
+            # 获取客户端真实IP（兼容 nginx / vite proxy 等反向代理）
+            ip = get_client_ip(request) or "unknown"
 
             # 在Redis中检查IP是否在限制时间内
             redis_conn = get_redis_connection("default")

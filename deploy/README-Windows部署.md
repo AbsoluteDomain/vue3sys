@@ -269,6 +269,7 @@ http {
             proxy_pass http://127.0.0.1:8000;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         # WebSocket
@@ -473,6 +474,15 @@ cd D:\vue3sys\youlai-django
 - GitHub：使用 Personal Access Token 代替密码
 - Gitea：在 Gitea 设置中生成 Token，作为密码使用
 - 配置凭据存储：`git config --global credential.helper store`
+
+### 11. 日志中记录的 IP 全是 127.0.0.1
+
+经过 Vite 开发服务器或 Nginx 反向代理后，Django 直连看到的是代理本机地址，需由代理透传真实 IP：
+
+- **Vite（3000 端口 dev 模式）**：`vite.config.ts` 的 `/api` 代理必须配置 `xfwd: true`，修改后**必须重启 Vite 服务**才会生效。
+- **Nginx**：`location /api/` 与 `/prod-api/` 均需包含 `proxy_set_header X-Real-IP $remote_addr;` 和 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`，改完执行 `nginx -s reload`。
+- 后端通过 `get_client_ip()` 统一按 `X-Real-IP → X-Forwarded-For → Forwarded → REMOTE_ADDR` 顺序解析，无需各业务日志自行处理。
+- 正式环境建议使用 Nginx 托管 `dist/` 静态文件，不要长期运行 Vite dev server。
 
 ---
 
