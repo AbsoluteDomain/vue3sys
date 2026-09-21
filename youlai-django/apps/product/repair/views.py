@@ -104,6 +104,8 @@ def create_repair(request):
             product = FinishProduct.objects.get(id=int(product_id))
         except FinishProduct.DoesNotExist:
             return JsonResponse({"code": "400", "msg": "成品不存在"})
+        if product.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+            return JsonResponse({"code": "400", "msg": "该成品已回退，不可创建返修记录"})
         
         # sn_code 可选：请求体里显式传了(哪怕空字符串)就用传的；
         # 没传则从 product 自动取（兼容成品管理页的调用方式）
@@ -133,7 +135,7 @@ def create_repair(request):
 @require_http_methods(["GET"])
 def get_products_with_sn(request):
     try:
-        products = FinishProduct.objects.filter(
+        products = FinishProduct.active_queryset().filter(
             Q(sn_code__isnull=False) & ~Q(sn_code="")
         ).order_by("-create_time")
         

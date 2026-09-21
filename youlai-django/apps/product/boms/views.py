@@ -8,7 +8,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from core.datetime import format_local_datetime
-from core.datetime import format_local_datetime
 from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
@@ -1057,6 +1056,11 @@ def assemble_bom(request):
                     description="",
                     inventory_stock=FinishProduct.INVENTORY_NOT_IN,
                     repair=FinishProduct.REPAIR_NEW,
+                    cons_status=(
+                        FinishProduct.CONS_STATUS_CONSUMED
+                        if deduct_materials
+                        else FinishProduct.CONS_STATUS_NOT_CONSUMED
+                    ),
                     create_time=now,
                     update_time=now,
                     test_time=now,

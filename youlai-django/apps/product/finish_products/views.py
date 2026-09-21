@@ -27,7 +27,7 @@ try:
 except ImportError:
     OPERATION_LOGS_AVAILABLE = False
 
-from .models import FinishProduct
+from .models import FinishProduct, FinishedProductLog
 
 VALID_STATUS = {
     FinishProduct.STATUS_UNTESTED,
@@ -36,10 +36,107 @@ VALID_STATUS = {
     FinishProduct.STATUS_FAIL,
 }
 
+TRACKABLE_FIELDS = FinishedProductLog.TRACKABLE_FIELDS
+
 
 def _log_if_available(request, **kwargs):
     if OPERATION_LOGS_AVAILABLE:
         log_operation_from_request(request, **kwargs)
+
+
+def _compute_changed_fields(before_data, after_data):
+    """对比前后快照，返回实际变化的列展示字段键列表"""
+    before = before_data or {}
+    after = after_data or {}
+    changed = []
+    for key in TRACKABLE_FIELDS:
+        if before.get(key) != after.get(key):
+            changed.append(key)
+    return changed
+
+
+def _log_finish_product_operation(request, item, operation_type,
+                                   before_data=None, after_data=None, description=""):
+    """写入成品操作记录到 finished_product_log 表"""
+    try:
+        from apps.system.operation_logs.request_user import get_client_ip, get_request_operator
+        operator = get_request_operator(request)
+        if not operator:
+            return
+        user_id, user_name = operator
+        changed = _compute_changed_fields(before_data, after_data)
+        # create 操作 before_data 为空，changed 设为 after_data 中存在的全部字段
+        if operation_type == FinishedProductLog.OPERATION_CREATE and after_data and not before_data:
+            changed = [k for k in TRACKABLE_FIELDS if k in (after_data or {})]
+
+        fp_id = None
+        sn_code = ""
+        if item:
+            fp_id = item.id
+            sn_code = item.sn_code or ""
+        elif before_data:
+            fp_id = before_data.get("id")
+            sn_code = before_data.get("sn_code") or ""
+
+        FinishedProductLog.objects.create(
+            finish_product_id=fp_id,
+            sn_code=sn_code,
+            operation_type=operation_type,
+            operator_id=user_id,
+            operator_name=user_name,
+            before_data=before_data,
+            after_data=after_data,
+            changed_fields=changed,
+            description=(description or "")[:500],
+            ip=get_client_ip(request),
+        )
+    except Exception as e:
+        logger.error("记录成品操作日志失败: %s", str(e))
+
+
+def _snapshot_unqualified_items(finish_product_id):
+    """快照某成品的全部不良项（含字典标签），按值排序"""
+    items = UnqualifiedItem.objects.filter(
+        finish_product_id=finish_product_id
+    ).order_by("unqualified_value")
+    labels = {}
+    values = [it.unqualified_value for it in items]
+    if values:
+        for di in DictionaryItem.objects.filter(
+            dict_code="unqualified_status",
+            value__in=[str(v) for v in set(values)],
+            status=1,
+        ):
+            try:
+                labels[int(di.value)] = di.label
+            except (ValueError, TypeError):
+                pass
+    return [{"value": v, "label": labels.get(v, f"未知({v})")} for v in values]
+
+
+def _log_unqualified_operation(request, fp_id, sn_code, before_items, after_items, description):
+    """写入不良详情操作记录到 finished_product_log 表"""
+    try:
+        from apps.system.operation_logs.request_user import get_client_ip, get_request_operator
+        operator = get_request_operator(request)
+        if not operator:
+            return
+        user_id, user_name = operator
+        changed = ["unqualified_items"] if before_items != after_items else []
+        FinishedProductLog.objects.create(
+            finish_product_id=fp_id,
+            sn_code=sn_code or "",
+            operation_type=FinishedProductLog.OPERATION_UNQUALIFIED,
+            operator_id=user_id,
+            operator_name=user_name,
+            before_data={"unqualified_items": before_items},
+            after_data={"unqualified_items": after_items},
+            changed_fields=changed,
+            description=(description or "")[:500],
+            ip=get_client_ip(request),
+        )
+    except Exception as e:
+        logger.error("记录不良详情操作日志失败: %s", str(e))
 
 
 def _get_valid_dict_int_values(dict_code):
@@ -222,7 +319,7 @@ def finish_product_daily_stats(request):
 
     start_dt, end_dt = local_day_range_datetimes(start_date, end_date)
 
-    create_qs = FinishProduct.objects.filter(
+    create_qs = FinishProduct.active_queryset().filter(
         create_time__isnull=False,
         create_time__gte=start_dt,
         create_time__lte=end_dt,
@@ -240,7 +337,7 @@ def finish_product_daily_stats(request):
         bucket["newCount"] += 1
         summary["newCount"] += 1
 
-    test_qs = FinishProduct.objects.filter(
+    test_qs = FinishProduct.active_queryset().filter(
         test_time__isnull=False,
         test_time__gte=start_dt,
         test_time__lte=end_dt,
@@ -249,7 +346,7 @@ def finish_product_daily_stats(request):
     for item in test_qs:
         _accumulate_test_time_stats(item, daily_map, summary)
 
-    update_qs = FinishProduct.objects.filter(
+    update_qs = FinishProduct.active_queryset().filter(
         update_time__isnull=False,
         update_time__gte=start_dt,
         update_time__lte=end_dt,
@@ -268,7 +365,7 @@ def finish_product_daily_stats(request):
             bucket["repairCount"] += 1
             summary["repairCount"] += 1
 
-    stock_in_qs = FinishProduct.objects.filter(
+    stock_in_qs = FinishProduct.active_queryset().filter(
         stock_in_time__isnull=False,
         stock_in_time__gte=start_dt,
         stock_in_time__lte=end_dt,
@@ -279,7 +376,7 @@ def finish_product_daily_stats(request):
         day = local_date_key(item.stock_in_time)
         _increment_daily_count(daily_map, summary, day, "stockInCount")
 
-    stock_out_qs = FinishProduct.objects.filter(
+    stock_out_qs = FinishProduct.active_queryset().filter(
         stock_out_time__isnull=False,
         stock_out_time__gte=start_dt,
         stock_out_time__lte=end_dt,
@@ -301,7 +398,7 @@ def finish_product_daily_stats(request):
             summary["stockOutSaleCount"] += 1
 
     current_stock_in_count = _filter_by_bom_type(
-        FinishProduct.objects.filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type
     ).count()
 
     return JsonResponse(
@@ -424,6 +521,8 @@ def _serialize_finish_product(item, bom_map=None):
             "inventory_stock_name": _get_dict_label("storage_status", item.inventory_stock),
             "repair": item.repair,
             "repair_name": item.get_repair_display(),
+            "cons_status": item.cons_status,
+            "cons_status_name": item.get_cons_status_display() if item.cons_status is not None else "",
         }
 
 
@@ -526,6 +625,8 @@ def finish_product_board_detail(request):
             return JsonResponse({"code": "400", "msg": "开始日期不能晚于结束日期"})
 
     qs = FinishProduct.objects.all()
+    # 看板详情列表默认过滤已回退记录
+    qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     qs = _apply_board_category_filter(qs, category)
     qs = _filter_by_bom_type(qs, bom_type)
 
@@ -597,6 +698,10 @@ def finish_product_list(request):
     ).strip()
 
     qs = FinishProduct.objects.all()
+    # 默认过滤已回退记录（cons_status=2），include_rolled_back=1 时包含
+    include_rolled_back = (request.GET.get("include_rolled_back") or "").strip().lower() in ("1", "true")
+    if not include_rolled_back:
+        qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     if sn_code:
         qs = qs.filter(sn_code__icontains=sn_code)
     if parent_sn_code:
@@ -733,7 +838,7 @@ def create_finish_product(request):
             return JsonResponse({"code": "400", "msg": "关联的 BOM 不存在"})
 
         sn_code = (body.get("sn_code") or "").strip() or None
-        if sn_code and FinishProduct.objects.filter(sn_code=sn_code).exists():
+        if sn_code and FinishProduct.active_queryset().filter(sn_code=sn_code).exists():
             return JsonResponse({"code": "400", "msg": "SN码已存在"})
 
         now = timezone.now()
@@ -744,6 +849,7 @@ def create_finish_product(request):
             status=FinishProduct.STATUS_UNTESTED,
             inventory_stock=FinishProduct.INVENTORY_NOT_IN,
             repair=FinishProduct.REPAIR_NEW,
+            cons_status=FinishProduct.CONS_STATUS_NOT_CONSUMED,
             description=(body.get("description") or "").strip() or None,
             parent_sn_code=(body.get("parent_sn_code") or "").strip() or None,
             create_time=now,
@@ -758,6 +864,12 @@ def create_finish_product(request):
             operation_type='create',
             target_id=item.id,
             target_name=item.sn_code or item.name,
+            after_data=_serialize_finish_product(item),
+            description=f"创建成品：{bom.bom_model} {bom.bom_name or ''}",
+        )
+
+        _log_finish_product_operation(
+            request, item, FinishedProductLog.OPERATION_CREATE,
             after_data=_serialize_finish_product(item),
             description=f"创建成品：{bom.bom_model} {bom.bom_name or ''}",
         )
@@ -786,6 +898,12 @@ def update_finish_product(request):
 
         item = FinishProduct.objects.get(id=int(item_id))
 
+        # 已回退的成品不可编辑
+        if item.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+            return JsonResponse({"code": "400", "msg": "该成品已回退，不可编辑"})
+
+        before_data = _serialize_finish_product(item)
+
         old_inventory_stock = item.inventory_stock
         old_parent_sn_code = item.parent_sn_code
 
@@ -803,7 +921,7 @@ def update_finish_product(request):
 
         if "sn_code" in body:
             sn_code = (body.get("sn_code") or "").strip()
-            if sn_code and FinishProduct.objects.filter(sn_code=sn_code).exclude(id=item.id).exists():
+            if sn_code and FinishProduct.active_queryset().filter(sn_code=sn_code).exclude(id=item.id).exists():
                 return JsonResponse({"code": "400", "msg": "SN码已存在"})
             item.sn_code = sn_code or None
 
@@ -1052,6 +1170,13 @@ def update_finish_product(request):
         item.update_time = timezone.now()
         item.save()
 
+        after_data = _serialize_finish_product(item)
+        _log_finish_product_operation(
+            request, item, FinishedProductLog.OPERATION_UPDATE,
+            before_data=before_data, after_data=after_data,
+            description=f"修改成品：{item.sn_code or item.name}",
+        )
+
         logger.info(
             "[解除绑定-完成] finish_product_id=%s, sn_code=%s, inventory_stock: %s → %s, parent_sn_code: %s → %s, inventory_action=%s",
             item.id, item.sn_code, old_inventory_stock, item.inventory_stock,
@@ -1110,16 +1235,16 @@ def check_joint_stock_consistency(request):
             is_del=0
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
         
-        # 成品表中符合条件的关节数量：测试合格 + 入库 + 无父级SN码
-        finish_joint_stock = FinishProduct.objects.filter(
+        # 成品表中符合条件的关节数量：测试合格 + 入库 + 无父级SN码（排除已回退）
+        finish_joint_stock = FinishProduct.active_queryset().filter(
             bom_id__in=joint_bom_ids,
             parent_sn_code__isnull=True,
             status=FinishProduct.STATUS_PASS,  # 2=测试合格
             inventory_stock=FinishProduct.INVENTORY_IN,  # 1=入库
         ).count()
-        
-        # 绑定在机械臂上的关节数量（有parent_sn_code）
-        bound_joint_count = FinishProduct.objects.filter(
+
+        # 绑定在机械臂上的关节数量（有parent_sn_code，排除已回退）
+        bound_joint_count = FinishProduct.active_queryset().filter(
             bom_id__in=joint_bom_ids,
             parent_sn_code__isnull=False,
         ).count()
@@ -1130,7 +1255,7 @@ def check_joint_stock_consistency(request):
             is_del=0
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
         
-        finish_robot_stock = FinishProduct.objects.filter(
+        finish_robot_stock = FinishProduct.active_queryset().filter(
             bom_id__in=robot_bom_ids,
             parent_sn_code__isnull=True,
             status=FinishProduct.STATUS_PASS,
@@ -1185,11 +1310,15 @@ def rollback_finish_product(request):
 
         with transaction.atomic():
             item = FinishProduct.objects.select_for_update().get(id=int(item_id))
-            
+
+            # 已回退的成品不能重复回退
+            if item.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+                return JsonResponse({"code": "400", "msg": "该成品已回退，不能重复回退"})
+
             # 记录回退前的库存状态，用于后续同步
             old_inventory_stock = item.inventory_stock
             old_parent_sn_code = item.parent_sn_code
-            
+
             item_snapshot = {
                 "id": item.id,
                 "sn_code": item.sn_code or "",
@@ -1197,46 +1326,56 @@ def rollback_finish_product(request):
                 "bom_id": item.bom_id,
                 "inventory_stock": old_inventory_stock,
                 "parent_sn_code": old_parent_sn_code,
+                "cons_status": item.cons_status,
             }
+
+            before_data_rollback = _serialize_finish_product(item)
 
             if not BomList.objects.filter(id=item.bom_id, is_del=0).exists():
                 return JsonResponse({"code": "400", "msg": "关联 BOM 不存在，无法回退"})
 
             # 获取BOM信息，用于后续成品库存同步
             bom = BomList.objects.get(id=item.bom_id, is_del=0)
-            
+
             recipes = list(AssemblyRecipe.objects.filter(bom_id=item.bom_id).order_by("id"))
             if not recipes:
                 return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法回退"})
 
             # 直接使用绑定的产品 ID（流程上禁止删除被引用产品，无需 material_code 回退）
 
-            for recipe in recipes:
-                part = _recipe_part_info(recipe)
-                bind_id = part["product_id"]
-                if not bind_id:
-                    continue
-                per_unit = part["quantity"] or 0
-                if per_unit < 1:
-                    raise ValueError(f"零件「{part['product_name']}」用量无效")
+            # 按 cons_status 决定是否恢复物料：
+            # 0=组装已扣料 → 恢复；1=组装未扣料 → 不恢复；NULL=历史数据 → 按原逻辑恢复
+            restore_materials = item.cons_status in (
+                None, FinishProduct.CONS_STATUS_CONSUMED,
+            )
 
-                # 直接使用绑定的产品 ID
-                eff_id = bind_id
-                product = Product.objects.select_for_update().get(id=eff_id, is_del=0)
-                before_qty = product.quantity if product.quantity is not None else 0
-                product.quantity = before_qty + per_unit
-                product.save(update_fields=["quantity", "updated_at"])
+            if restore_materials:
+                for recipe in recipes:
+                    part = _recipe_part_info(recipe)
+                    bind_id = part["product_id"]
+                    if not bind_id:
+                        continue
+                    per_unit = part["quantity"] or 0
+                    if per_unit < 1:
+                        raise ValueError(f"零件「{part['product_name']}」用量无效")
 
-                restored_details.append(f"{product.name} +{per_unit}")
-                restored_items.append(
-                    {
-                        "product_id": product.id,
-                        "product_name": product.name,
-                        "before_quantity": before_qty,
-                        "after_quantity": product.quantity,
-                        "delta": per_unit,
-                    }
-                )
+                    # 直接使用绑定的产品 ID
+                    eff_id = bind_id
+                    product = Product.objects.select_for_update().get(id=eff_id, is_del=0)
+                    before_qty = product.quantity if product.quantity is not None else 0
+                    product.quantity = before_qty + per_unit
+                    product.save(update_fields=["quantity", "updated_at"])
+
+                    restored_details.append(f"{product.name} +{per_unit}")
+                    restored_items.append(
+                        {
+                            "product_id": product.id,
+                            "product_name": product.name,
+                            "before_quantity": before_qty,
+                            "after_quantity": product.quantity,
+                            "delta": per_unit,
+                        }
+                    )
 
             # 同步成品库存到产品表
             # 如果成品是入库状态，删除时需要减少产品库存
@@ -1280,7 +1419,9 @@ def rollback_finish_product(request):
                             is_del=0,
                         )
 
-            item.delete()
+            # 回退不删除记录，仅标记为已回退
+            item.cons_status = FinishProduct.CONS_STATUS_ROLLED_BACK
+            item.save(update_fields=["cons_status"])
 
         _log_if_available(
             request,
@@ -1298,10 +1439,27 @@ def rollback_finish_product(request):
             ),
         )
 
+        _log_finish_product_operation(
+            request, None, FinishedProductLog.OPERATION_ROLLBACK,
+            before_data=before_data_rollback, after_data=None,
+            description=format_finish_product_rollback_description(
+                item_snapshot["name"],
+                item_snapshot["sn_code"],
+                restored_details,
+            ),
+        )
+
+        if not restore_materials:
+            msg = "回退成功（组装未扣料，无需恢复零件），成品已标记为已回退"
+        elif restored_details:
+            msg = f"回退成功，已恢复零件库存（共{len(restored_details)}项），成品已标记为已回退"
+        else:
+            msg = "回退成功，成品已标记为已回退"
+
         return JsonResponse(
             {
                 "code": "00000",
-                "msg": "回退成功，成品数据已删除，零件库存已恢复",
+                "msg": msg,
                 "data": {
                     "id": item_snapshot["id"],
                     "restored": restored_details,
@@ -1426,6 +1584,8 @@ def bindable_joints(request):
         .filter(Q(parent_sn_code="") | Q(parent_sn_code__isnull=True))
         .exclude(sn_code__isnull=True)
         .exclude(sn_code="")
+        # 已回退的关节不可绑定
+        .exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
         .order_by("-id")
     )
 
@@ -1467,6 +1627,8 @@ def bind_joints_to_arm(request):
             arm = FinishProduct.objects.get(id=int(arm_id))
         except FinishProduct.DoesNotExist:
             return JsonResponse({"code": "400", "msg": "机械臂不存在"})
+        if arm.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+            return JsonResponse({"code": "400", "msg": "该机械臂已回退，不可绑定关节"})
 
         try:
             arm_bom = BomList.objects.get(id=arm.bom_id, is_del=0)
@@ -1484,6 +1646,8 @@ def bind_joints_to_arm(request):
                 try:
                     joint = FinishProduct.objects.select_for_update().get(id=int(joint_id))
 
+                    before_joint_data = _serialize_finish_product(joint)
+
                     # 验证关节类型
                     try:
                         joint_bom = BomList.objects.get(id=joint.bom_id, is_del=0)
@@ -1497,6 +1661,11 @@ def bind_joints_to_arm(request):
                     # 已绑定的跳过
                     if joint.parent_sn_code:
                         errors.append(f"SN={joint.sn_code or '无SN'} 已有父级，已跳过")
+                        continue
+
+                    # 已回退的关节不可绑定
+                    if joint.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+                        errors.append(f"SN={joint.sn_code or '无SN'} 已回退，已跳过")
                         continue
 
                     # 记录绑定前的状态
@@ -1527,7 +1696,14 @@ def bind_joints_to_arm(request):
 
                     joint.save()
                     bound_count += 1
-                    
+
+                    after_joint_data = _serialize_finish_product(joint)
+                    _log_finish_product_operation(
+                        request, joint, FinishedProductLog.OPERATION_BIND_JOINT,
+                        before_data=before_joint_data, after_data=after_joint_data,
+                        description=f"绑定关节到机械臂 {arm_sn_code}",
+                    )
+
                     # 收集绑定的关节信息
                     bound_joints_info.append({
                         'joint_id': joint.id,
@@ -1582,6 +1758,97 @@ def bind_joints_to_arm(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({"code": "500", "msg": f"绑定失败: {str(e)}"})
+
+
+# ==================== 成品操作记录 API ====================
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def finished_product_log_list(request):
+    """成品操作记录列表（支持按变更字段筛选）"""
+    from core.pagination import parse_page_params
+
+    page_num, page_size = parse_page_params(request, default_size=20)
+
+    sn_code = (request.GET.get("sn_code") or "").strip()
+    operation_type = (request.GET.get("operation_type") or "").strip()
+    operator_name = (request.GET.get("operator_name") or "").strip()
+    changed_field = (request.GET.get("changed_field") or "").strip()
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+    # 变更前/变更后字段值筛选参数
+    before_field = (request.GET.get("before_field") or "").strip()
+    before_match = (request.GET.get("before_match") or "").strip()
+    after_field = (request.GET.get("after_field") or "").strip()
+    after_match = (request.GET.get("after_match") or "").strip()
+
+    # JSON 快照中的枚举字段（值为数字，需精确匹配）
+    json_enum_fields = {"status", "inventory_stock", "repair", "bom_type"}
+
+    def _apply_value_filter(queryset, json_prefix, field, match):
+        """按 before_data/after_data 中指定字段的值筛选：枚举精确匹配，文本模糊匹配"""
+        if not field or match == "" or field not in TRACKABLE_FIELDS:
+            return queryset
+        if field in json_enum_fields:
+            try:
+                num = int(match)
+            except (TypeError, ValueError):
+                return queryset.none()
+            return queryset.filter(**{f"{json_prefix}__{field}": num})
+        return queryset.filter(**{f"{json_prefix}__{field}__icontains": match})
+
+    qs = FinishedProductLog.objects.all()
+    if sn_code:
+        qs = qs.filter(sn_code__icontains=sn_code)
+    if operation_type:
+        qs = qs.filter(operation_type=operation_type)
+    if operator_name:
+        qs = qs.filter(operator_name__icontains=operator_name)
+    if changed_field:
+        qs = qs.filter(changed_fields__contains=changed_field)
+    qs = _apply_value_filter(qs, "before_data", before_field, before_match)
+    qs = _apply_value_filter(qs, "after_data", after_field, after_match)
+    if start_date or end_date:
+        start_day = parse_local_datetime_text(start_date) if start_date else None
+        end_day = parse_local_datetime_text(end_date) if end_date else None
+        if start_day and end_day:
+            range_start, range_end = local_day_range_datetimes(start_day, end_day)
+            qs = qs.filter(create_time__gte=range_start, create_time__lte=range_end)
+        elif start_day:
+            range_start = make_local_aware(datetime.combine(start_day, datetime.min.time()))
+            qs = qs.filter(create_time__gte=range_start)
+        elif end_day:
+            range_end = make_local_aware(datetime.combine(end_day, datetime.max.time()))
+            qs = qs.filter(create_time__lte=range_end)
+
+    total = qs.count()
+    start = (page_num - 1) * page_size
+    items = list(qs.order_by("-create_time", "-id")[start:start + page_size])
+
+    list_data = []
+    for log in items:
+        list_data.append({
+            "id": log.id,
+            "finishProductId": log.finish_product_id,
+            "snCode": log.sn_code,
+            "operationType": log.operation_type,
+            "operationTypeName": log.get_operation_type_display(),
+            "operatorId": log.operator_id,
+            "operatorName": log.operator_name,
+            "beforeData": log.before_data,
+            "afterData": log.after_data,
+            "changedFields": log.changed_fields,
+            "description": log.description,
+            "ip": log.ip,
+            "createTime": format_local_datetime(log.create_time) or "",
+        })
+
+    return JsonResponse({
+        "code": "00000",
+        "msg": "成功",
+        "data": {"list": list_data, "total": total},
+    })
 
 
 # ==================== 不合格项 API ====================
@@ -1658,10 +1925,20 @@ def save_unqualified_items(request):
             product = FinishProduct.objects.get(id=int(finish_product_id))
         except FinishProduct.DoesNotExist:
             return JsonResponse({"code": "404", "msg": "成品不存在"})
+        if product.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+            return JsonResponse({"code": "400", "msg": "该成品已回退，不可维护不良详情"})
+
+        # 快照变更前不良项（用于操作日志）
+        before_items = _snapshot_unqualified_items(int(finish_product_id))
 
         # 如果成品不是测试不良状态，清空不合格项
         if product.status != FinishProduct.STATUS_FAIL:
             UnqualifiedItem.objects.filter(finish_product_id=int(finish_product_id)).delete()
+            after_items = _snapshot_unqualified_items(int(finish_product_id))
+            _log_unqualified_operation(
+                request, product.id, product.sn_code or "",
+                before_items, after_items, "成品非测试不良状态，不良详情已清空",
+            )
             return JsonResponse({
                 "code": "00000",
                 "msg": "成功",
@@ -1706,6 +1983,14 @@ def save_unqualified_items(request):
                     "create_time": format_local_datetime(item.create_time),
                 })
 
+        # 记录不良详情操作日志
+        after_items = _snapshot_unqualified_items(int(finish_product_id))
+        _log_unqualified_operation(
+            request, product.id, product.sn_code or "",
+            before_items, after_items,
+            "保存不良详情: " + ("、".join(i["label"] for i in after_items) or "（空）"),
+        )
+
         return JsonResponse({
             "code": "00000",
             "msg": "保存成功",
@@ -1733,7 +2018,19 @@ def delete_unqualified_item(request):
         except UnqualifiedItem.DoesNotExist:
             return JsonResponse({"code": "404", "msg": "不合格项不存在"})
 
+        # 快照并记录删除操作日志
+        fp_id = item.finish_product_id
+        before_items = _snapshot_unqualified_items(fp_id)
+        deleted_label = next(
+            (i["label"] for i in before_items if i["value"] == item.unqualified_value),
+            f"未知({item.unqualified_value})",
+        )
         item.delete()
+        after_items = _snapshot_unqualified_items(fp_id)
+        _log_unqualified_operation(
+            request, fp_id, item.sn_code or "",
+            before_items, after_items, f"删除不良项: {deleted_label}",
+        )
 
         return JsonResponse({
             "code": "00000",
@@ -1763,6 +2060,8 @@ def add_unqualified_item(request):
             product = FinishProduct.objects.get(id=int(finish_product_id))
         except FinishProduct.DoesNotExist:
             return JsonResponse({"code": "404", "msg": "成品不存在"})
+        if product.cons_status == FinishProduct.CONS_STATUS_ROLLED_BACK:
+            return JsonResponse({"code": "400", "msg": "该成品已回退，不可添加不良项"})
 
         if product.status != FinishProduct.STATUS_FAIL:
             return JsonResponse({"code": "400", "msg": "只有测试不良的成品才能添加不合格项"})
@@ -1773,6 +2072,9 @@ def add_unqualified_item(request):
             unqualified_value=int(unqualified_value),
         ).exists():
             return JsonResponse({"code": "400", "msg": "该不良项已存在，不可重复添加"})
+
+        # 快照变更前不良项（用于操作日志）
+        before_items = _snapshot_unqualified_items(int(finish_product_id))
 
         item = UnqualifiedItem.objects.create(
             finish_product_id=int(finish_product_id),
@@ -1792,6 +2094,13 @@ def add_unqualified_item(request):
                 unqualified_label = dict_item.label
         except (ValueError, TypeError):
             pass
+
+        # 记录不良详情操作日志
+        after_items = _snapshot_unqualified_items(int(finish_product_id))
+        _log_unqualified_operation(
+            request, product.id, product.sn_code or "",
+            before_items, after_items, f"添加不良项: {unqualified_label}",
+        )
 
         return JsonResponse({
             "code": "00000",
@@ -1879,8 +2188,8 @@ def joint_test_report(request):
         start_dt = make_local_aware(datetime.combine(start_date, datetime.min.time()))
         end_dt = make_local_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
         
-        # 查询成品数据
-        products = FinishProduct.objects.filter(
+        # 查询成品数据（排除已回退）
+        products = FinishProduct.active_queryset().filter(
             bom_id__in=[b["id"] for b in bom_list],
             test_time__gte=start_dt,
             test_time__lt=end_dt,

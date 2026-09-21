@@ -147,5 +147,10 @@ def format_bom_assemble_description(bom_name, assemble_qty, consumed_details, de
 
 def format_finish_product_rollback_description(finish_name, sn_code, restored_details):
     sn_text = sn_code or "无SN"
-    parts_text = ", ".join(restored_details) if restored_details else "无"
+    if not restored_details:
+        parts_text = "无"
+    elif len(restored_details) > 3:
+        parts_text = ", ".join(restored_details[:3]) + f" 等共{len(restored_details)}项"
+    else:
+        parts_text = ", ".join(restored_details)
     return f"成品回退: {finish_name} (SN: {sn_text}), 恢复零件: {parts_text}"

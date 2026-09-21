@@ -20,4 +20,6 @@ urlpatterns = [
     path("unqualified/add/", views.add_unqualified_item, name="add_unqualified_item"),
     # 关节测试报表
     path("joint-test-report/", views.joint_test_report, name="joint_test_report"),
+    # 成品操作记录
+    path("log/list/", views.finished_product_log_list, name="finished_product_log_list"),
 ]

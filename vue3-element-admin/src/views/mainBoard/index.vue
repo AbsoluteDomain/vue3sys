@@ -736,7 +736,7 @@
     <el-dialog
       v-model="detailDialogVisible"
       :title="detailDialogTitle"
-      width="1080px"
+      width="1280px"
       destroy-on-close
       class="finish-detail-dialog"
     >

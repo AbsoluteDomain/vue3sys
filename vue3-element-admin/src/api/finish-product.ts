@@ -186,3 +186,22 @@ export function getJointTestReport(params: {
     params
   })
 }
+
+// ==================== 成品操作记录 API ====================
+
+export function getFinishedProductLogList(params: {
+  pageNum?: number
+  pageSize?: number
+  sn_code?: string
+  operation_type?: string
+  operator_name?: string
+  changed_field?: string
+  start_date?: string
+  end_date?: string
+}) {
+  return request({
+    url: '/api/v1/finish-product/log/list/',
+    method: 'get',
+    params
+  })
+}

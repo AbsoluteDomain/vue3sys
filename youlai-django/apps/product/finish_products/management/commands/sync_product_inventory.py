@@ -62,8 +62,8 @@ class Command(BaseCommand):
             if not material_code:
                 continue
 
-            # 计算成品表中实际在库的数量
-            actual_stock = FinishProduct.objects.filter(
+            # 计算成品表中实际在库的数量（排除已回退）
+            actual_stock = FinishProduct.active_queryset().filter(
                 bom_id=bom.id,
                 parent_sn_code__isnull=True,
                 status=FinishProduct.STATUS_PASS,
