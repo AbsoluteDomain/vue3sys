@@ -130,7 +130,8 @@ class WarehouseLog(models.Model):
     storage_status = models.IntegerField(choices=STORAGE_CHOICES, verbose_name="操作类型")
     count = models.IntegerField(default=1, verbose_name="数量")
     description = models.TextField(null=True, blank=True, verbose_name="操作描述")
-    
+    user_description = models.TextField(null=True, blank=True, verbose_name="用户描述")
+
     # 新增字段：操作人
     operator_id = models.BigIntegerField(null=True, blank=True, verbose_name="操作人ID")
     operator_name = models.CharField(max_length=64, null=True, blank=True, verbose_name="操作人昵称")

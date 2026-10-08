@@ -29,24 +29,14 @@
           <el-radio value="3">研发</el-radio>
         </el-radio-group>
       </el-form-item>
-      <el-form-item :label="stockType === 'in' ? '入库信息' : '出库信息'" prop="description">
+      <el-form-item label="描述" prop="description">
         <el-input
           v-model="formData.description"
           type="textarea"
           :rows="3"
           maxlength="500"
           show-word-limit
-          :placeholder="stockType === 'in' ? '请输入入库信息描述' : '请输入出库信息描述'"
-        />
-      </el-form-item>
-      <el-form-item label="描述" prop="remark">
-        <el-input
-          v-model="formData.remark"
-          type="textarea"
-          :rows="2"
-          maxlength="500"
-          show-word-limit
-          placeholder="请输入补充描述（选填）"
+          placeholder="请输入出入库描述（选填）"
         />
       </el-form-item>
     </el-form>
@@ -79,13 +69,11 @@ const materialCode = ref('')
 const formData = reactive({
   quantity: 1,
   description: '',
-  remark: '',
   stockOutType: '2' // 默认外销
 })
 
 const formRules = {
-  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
-  description: [{ required: true, message: '请填写出入库信息', trigger: 'blur' }]
+  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }]
 }
 
 const dialogTitle = computed(() => (stockType.value === 'in' ? '产品入库' : '产品出库'))
@@ -104,7 +92,6 @@ const open = (row, type) => {
   materialCode.value = row.material_code || ''
   formData.quantity = 1
   formData.description = ''
-  formData.remark = ''
   formData.stockOutType = '2' // 默认外销
   visible.value = true
 }
@@ -113,7 +100,6 @@ const handleClosed = () => {
   formRef.value?.resetFields()
   formData.quantity = 1
   formData.description = ''
-  formData.remark = ''
   formData.stockOutType = '2'
 }
 
@@ -128,14 +114,12 @@ const handleSubmit = () => {
     // 入库=1，出库(外销)=2，出库(研发)=3
     const storageStatus = stockType.value === 'in' ? 1 : parseInt(formData.stockOutType, 10)
     const desc = formData.description.trim()
-    const remark = formData.remark.trim()
-    const fullDescription = remark ? `${desc} | ${remark}` : desc
     const warehouseLogData = {
       name: productName.value,
       material_code: materialCode.value?.trim() || undefined,
       storage_status: storageStatus,
       count: formData.quantity,
-      description: fullDescription
+      user_description: desc || undefined
     }
     adjustProductStock({
       id: productId.value,
@@ -165,7 +149,7 @@ defineExpose({ open })
 <style scoped>
 .stock-hint {
   margin-left: 8px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 </style>

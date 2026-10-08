@@ -553,11 +553,14 @@ def warehouse_log_list(request):
 
     # 批量查询本页涉及的库存类型（机械臂/关节等）
     material_codes = {item.material_code for item in page_items if item.material_code}
-    # 按 material_code 查 Product.type
+    # 按 material_code 查 Product.type 和 description
     product_type_map = {}
+    product_desc_map = {}
     if material_codes:
-        for p in Product.objects.filter(material_code__in=material_codes).only('material_code', 'type'):
+        for p in Product.objects.filter(material_code__in=material_codes).only('material_code', 'type', 'description'):
             product_type_map[p.material_code] = p.type
+            if p.description:
+                product_desc_map[p.material_code] = p.description
     # 按 material_code 查 BomList.type（0=关节, 1=机械臂, 2=其他）
     bom_type_map = {}
     if material_codes:
@@ -565,6 +568,25 @@ def warehouse_log_list(request):
         bom_type_names = {0: "关节", 1: "机械臂", 2: "其他"}
         for b in BomList.objects.filter(material_code__in=material_codes).only('material_code', 'type'):
             bom_type_map[b.material_code] = bom_type_names.get(b.type, "")
+
+    # 按 sn_code 查 FinishProduct.description（成品自身的描述）
+    sn_codes = {item.sn_code for item in page_items if item.sn_code}
+    finish_desc_map = {}
+    if sn_codes:
+        from apps.product.finish_products.models import FinishProduct
+        for f in FinishProduct.objects.filter(sn_code__in=sn_codes).only('sn_code', 'description'):
+            if f.description:
+                finish_desc_map[f.sn_code] = f.description
+
+    def _resolve_product_description(item):
+        """优先按 material_code 查 Product.description，其次按 sn_code 查 FinishProduct.description"""
+        mc = item.material_code
+        if mc and mc in product_desc_map:
+            return product_desc_map[mc]
+        sn = item.sn_code
+        if sn and sn in finish_desc_map:
+            return finish_desc_map[sn]
+        return ""
 
     def _resolve_type_name(item):
         """优先按 material_code 查 Product.type，其次查 BomList.type"""
@@ -591,6 +613,8 @@ def warehouse_log_list(request):
             "storage_status_name": item.get_storage_status_display(),
             "count": item.count,
             "description": item.description or "",
+            "user_description": item.user_description or "",
+            "product_description": _resolve_product_description(item),
             "operator_name": operator_display,
             "created_at": format_local_datetime(item.created_at),
         })
@@ -620,26 +644,38 @@ def create_warehouse_log(request):
         storage_status = body.get("storage_status")
         count = body.get("count", 1)
         description = (body.get("description") or "").strip() or None
+        user_description = (body.get("user_description") or "").strip() or None
         module = (body.get("module") or "manual").strip() or None
         action_type = (body.get("action_type") or "").strip() or None
         operation_detail = body.get("operation_detail")
-        
-        valid_statuses = (WarehouseLog.STORAGE_IN, WarehouseLog.STORAGE_OUT_SALE, 
+
+        valid_statuses = (WarehouseLog.STORAGE_IN, WarehouseLog.STORAGE_OUT_SALE,
                          WarehouseLog.STORAGE_OUT_RANDD, WarehouseLog.MANUAL_ADJUST)
         if storage_status not in valid_statuses:
             return JsonResponse({"code": "400", "msg": "出入库状态无效"})
-        
+
         try:
             count = int(count)
         except (TypeError, ValueError):
             return JsonResponse({"code": "400", "msg": "数量必须为整数"})
-        
+
         if count < 1:
             return JsonResponse({"code": "400", "msg": "数量必须大于 0"})
-        
+
         if not sn_code and not material_code:
             return JsonResponse({"code": "400", "msg": "SN码和物料编码不能同时为空"})
-        
+
+        # 若未提供系统描述，自动生成操作摘要
+        if not description:
+            status_names = {
+                WarehouseLog.STORAGE_IN: '入库',
+                WarehouseLog.STORAGE_OUT_SALE: '出库(外销)',
+                WarehouseLog.STORAGE_OUT_RANDD: '出库(研发)',
+                WarehouseLog.MANUAL_ADJUST: '手动调整',
+            }
+            action_name = status_names.get(storage_status, str(storage_status))
+            description = f"产品: {name or sn_code or material_code or ''}, 操作: {action_name}, 数量: {count}"
+
         # 使用新的日志记录逻辑，自动获取操作人信息
         warehouse_log = create_log_with_operator(
             request=request,
@@ -649,6 +685,7 @@ def create_warehouse_log(request):
             material_code=material_code,
             count=count,
             description=description,
+            user_description=user_description,
             module=module,
             action_type=action_type,
             operation_detail=operation_detail,

@@ -148,6 +148,7 @@ def create_warehouse_log(
     material_code: str = '',
     count: int = 1,
     description: str = '',
+    user_description: str = '',
     module: str = '',
     action_type: str = '',
     operation_detail: Optional[List[Dict[str, Any]]] = None,
@@ -163,7 +164,8 @@ def create_warehouse_log(
         sn_code: SN码
         material_code: 物料编码
         count: 数量
-        description: 操作描述
+        description: 系统自动生成的操作描述
+        user_description: 用户手动输入的补充描述
         module: 操作来源模块（如 finish_product, inventory 等）
         action_type: 具体操作类型（如 bind_joint, unbind_joint 等）
         operation_detail: 操作详情列表，每个元素是一个字典，描述对数据的具体操作
@@ -194,6 +196,7 @@ def create_warehouse_log(
             storage_status=storage_status,
             count=count,
             description=description,
+            user_description=user_description,
             operator_id=operator_info['operator_id'],
             operator_name=operator_info['operator_name'],
             module=module,

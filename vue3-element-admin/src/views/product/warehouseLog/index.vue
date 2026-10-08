@@ -107,7 +107,11 @@
         </el-table-column>
         <el-table-column prop="product_type_name" label="库存类型" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.product_type_name" size="small">{{ row.product_type_name }}</el-tag>
+            <el-tag
+              v-if="row.product_type_name"
+              size="small"
+              :type="productTypeTagType(row.product_type_name)"
+            >{{ row.product_type_name }}</el-tag>
             <span v-else>—</span>
           </template>
         </el-table-column>
@@ -120,6 +124,11 @@
         <el-table-column prop="description" label="出入库信息" min-width="250" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.description || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="描述" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.user_description || row.product_description || '—' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="operator_name" label="操作人" width="120" align="center" show-overflow-tooltip>
@@ -228,6 +237,18 @@ const resetQuery = () => {
 const handleSizeChange = () => getList()
 const handleCurrentChange = () => getList()
 
+const productTypeTagType = (name) => {
+  const map = {
+    '关节': 'success',
+    '机械臂': 'warning',
+    '自制': 'primary',
+    '外协': 'info',
+    '外购': 'info',
+    '其他': 'danger',
+  }
+  return map[name] || 'info'
+}
+
 // ==================== 导出 Excel ====================
 const exportLoading = ref(false)
 
@@ -239,6 +260,7 @@ const EXPORT_COLUMNS = [
   { header: '状态', key: 'storage_status' },
   { header: '数量', key: 'count' },
   { header: '出入库信息', key: 'description' },
+  { header: '描述', key: '_merged_description' },
   { header: '操作人', key: 'operator_name' },
   { header: '创建时间', key: 'created_at' },
 ]
@@ -252,6 +274,7 @@ const resolveDictLabel = (code, value) => {
 
 const getExportCellValue = (row, key) => {
   if (key === 'storage_status') return resolveDictLabel('storage_status', row.storage_status)
+  if (key === '_merged_description') return row.user_description || row.product_description || ''
   return row[key] ?? ''
 }
 

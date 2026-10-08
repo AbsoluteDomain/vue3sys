@@ -1136,10 +1136,6 @@ def update_finish_product(request):
                     new_status_name = stock_status_names.get(item.inventory_stock, str(item.inventory_stock))
                     
                     base_desc = f"BOM: {bom.bom_model or ''} {bom.bom_name or ''}, 操作: {action_desc} ({old_status_name} → {new_status_name})"
-                    if user_desc:
-                        full_desc = f"{base_desc} | {user_desc}"
-                    else:
-                        full_desc = base_desc
                     
                     # 构建操作详情
                     operation_detail = {
@@ -1164,7 +1160,8 @@ def update_finish_product(request):
                         sn_code=item.sn_code or "",
                         material_code=bom.material_code or "",
                         count=1,
-                        description=full_desc,
+                        description=base_desc,
+                        user_description=user_desc,
                         module='finish_product',
                         action_type=f'product_{inventory_action}',
                         operation_detail=[operation_detail],

@@ -124,11 +124,13 @@ export function deleteRepair(data: { id: number }) {
 }
 
 export function createWarehouseLog(data: {
+  name?: string
   sn_code?: string
   material_code?: string
   storage_status: number
   count: number
   description?: string
+  user_description?: string
 }) {
   return request({
     url: '/api/v1/product/warehouse-log/create/',
