@@ -468,6 +468,9 @@ def warehouse_log_list(request):
     name = (request.GET.get("name", "") or "").strip()
     storage_status = (request.GET.get("storage_status", "") or "").strip()
     product_type = (request.GET.get("product_type", "") or "").strip()
+    description = (request.GET.get("description", "") or "").strip()
+    user_description = (request.GET.get("user_description", "") or "").strip()
+    operator_name = (request.GET.get("operator_name", "") or "").strip()
     start_date = (request.GET.get("start_date", "") or "").strip()
     end_date = (request.GET.get("end_date", "") or "").strip()
 
@@ -478,6 +481,24 @@ def warehouse_log_list(request):
         qs = qs.filter(material_code__icontains=material_code)
     if name:
         qs = qs.filter(name__icontains=name)
+    if description:
+        qs = qs.filter(description__icontains=description)
+    if user_description:
+        from django.db.models import Q
+        # 描述列来源：warehouse_log.user_description + Product.description + FinishProduct.description
+        desc_q = Q(user_description__icontains=user_description)
+        # 按 material_code 查 Product.description 包含关键词的
+        matched_mcs = set(Product.objects.filter(description__icontains=user_description).values_list('material_code', flat=True))
+        if matched_mcs:
+            desc_q |= Q(material_code__in=list(matched_mcs))
+        # 按 sn_code 查 FinishProduct.description 包含关键词的
+        from apps.product.finish_products.models import FinishProduct
+        matched_sns = set(FinishProduct.objects.filter(description__icontains=user_description).values_list('sn_code', flat=True))
+        if matched_sns:
+            desc_q |= Q(sn_code__in=list(matched_sns))
+        qs = qs.filter(desc_q)
+    if operator_name:
+        qs = qs.filter(operator_name__icontains=operator_name)
     if product_type:
         # 按库存类型过滤：反查 Product.type 和 BomList.type 对应的 material_code
         from apps.product.boms.models import BomList

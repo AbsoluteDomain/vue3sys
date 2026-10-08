@@ -48,6 +48,36 @@
             <el-option label="其他" value="其他" />
           </el-select>
         </el-form-item>
+        <el-form-item label="出入库信息">
+          <el-input
+            v-model="queryParams.description"
+            placeholder="出入库信息"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="queryParams.user_description"
+            placeholder="描述"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="操作人">
+          <el-input
+            v-model="queryParams.operator_name"
+            placeholder="操作人"
+            clearable
+            style="width: 120px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="状态">
           <DictSelect
             v-model="queryParams.storage_status"
@@ -173,6 +203,9 @@ const queryParams = reactive({
   sn_code: '',
   material_code: '',
   product_type: '',
+  description: '',
+  user_description: '',
+  operator_name: '',
   storage_status: '',
   start_date: '',
   end_date: ''
@@ -188,6 +221,9 @@ const buildListParams = () => {
     sn_code: queryParams.sn_code,
     material_code: queryParams.material_code,
     product_type: queryParams.product_type,
+    description: queryParams.description,
+    user_description: queryParams.user_description,
+    operator_name: queryParams.operator_name,
     storage_status: queryParams.storage_status
   }
   if (dateRange.value?.[0]) {
@@ -228,6 +264,9 @@ const resetQuery = () => {
   queryParams.sn_code = ''
   queryParams.material_code = ''
   queryParams.product_type = ''
+  queryParams.description = ''
+  queryParams.user_description = ''
+  queryParams.operator_name = ''
   queryParams.storage_status = ''
   dateRange.value = null
   queryParams.pageNum = 1
