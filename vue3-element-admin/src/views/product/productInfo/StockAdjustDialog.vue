@@ -39,6 +39,16 @@
           :placeholder="stockType === 'in' ? '请输入入库信息描述' : '请输入出库信息描述'"
         />
       </el-form-item>
+      <el-form-item label="描述" prop="remark">
+        <el-input
+          v-model="formData.remark"
+          type="textarea"
+          :rows="2"
+          maxlength="500"
+          show-word-limit
+          placeholder="请输入补充描述（选填）"
+        />
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
@@ -69,6 +79,7 @@ const materialCode = ref('')
 const formData = reactive({
   quantity: 1,
   description: '',
+  remark: '',
   stockOutType: '2' // 默认外销
 })
 
@@ -93,6 +104,7 @@ const open = (row, type) => {
   materialCode.value = row.material_code || ''
   formData.quantity = 1
   formData.description = ''
+  formData.remark = ''
   formData.stockOutType = '2' // 默认外销
   visible.value = true
 }
@@ -101,6 +113,7 @@ const handleClosed = () => {
   formRef.value?.resetFields()
   formData.quantity = 1
   formData.description = ''
+  formData.remark = ''
   formData.stockOutType = '2'
 }
 
@@ -114,12 +127,15 @@ const handleSubmit = () => {
     submitting.value = true
     // 入库=1，出库(外销)=2，出库(研发)=3
     const storageStatus = stockType.value === 'in' ? 1 : parseInt(formData.stockOutType, 10)
+    const desc = formData.description.trim()
+    const remark = formData.remark.trim()
+    const fullDescription = remark ? `${desc} | ${remark}` : desc
     const warehouseLogData = {
       name: productName.value,
       material_code: materialCode.value?.trim() || undefined,
       storage_status: storageStatus,
       count: formData.quantity,
-      description: formData.description.trim()
+      description: fullDescription
     }
     adjustProductStock({
       id: productId.value,

@@ -129,6 +129,9 @@
           <el-button type="info" @click="openOrderByNoDialog">
             <el-icon><Search /></el-icon> 按订单号查询
           </el-button>
+          <el-button v-if="isExternalData" type="warning" :loading="syncLoading" @click="handleSyncToLocal">
+            <el-icon><Upload /></el-icon> 同步订单数据
+          </el-button>
           <el-button @click="openColumnDialog">
             <el-icon><Setting /></el-icon> 列展示
           </el-button>
@@ -379,12 +382,12 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   Search, Refresh, Setting, Back, CircleCheck,
-  Download, Calendar, RefreshRight
+  Download, Calendar, RefreshRight, Upload
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getOrderList, orderHealthCheck, orderSyncAll,
-  orderSyncToday, orderSyncSince, orderByNo
+  orderSyncToday, orderSyncSince, orderByNo, orderSyncToLocal
 } from '@/api/order'
 import { useOrderTableColumns } from '@/composables/useOrderTableColumns'
 
@@ -422,6 +425,7 @@ const allExternalData = ref([])
 const total = ref(0)
 const loading = ref(false)
 const healthLoading = ref(false)
+const syncLoading = ref(false)
 
 // 外部数据状态
 const isExternalData = ref(false)
@@ -678,6 +682,42 @@ const handleOrderByNo = () => {
     })
     .finally(() => {
       loading.value = false
+    })
+}
+
+// 同步外部数据到本地数据库
+const handleSyncToLocal = () => {
+  if (!allExternalData.value || allExternalData.value.length === 0) {
+    ElMessage.warning('当前没有可同步的数据')
+    return
+  }
+  syncLoading.value = true
+  orderSyncToLocal(allExternalData.value)
+    .then((data) => {
+      const inserted = data?.inserted ?? 0
+      const skipped = data?.skipped ?? 0
+      const skippedOrders = data?.skipped_orders || []
+      let msg = `同步完成：新增 ${inserted} 条`
+      if (skipped > 0) {
+        msg += `，跳过 ${skipped} 条已存在的订单`
+      }
+      // 弹窗显示结果，包含跳过的订单号
+      const skippedHtml = skippedOrders.length > 0
+        ? `<div style="margin-top:12px;text-align:left;"><div style="font-weight:600;margin-bottom:4px;">已跳过的订单流水号：</div><div style="max-height:200px;overflow:auto;background:#f5f7fa;padding:8px 12px;border-radius:4px;font-size:13px;line-height:1.6;">${skippedOrders.join('、')}</div></div>`
+        : ''
+      ElMessageBox.alert(
+        `<div>${msg}</div>${skippedHtml}`,
+        '同步完成',
+        { confirmButtonText: '确定', type: 'success', dangerouslyUseHTMLString: true }
+      )
+      // 刷新页面（切换回数据库列表）
+      handleBackToDbList()
+    })
+    .catch((err) => {
+      ElMessage.error(err?.message || '同步订单数据失败')
+    })
+    .finally(() => {
+      syncLoading.value = false
     })
 }
 

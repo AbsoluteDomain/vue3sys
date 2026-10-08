@@ -70,6 +70,16 @@
             @change="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="queryParams.description"
+            placeholder="描述"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="返修">
           <el-select
             v-model="queryParams.repair"
@@ -136,6 +146,9 @@
           </el-button>
           <el-button type="warning" @click="handleAssemble">
             <el-icon><Box /></el-icon> 组装产品
+          </el-button>
+          <el-button type="info" :loading="exportLoading" @click="handleExportExcel">
+            <el-icon><Download /></el-icon> 导出Excel
           </el-button>
           <el-button @click="openColumnDialog">
             <el-icon><Setting /></el-icon> 列展示
@@ -891,8 +904,9 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue'
-import { Search, Refresh, Setting, Box, WarningFilled, Plus, Operation } from '@element-plus/icons-vue'
+import { Search, Refresh, Setting, Box, WarningFilled, Plus, Operation, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ExcelJS from 'exceljs'
 import { getFinishProductList, createFinishProduct, updateFinishProduct, rollbackFinishProduct, checkJointStockConsistency, bindJointsToArm, getBindableJoints, getUnqualifiedItems, saveUnqualifiedItems, deleteUnqualifiedItem, addUnqualifiedItem } from '@/api/finish-product'
 import { createRepair, getBomList } from '@/api/product'
 import { useFinishProductTableColumns } from '@/composables/useFinishProductTableColumns'
@@ -945,7 +959,8 @@ const buildListParams = () => {
     bom_type: queryParams.bom_type,
     status: queryParams.status,
     inventory_stock: queryParams.inventory_stock,
-    repair: queryParams.repair
+    repair: queryParams.repair,
+    description: queryParams.description
   }
   appendDateRangeParams(params, queryParams.createDateRange, 'create_start_date', 'create_end_date')
   appendDateRangeParams(params, queryParams.updateDateRange, 'update_start_date', 'update_end_date')
@@ -1249,6 +1264,115 @@ const loadAllPages = async (baseParams) => {
   return { allList, total }
 }
 
+// ==================== 导出 Excel ====================
+const exportLoading = ref(false)
+
+const EXPORT_COLUMNS = [
+  { header: 'SN码', key: 'sn_code' },
+  { header: 'BOM类型', key: 'bom_type' },
+  { header: 'BOM型号', key: 'bom_model' },
+  { header: 'BOM名称', key: 'bom_name' },
+  { header: '物料编码', key: 'material_code' },
+  { header: '父级SN码', key: 'parent_sn_code' },
+  { header: '测试状态', key: 'status' },
+  { header: '库存状态', key: 'inventory_stock' },
+  { header: '返修', key: 'repair' },
+  { header: '测试状态修改时间', key: 'test_time' },
+  { header: '入库时间', key: 'stock_in_time' },
+  { header: '出库时间', key: 'stock_out_time' },
+  { header: '创建时间', key: 'create_time' },
+  { header: '更新时间', key: 'update_time' },
+  { header: '描述', key: 'description' },
+]
+
+// 库存状态从字典取标签
+const resolveDictLabel = (code, value) => {
+  if (value === null || value === undefined || value === '') return ''
+  const items = dictStore.getDictItems(code)
+  const item = items.find(i => String(i.value) === String(value))
+  return item?.label || ''
+}
+
+// 按列 key 取行的显示值（格式化后的文本，非原始 code）
+const getExportCellValue = (row, key) => {
+  switch (key) {
+    case 'bom_type': return row.bom_type_name || ''
+    case 'status': return row.status_name || ''
+    case 'inventory_stock': return resolveDictLabel('storage_status', row.inventory_stock)
+    case 'repair': return row.repair_name || ''
+    default: return row[key] ?? ''
+  }
+}
+
+const handleExportExcel = async () => {
+  exportLoading.value = true
+  try {
+    let exportData
+    if (collapseMode.value) {
+      exportData = visibleData.value
+    } else {
+      const params = buildListParams()
+      const { allList } = await loadAllPages({ ...params, pageNum: 1, pageSize: 100 })
+      exportData = allList
+    }
+
+    if (!exportData || exportData.length === 0) {
+      ElMessage.warning('没有可导出的数据')
+      return
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet('成品列表')
+
+    sheet.columns = EXPORT_COLUMNS.map(col => ({
+      header: col.header,
+      key: col.key,
+      width: 22,
+    }))
+
+    // 表头样式
+    const headerRow = sheet.getRow(1)
+    headerRow.font = { bold: true }
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } }
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
+
+    exportData.forEach(row => {
+      const rowData = {}
+      EXPORT_COLUMNS.forEach(col => {
+        rowData[col.key] = getExportCellValue(row, col.key)
+      })
+      sheet.addRow(rowData)
+    })
+
+    // 自动筛选：覆盖表头到最后一行数据
+    const lastCol = String.fromCharCode(64 + EXPORT_COLUMNS.length)
+    const lastRow = exportData.length + 1
+    sheet.autoFilter = `A1:${lastCol}${lastRow}`
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
+    })
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    link.href = downloadUrl
+    link.download = `成品列表_${dateStr}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+
+    ElMessage.success(`已导出 ${exportData.length} 条数据`)
+  } catch (e) {
+    console.error('导出失败', e)
+    ElMessage.error('导出失败')
+  } finally {
+    exportLoading.value = false
+  }
+}
+
 const handleSearch = () => {
   queryParams.pageNum = 1
   getList()
@@ -1262,6 +1386,7 @@ const resetQuery = () => {
   queryParams.status = ''
   queryParams.inventory_stock = ''
   queryParams.repair = ''
+  queryParams.description = ''
   queryParams.createDateRange = null
   queryParams.updateDateRange = null
   queryParams.pageNum = 1

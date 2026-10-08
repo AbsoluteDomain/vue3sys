@@ -109,3 +109,15 @@ export function orderByNo(orderNo: string) {
     return { list, total: list.length }
   })
 }
+
+// ==================== 同步外部数据到本地数据库 ====================
+
+// 将外部订单数据同步到本地 order_list 表
+// POST /api/v1/order/sync/local/
+export function orderSyncToLocal(orders: any[]) {
+  return request({
+    url: '/api/v1/order/sync/local/',
+    method: 'post',
+    data: { orders }
+  })
+}

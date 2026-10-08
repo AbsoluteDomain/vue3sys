@@ -696,6 +696,7 @@ def finish_product_list(request):
     parent_sn_code = (
         request.GET.get("parent_sn_code", "") or request.GET.get("parentSnCode", "") or ""
     ).strip()
+    description = (request.GET.get("description", "") or "").strip()
 
     qs = FinishProduct.objects.all()
     # 默认过滤已回退记录（cons_status=2），include_rolled_back=1 时包含
@@ -704,6 +705,8 @@ def finish_product_list(request):
         qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     if sn_code:
         qs = qs.filter(sn_code__icontains=sn_code)
+    if description:
+        qs = qs.filter(description__icontains=description)
     if parent_sn_code:
         qs = qs.filter(parent_sn_code=parent_sn_code)
     if bom_id:
@@ -1118,7 +1121,7 @@ def update_finish_product(request):
                 _sync_product_inventory(bom, inventory_action)
                 
                 if warehouse_log_type:
-                    user_desc = (body.get("warehouse_log_description") or body.get("warehouseLogDescription") or "").strip()
+                    user_desc = (body.get("warehouse_log_description") or body.get("warehouseLogDescription") or body.get("description") or "").strip()
                     action_desc = '入库' if inventory_action == 'in' else '出库'
                     
                     # 状态名称映射

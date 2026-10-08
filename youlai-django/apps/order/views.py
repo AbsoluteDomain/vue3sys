@@ -6,6 +6,8 @@
 
 from datetime import datetime
 
+import json
+
 import requests as http_requests
 from django.db.models import Q
 from django.http import JsonResponse
@@ -309,4 +311,160 @@ def order_by_no(request, order_no):
         "code": "00000",
         "msg": "成功",
         "data": {"list": data_list, "total": len(data_list)},
+    })
+
+
+# ==================== 同步外部数据到本地数据库 ====================
+
+
+def _parse_decimal(value):
+    """安全解析 Decimal 字段，失败返回 None。"""
+    if value is None or value == "":
+        return None
+    try:
+        from decimal import Decimal
+        return Decimal(str(value))
+    except Exception:
+        return None
+
+
+def _parse_datetime_field(value):
+    """安全解析日期时间字段，失败返回 None。"""
+    if not value or not isinstance(value, str):
+        return None
+    # 兼容 "YYYY-MM-DD HH:MM:SS" 和 "YYYY-MM-DDTHH:MM:SS"
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value.strip()[:len(fmt)], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _compute_content_hash(item):
+    """对业务字段取 MD5 哈希，用于识别完全相同的重复数据。"""
+    import hashlib
+    fields = [
+        "order_no", "contract_no", "customer_name", "customer_no",
+        "material_no", "product_name", "product_model", "product_category",
+        "quantity", "unit_price", "amount", "tax_unit_price", "tax_amount",
+        "order_date", "delivery_date", "create_at",
+    ]
+    parts = []
+    for f in fields:
+        v = item.get(f)
+        if v is not None:
+            parts.append(f"{f}={v}")
+    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def order_sync_local(request):
+    """将外部订单数据同步到本地 order_list 表。
+
+    去重策略（双层）：
+    1. 有 order_no 的记录：按 order_no 去重（已在库中或同批次已插入则跳过）
+    2. 无 order_no 的记录：按 content_hash（业务字段MD5）去重
+
+    每条记录写入 synced_at（同步时间戳）和 content_hash，便于追溯。
+
+    请求体 JSON: {"orders": [{order_no, contract_no, ...}, ...]}
+    返回: {"code": "00000", "data": {"inserted": N, "skipped": M, "skipped_orders": [...]}}
+    """
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"code": "400", "msg": "请求体不是有效的 JSON"})
+
+    orders = body.get("orders")
+    if not isinstance(orders, list) or not orders:
+        return JsonResponse({"code": "400", "msg": "orders 字段不能为空"})
+
+    from django.utils import timezone
+    sync_time = timezone.now()
+
+    # === 第一层：按 order_no 批量查询已存在的 ===
+    incoming_order_nos = []
+    for item in orders:
+        no = (item.get("order_no") or "").strip()
+        if no:
+            incoming_order_nos.append(no)
+
+    existing_nos = set()
+    if incoming_order_nos:
+        existing_nos = set(
+            OrderList.objects.filter(order_no__in=incoming_order_nos)
+            .values_list("order_no", flat=True)
+        )
+
+    # === 第二层：无 order_no 的记录，按 content_hash 去重 ===
+    # 先计算所有记录的 hash
+    for item in orders:
+        item["_hash"] = _compute_content_hash(item)
+
+    no_order_items = [item for item in orders if not (item.get("order_no") or "").strip()]
+    incoming_hashes = [item["_hash"] for item in no_order_items]
+
+    existing_hashes = set()
+    if incoming_hashes:
+        existing_hashes = set(
+            OrderList.objects.filter(content_hash__in=incoming_hashes)
+            .values_list("content_hash", flat=True)
+        )
+
+    inserted = 0
+    skipped_orders = []
+    skipped_dup = 0  # 无 order_no 的重复记录数
+
+    for item in orders:
+        order_no = (item.get("order_no") or "").strip()
+        content_hash = item["_hash"]
+
+        # 有 order_no：按 order_no 去重
+        if order_no and order_no in existing_nos:
+            skipped_orders.append(order_no)
+            continue
+
+        # 无 order_no：按 content_hash 去重
+        if not order_no and content_hash in existing_hashes:
+            skipped_dup += 1
+            continue
+
+        OrderList.objects.create(
+            order_no=order_no or None,
+            contract_no=item.get("contract_no") or None,
+            customer_name=item.get("customer_name") or None,
+            customer_no=item.get("customer_no"),
+            material_no=item.get("material_no") or None,
+            product_name=item.get("product_name") or None,
+            product_model=item.get("product_model") or None,
+            product_category=item.get("product_category") or None,
+            quantity=_parse_decimal(item.get("quantity")),
+            unit_price=_parse_decimal(item.get("unit_price")),
+            amount=item.get("amount") or None,
+            tax_unit_price=_parse_decimal(item.get("tax_unit_price")),
+            tax_amount=item.get("tax_amount") or None,
+            order_date=_parse_datetime_field(item.get("order_date")),
+            delivery_date=_parse_datetime_field(item.get("delivery_date")),
+            create_at=_parse_datetime_field(item.get("create_at")),
+            synced_at=sync_time,
+            content_hash=content_hash,
+        )
+        if order_no:
+            existing_nos.add(order_no)
+        else:
+            existing_hashes.add(content_hash)
+        inserted += 1
+
+    return JsonResponse({
+        "code": "00000",
+        "msg": "成功",
+        "data": {
+            "inserted": inserted,
+            "skipped": len(skipped_orders) + skipped_dup,
+            "skipped_orders": skipped_orders,
+            "skipped_dup": skipped_dup,
+            "sync_time": sync_time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
     })

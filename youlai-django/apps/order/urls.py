@@ -16,4 +16,6 @@ urlpatterns = [
     path("sync/since/<str:since_date>/", views.order_sync_since, name="order_sync_since"),
     # 按订单号查询（外部接口代理，订单号拼接到URL）
     path("by-no/<str:order_no>/", views.order_by_no, name="order_by_no"),
+    # 同步外部订单数据到本地数据库
+    path("sync/local/", views.order_sync_local, name="order_sync_local"),
 ]

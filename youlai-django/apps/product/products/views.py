@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .models import Product, WarehouseLog
-from .constants import normalize_product_type, product_type_label
+from .constants import normalize_product_type, product_type_label, PRODUCT_TYPE_LABELS
 from apps.product.utils.warehouse_logger import create_warehouse_log as create_log_with_operator, get_operator_info
 
 from apps.system.operation_logs.utils import (
@@ -467,6 +467,7 @@ def warehouse_log_list(request):
     material_code = (request.GET.get("material_code", "") or "").strip()
     name = (request.GET.get("name", "") or "").strip()
     storage_status = (request.GET.get("storage_status", "") or "").strip()
+    product_type = (request.GET.get("product_type", "") or "").strip()
     start_date = (request.GET.get("start_date", "") or "").strip()
     end_date = (request.GET.get("end_date", "") or "").strip()
 
@@ -477,6 +478,35 @@ def warehouse_log_list(request):
         qs = qs.filter(material_code__icontains=material_code)
     if name:
         qs = qs.filter(name__icontains=name)
+    if product_type:
+        # 按库存类型过滤：反查 Product.type 和 BomList.type 对应的 material_code
+        from apps.product.boms.models import BomList
+        # 标签 → 各表 type 值映射
+        product_type_value = None
+        bom_type_value = None
+        label_to_product_type = {v: k for k, v in PRODUCT_TYPE_LABELS.items()}  # {"自制":0, "外协":1, ...}
+        label_to_bom_type = {"关节": 0, "机械臂": 1, "其他": 2}
+        if product_type in label_to_product_type:
+            product_type_value = label_to_product_type[product_type]
+        if product_type in label_to_bom_type:
+            bom_type_value = label_to_bom_type[product_type]
+        # 收集匹配的 material_code
+        matched_mcs = set()
+        if product_type_value is not None:
+            matched_mcs.update(
+                Product.objects.filter(type=product_type_value)
+                .values_list('material_code', flat=True)
+            )
+        if bom_type_value is not None:
+            matched_mcs.update(
+                BomList.objects.filter(type=bom_type_value)
+                .values_list('material_code', flat=True)
+            )
+        if matched_mcs:
+            qs = qs.filter(material_code__in=list(matched_mcs))
+        else:
+            # 没有匹配的 material_code，返回空集
+            qs = qs.filter(id__in=[])
     if storage_status:
         try:
             storage_status_int = int(storage_status)
@@ -521,6 +551,32 @@ def warehouse_log_list(request):
             display = (u.nickname or '').strip() or (u.username or '').strip()
             operator_name_map[u.id] = display
 
+    # 批量查询本页涉及的库存类型（机械臂/关节等）
+    material_codes = {item.material_code for item in page_items if item.material_code}
+    # 按 material_code 查 Product.type
+    product_type_map = {}
+    if material_codes:
+        for p in Product.objects.filter(material_code__in=material_codes).only('material_code', 'type'):
+            product_type_map[p.material_code] = p.type
+    # 按 material_code 查 BomList.type（0=关节, 1=机械臂, 2=其他）
+    bom_type_map = {}
+    if material_codes:
+        from apps.product.boms.models import BomList
+        bom_type_names = {0: "关节", 1: "机械臂", 2: "其他"}
+        for b in BomList.objects.filter(material_code__in=material_codes).only('material_code', 'type'):
+            bom_type_map[b.material_code] = bom_type_names.get(b.type, "")
+
+    def _resolve_type_name(item):
+        """优先按 material_code 查 Product.type，其次查 BomList.type"""
+        mc = item.material_code
+        if not mc:
+            return ""
+        if mc in product_type_map:
+            return PRODUCT_TYPE_LABELS.get(product_type_map[mc], "")
+        if mc in bom_type_map:
+            return bom_type_map[mc]
+        return ""
+
     data = []
     for item in page_items:
         # 优先以查库得到的真实昵称/用户名展示；DB 中的 operator_name 仅作兜底
@@ -530,6 +586,7 @@ def warehouse_log_list(request):
             "name": item.name or "",
             "sn_code": item.sn_code or "",
             "material_code": item.material_code or "",
+            "product_type_name": _resolve_type_name(item),
             "storage_status": item.storage_status,
             "storage_status_name": item.get_storage_status_display(),
             "count": item.count,

@@ -21,8 +21,8 @@ class OrderList(models.Model):
         max_length=255, blank=True, null=True, verbose_name="客户名称",
         db_comment="客户名称",
     )
-    customer_no = models.IntegerField(
-        blank=True, null=True, verbose_name="客户编号",
+    customer_no = models.CharField(
+        max_length=255, blank=True, null=True, verbose_name="客户编号",
         db_comment="客户编号",
     )
     material_no = models.CharField(
@@ -72,6 +72,14 @@ class OrderList(models.Model):
     create_at = models.DateTimeField(
         blank=True, null=True, verbose_name="创建日期",
         db_comment="创建日期",
+    )
+    synced_at = models.DateTimeField(
+        blank=True, null=True, verbose_name="同步时间",
+        db_comment="同步到本地的时间",
+    )
+    content_hash = models.CharField(
+        max_length=64, blank=True, null=True, verbose_name="内容哈希",
+        db_comment="业务字段MD5哈希，用于去重",
     )
 
     class Meta:

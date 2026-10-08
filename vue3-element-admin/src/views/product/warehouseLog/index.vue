@@ -32,6 +32,22 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="库存类型">
+          <el-select
+            v-model="queryParams.product_type"
+            placeholder="全部"
+            clearable
+            style="width: 120px"
+            @change="handleSearch"
+          >
+            <el-option label="关节" value="关节" />
+            <el-option label="机械臂" value="机械臂" />
+            <el-option label="自制" value="自制" />
+            <el-option label="外协" value="外协" />
+            <el-option label="外购" value="外购" />
+            <el-option label="其他" value="其他" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="状态">
           <DictSelect
             v-model="queryParams.storage_status"
@@ -67,6 +83,11 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
+      <div class="table-toolbar">
+        <el-button type="info" :loading="exportLoading" @click="handleExportExcel">
+          <el-icon><Download /></el-icon> 导出Excel
+        </el-button>
+      </div>
       <el-table :data="tableData" border stripe style="width: 100%" v-loading="loading">
         <el-table-column type="index" label="序号" width="60" align="center" />
         <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip>
@@ -82,6 +103,12 @@
         <el-table-column prop="material_code" label="物料编码" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.material_code || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="product_type_name" label="库存类型" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.product_type_name" size="small">{{ row.product_type_name }}</el-tag>
+            <span v-else>—</span>
           </template>
         </el-table-column>
         <el-table-column prop="storage_status" label="状态" width="120" align="center">
@@ -120,8 +147,9 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { Search, Refresh } from '@element-plus/icons-vue'
+import { Search, Refresh, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import ExcelJS from 'exceljs'
 import { listWarehouseLog } from '@/api/product'
 import DictSelect from '@/components/DictSelect/index.vue'
 import DictTag from '@/components/DictTag/index.vue'
@@ -135,6 +163,7 @@ const queryParams = reactive({
   name: '',
   sn_code: '',
   material_code: '',
+  product_type: '',
   storage_status: '',
   start_date: '',
   end_date: ''
@@ -149,6 +178,7 @@ const buildListParams = () => {
     name: queryParams.name,
     sn_code: queryParams.sn_code,
     material_code: queryParams.material_code,
+    product_type: queryParams.product_type,
     storage_status: queryParams.storage_status
   }
   if (dateRange.value?.[0]) {
@@ -188,6 +218,7 @@ const resetQuery = () => {
   queryParams.name = ''
   queryParams.sn_code = ''
   queryParams.material_code = ''
+  queryParams.product_type = ''
   queryParams.storage_status = ''
   dateRange.value = null
   queryParams.pageNum = 1
@@ -196,6 +227,112 @@ const resetQuery = () => {
 
 const handleSizeChange = () => getList()
 const handleCurrentChange = () => getList()
+
+// ==================== 导出 Excel ====================
+const exportLoading = ref(false)
+
+const EXPORT_COLUMNS = [
+  { header: '名称', key: 'name' },
+  { header: 'SN码', key: 'sn_code' },
+  { header: '物料编码', key: 'material_code' },
+  { header: '库存类型', key: 'product_type_name' },
+  { header: '状态', key: 'storage_status' },
+  { header: '数量', key: 'count' },
+  { header: '出入库信息', key: 'description' },
+  { header: '操作人', key: 'operator_name' },
+  { header: '创建时间', key: 'created_at' },
+]
+
+const resolveDictLabel = (code, value) => {
+  if (value === null || value === undefined || value === '') return ''
+  const items = dictStore.getDictItems(code)
+  const item = items.find(i => String(i.value) === String(value))
+  return item?.label || String(value)
+}
+
+const getExportCellValue = (row, key) => {
+  if (key === 'storage_status') return resolveDictLabel('storage_status', row.storage_status)
+  return row[key] ?? ''
+}
+
+// 循环拉取所有页（后端单页上限 100）
+const loadAllPages = async (baseParams) => {
+  const pageSize = 100
+  let pageNum = 1
+  const allList = []
+  let total = 0
+  while (true) {
+    const resp = await listWarehouseLog({ ...baseParams, pageNum, pageSize })
+    const list = resp?.list || []
+    total = resp?.total || 0
+    allList.push(...list)
+    if (allList.length >= total || list.length < pageSize) break
+    pageNum++
+  }
+  return { allList, total }
+}
+
+const handleExportExcel = async () => {
+  exportLoading.value = true
+  try {
+    const params = buildListParams()
+    const { allList } = await loadAllPages({ ...params, pageNum: 1, pageSize: 100 })
+
+    if (!allList || allList.length === 0) {
+      ElMessage.warning('没有可导出的数据')
+      return
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet('出入库记录')
+
+    sheet.columns = EXPORT_COLUMNS.map(col => ({
+      header: col.header,
+      key: col.key,
+      width: 22,
+    }))
+
+    const headerRow = sheet.getRow(1)
+    headerRow.font = { bold: true }
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } }
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
+
+    allList.forEach(row => {
+      const rowData = {}
+      EXPORT_COLUMNS.forEach(col => {
+        rowData[col.key] = getExportCellValue(row, col.key)
+      })
+      sheet.addRow(rowData)
+    })
+
+    // 自动筛选
+    const lastCol = String.fromCharCode(64 + EXPORT_COLUMNS.length)
+    const lastRow = allList.length + 1
+    sheet.autoFilter = `A1:${lastCol}${lastRow}`
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
+    })
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    link.href = downloadUrl
+    link.download = `出入库记录_${dateStr}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+
+    ElMessage.success(`已导出 ${allList.length} 条数据`)
+  } catch (e) {
+    console.error('导出失败', e)
+    ElMessage.error('导出失败')
+  } finally {
+    exportLoading.value = false
+  }
+}
 
 onMounted(() => {
   dictStore.loadDictItems('storage_status')
@@ -217,6 +354,11 @@ onMounted(() => {
 }
 .table-card {
   margin-bottom: 20px;
+}
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 .pagination-container {
   display: flex;
