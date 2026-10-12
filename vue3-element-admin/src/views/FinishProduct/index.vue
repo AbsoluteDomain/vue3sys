@@ -852,6 +852,13 @@
         >
           测试不良
         </el-button>
+        <el-button
+          type="primary"
+          size="large"
+          @click="openBatchBindSnDialog"
+        >
+          批量绑定SN码
+        </el-button>
       </div>
       <template #footer>
         <el-button @click="quickActionVisible = false">取消</el-button>
@@ -876,7 +883,7 @@
               v-model="quickActionSnList[index]"
               placeholder="请输入SN码，按回车填写下一个"
               clearable
-              @keyup.enter="addQuickSnInput"
+              @keydown.enter.prevent="addQuickSnInput"
             />
             <el-button class="quick-sn-add" @click="addQuickSnInput">
               <el-icon><Plus /></el-icon> 填写下一个
@@ -888,7 +895,7 @@
             placeholder="请输入SN码"
             maxlength="255"
             clearable
-            @keyup.enter="handleQuickActionSnConfirm"
+            @keydown.enter.prevent="handleQuickActionSnConfirm"
           />
         </el-form-item>
       </el-form>
@@ -896,6 +903,114 @@
         <el-button @click="quickActionSnVisible = false">取消</el-button>
         <el-button type="primary" :loading="quickActionSnSubmitting" @click="handleQuickActionSnConfirm">
           {{ quickActionType === 'pass' ? '保存' : '确认' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量绑定SN码弹窗 -->
+    <el-dialog
+      v-model="batchBindSnVisible"
+      title="批量绑定SN码"
+      width="1200px"
+      :close-on-click-modal="false"
+      destroy-on-close
+      @closed="batchBindData = []"
+    >
+      <div class="batch-bind-wrapper">
+        <div class="batch-bind-toolbar">
+          <span class="batch-bind-count">共 {{ batchBindData.length }} 条待填写</span>
+        </div>
+        <el-table :data="batchBindData" border stripe height="500" style="width: 100%">
+          <el-table-column type="index" label="序号" width="60" align="center" fixed="left" />
+          <el-table-column prop="sn_code" label="SN码" min-width="200" fixed="left">
+            <template #default="{ row, $index }">
+              <el-input
+                :ref="(el) => setBatchSnRef(el, $index)"
+                v-model="row.sn_code"
+                placeholder="请输入SN码"
+                clearable
+                :class="{ 'sn-duplicate': isSnDuplicate($index) }"
+                @keydown.enter.prevent="handleBatchSnEnter($index)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="isColumnVisible('bom_type')"
+            prop="bom_type_name"
+            label="BOM类型"
+            width="100"
+            align="center"
+          >
+            <template #default="{ row }">
+              <el-tag :type="bomTypeTagType(row.bom_type)" size="small">
+                {{ row.bom_type_name || '—' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="isColumnVisible('bom_model')"
+            prop="bom_model"
+            label="产品型号"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            v-if="isColumnVisible('bom_name')"
+            prop="bom_name"
+            label="BOM名称"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            v-if="isColumnVisible('material_code')"
+            prop="material_code"
+            label="物料编码"
+            min-width="110"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            v-if="isColumnVisible('status')"
+            prop="status"
+            label="测试状态"
+            width="100"
+            align="center"
+          >
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status)" size="small">
+                {{ row.status_name }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="isColumnVisible('inventory_stock')"
+            prop="inventory_stock"
+            label="库存状态"
+            width="120"
+            align="center"
+          >
+            <template #default="{ row }">
+              <DictTag :code="'storage_status'" :model-value="row.inventory_stock" size="small" />
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="isColumnVisible('create_time')"
+            prop="create_time"
+            label="创建时间"
+            width="170"
+          />
+          <el-table-column
+            v-if="isColumnVisible('description')"
+            prop="description"
+            label="描述"
+            min-width="140"
+            show-overflow-tooltip
+          />
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="batchBindSnVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchBindSaving" @click="handleBatchBindSave">
+          保存
         </el-button>
       </template>
     </el-dialog>
@@ -1051,6 +1166,14 @@ const quickActionType = ref('')
 const quickActionSnList = ref([''])
 const quickSnInputRefs = []
 
+// 批量绑定SN码相关状态
+const batchBindSnVisible = ref(false)
+const batchBindSaving = ref(false)
+const batchBindData = ref([])
+const batchSnInputRefs = []
+// 原始数据快照（打开时的 sn_code），用于保存时判断是否被修改
+const batchBindOriginalSnapshot = ref({})
+
 // 过滤仅显示关节类型的BOM
 const jointBomList = computed(() => {
   return addJointBomList.value.filter(b => String(b.type) === '0' || String(b.bom_type) === '0')
@@ -1059,13 +1182,11 @@ const jointBomList = computed(() => {
 // 折叠后可见的数据（仅过滤掉被折叠的行，未分页）
 const visibleData = computed(() => {
   if (!collapseMode.value) return tableData.value
+  // 折叠模式：已绑定父级（有 parent_sn_code）的关节一律隐藏。
+  // 关节详情通过点击机械臂行后按 parent_sn_code 单独从后端加载，
+  // 不依赖父级机械臂是否在当前结果集中（父级可能因筛选条件或已回退而不在列表内）。
   return tableData.value.filter(row => {
-    // 只折叠那些有parent_sn_code 且 对应父级存在并拥有sn_code的关节
-    if (String(row.bom_type) !== '0' || !row.parent_sn_code) return true
-    const parentExists = tableData.value.some(
-      item => String(item.bom_type) === '1' && item.sn_code === row.parent_sn_code
-    )
-    return !parentExists
+    return String(row.bom_type) !== '0' || !row.parent_sn_code
   })
 })
 
@@ -2057,6 +2178,94 @@ const executeQuickActionFail = async (product) => {
   unqualifiedSelectVisible.value = true
 }
 
+// ==================== 批量绑定SN码相关方法 ====================
+
+// 记录批量绑定弹窗中每行SN码输入框的引用
+const setBatchSnRef = (el, index) => {
+  if (el) batchSnInputRefs[index] = el
+}
+
+// 打开批量绑定SN码弹窗：使用外层当前分页数据，过滤 sn_code 为空的行
+const openBatchBindSnDialog = () => {
+  quickActionVisible.value = false
+  batchBindSnVisible.value = true
+  batchSnInputRefs.length = 0
+  // 直接使用外层当前分页的数据（已受搜索条件筛选），从中过滤 sn_code 为空的行
+  const emptySnList = (filteredTableData.value || []).filter(row => !row.sn_code)
+  batchBindData.value = emptySnList
+  // 记录原始快照（打开时均为空字符串）
+  const snapshot = {}
+  emptySnList.forEach(row => { snapshot[row.id] = '' })
+  batchBindOriginalSnapshot.value = snapshot
+  if (emptySnList.length === 0) {
+    ElMessage.info('当前分页中没有待填写SN码的数据')
+  }
+  // 数据加载后自动聚焦第一行
+  nextTick(() => {
+    batchSnInputRefs[0]?.focus?.()
+  })
+}
+
+// 回车键跳到下一行的SN码输入框；最后一行时停留
+const handleBatchSnEnter = (index) => {
+  const next = index + 1
+  if (next < batchBindData.value.length) {
+    batchSnInputRefs[next]?.focus?.()
+  }
+}
+
+// 判断该行SN码是否与其他行重复（用于高亮提示）
+const isSnDuplicate = (index) => {
+  const current = (batchBindData.value[index]?.sn_code || '').trim()
+  if (!current) return false
+  return batchBindData.value.some((row, i) => i !== index && (row.sn_code || '').trim() === current)
+}
+
+// 保存：将填入的SN码批量提交到后端
+const handleBatchBindSave = async () => {
+  // 收集有填入SN码且与原始值不同的行
+  const changedRows = batchBindData.value.filter(row => {
+    const sn = (row.sn_code || '').trim()
+    return sn && sn !== (batchBindOriginalSnapshot.value[row.id] || '')
+  })
+  if (changedRows.length === 0) {
+    ElMessage.warning('没有需要保存的SN码')
+    return
+  }
+  // 重复校验：弹窗内行间重复
+  const snMap = {}
+  for (const row of changedRows) {
+    const sn = row.sn_code.trim()
+    if (snMap[sn]) {
+      ElMessage.warning(`SN码「${sn}」在表格中重复，请检查后再保存`)
+      return
+    }
+    snMap[sn] = true
+  }
+  batchBindSaving.value = true
+  try {
+    const results = await Promise.allSettled(
+      changedRows.map(row =>
+        updateFinishProduct({ id: row.id, sn_code: row.sn_code.trim() })
+      )
+    )
+    const failed = results.filter(r => r.status === 'rejected')
+    if (failed.length === 0) {
+      ElMessage.success(`成功保存 ${changedRows.length} 条SN码`)
+      batchBindSnVisible.value = false
+      getList()
+    } else {
+      ElMessage.warning(`保存完成：成功 ${changedRows.length - failed.length} 条，失败 ${failed.length} 条`)
+      // 刷新已保存的行，保留失败的行继续编辑
+      getList()
+    }
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    batchBindSaving.value = false
+  }
+}
+
 onMounted(() => {
   loadColumnSettings()
   dictStore.loadDictItems('storage_status', true)
@@ -2309,6 +2518,12 @@ onMounted(() => {
   font-weight: 500;
 }
 
+/* 文字较多的按钮宽度自适应 */
+.quick-action-buttons .el-button.el-button--primary {
+  width: auto;
+  padding: 0 20px;
+}
+
 .quick-sn-list {
   display: flex;
   flex-direction: column;
@@ -2318,6 +2533,24 @@ onMounted(() => {
 
 .quick-sn-add {
   width: 100%;
+}
+
+.batch-bind-wrapper {
+  min-height: 200px;
+}
+
+.batch-bind-toolbar {
+  margin-bottom: 12px;
+}
+
+.batch-bind-count {
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+
+/* 重复SN码输入框高亮提示 */
+:deep(.sn-duplicate .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset;
 }
 </style>
 

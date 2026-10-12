@@ -1159,6 +1159,7 @@ def update_finish_product(request):
                         name=bom.bom_name or bom.bom_model or item.name,
                         sn_code=item.sn_code or "",
                         material_code=bom.material_code or "",
+                        product_model=bom.bom_model or "",
                         count=1,
                         description=base_desc,
                         user_description=user_desc,
@@ -1336,6 +1337,18 @@ def rollback_finish_product(request):
 
             # 获取BOM信息，用于后续成品库存同步
             bom = BomList.objects.get(id=item.bom_id, is_del=0)
+
+            # 机械臂在有绑定关节时不允许回退（已排除已回退的关节）
+            if bom.type == 1 and item.sn_code:
+                bound_joint_count = (
+                    FinishProduct.active_queryset()
+                    .filter(parent_sn_code=item.sn_code)
+                    .count()
+                )
+                if bound_joint_count > 0:
+                    return JsonResponse(
+                        {"code": "400", "msg": f"该机械臂当前绑定了 {bound_joint_count} 个关节，请先解绑后再回退"}
+                    )
 
             recipes = list(AssemblyRecipe.objects.filter(bom_id=item.bom_id).order_by("id"))
             if not recipes:
@@ -1711,6 +1724,7 @@ def bind_joints_to_arm(request):
                         'joint_sn_code': joint.sn_code,
                         'joint_bom_id': joint.bom_id,
                         'joint_material_code': joint_bom.material_code,
+                        'joint_bom_model': joint_bom.bom_model,
                         'old_inventory_status': old_inventory,
                         'new_inventory_status': FinishProduct.INVENTORY_CONSUME,
                         'before_product_quantity': before_quantity,
@@ -1731,6 +1745,7 @@ def bind_joints_to_arm(request):
                     'name': info['joint_name'],
                     'sn_code': info['joint_sn_code'],
                     'material_code': info['joint_material_code'],
+                    'product_model': info.get('joint_bom_model', ''),
                     'quantity_change': -1 if info['old_inventory_status'] == FinishProduct.INVENTORY_IN else 0,
                     'before_stock': info['before_product_quantity'],
                     'after_stock': info['after_product_quantity'],
