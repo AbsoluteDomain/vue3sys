@@ -15,33 +15,50 @@ from .models import Repair
 @require_http_methods(["GET"])
 def list_repair_products(request):
     try:
+        # 搜索参数
+        sn_code = (request.GET.get("sn_code") or "").strip()
+        bom_name = (request.GET.get("bom_name") or "").strip()
+        # 分页参数
+        try:
+            page = int(request.GET.get("page") or 1)
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.GET.get("page_size") or 10)
+        except (TypeError, ValueError):
+            page_size = 10
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 10
+
         repair_records = Repair.objects.filter(is_del=0).order_by("-create_time")
-        
+
         product_ids = {r.product_id for r in repair_records}
         product_map = {}
         if product_ids:
             for product in FinishProduct.objects.filter(id__in=product_ids):
                 product_map[product.id] = product
-        
+
         sn_map = {}
         for record in repair_records:
             # 复合 key：product_id + sn_code，避免不同产品空 SN 码被合并
             group_key = (record.product_id, record.sn_code or "")
             if group_key not in sn_map:
                 product = product_map.get(record.product_id)
-                bom_name = ""
+                bom_name_val = ""
                 if product:
                     from apps.product.boms.models import BomList
                     try:
                         bom = BomList.objects.get(id=product.bom_id, is_del=0)
-                        bom_name = bom.bom_name or ""
+                        bom_name_val = bom.bom_name or ""
                     except:
                         pass
-                
+
                 sn_map[group_key] = {
                     "product_id": record.product_id,
                     "sn_code": record.sn_code or "",
-                    "bom_name": bom_name,
+                    "bom_name": bom_name_val,
                     "repair_cnt": 0,
                     "last_repair_time": "",
                 }
@@ -51,11 +68,26 @@ def list_repair_products(request):
             time_str = format_local_datetime(record.create_time) or ""
             if time_str and time_str > sn_map[group_key]["last_repair_time"]:
                 sn_map[group_key]["last_repair_time"] = time_str
-        
+
         result = list(sn_map.values())
         result.sort(key=lambda x: x["last_repair_time"], reverse=True)
-        
-        return JsonResponse({"code": "00000", "msg": "成功", "data": result})
+
+        # 搜索过滤（在聚合后做，保证分组计数不受搜索影响）
+        if sn_code:
+            result = [r for r in result if sn_code in (r.get("sn_code") or "")]
+        if bom_name:
+            result = [r for r in result if bom_name in (r.get("bom_name") or "")]
+
+        total = len(result)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_data = result[start:end]
+
+        return JsonResponse({
+            "code": "00000",
+            "msg": "成功",
+            "data": {"list": page_data, "total": total},
+        })
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"查询失败: {str(e)}"})
 

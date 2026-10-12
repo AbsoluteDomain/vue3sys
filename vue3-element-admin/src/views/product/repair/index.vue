@@ -52,6 +52,18 @@
       </el-table>
 
       <el-empty v-if="tableData.length === 0 && !loading" description="暂无返修数据" />
+
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="queryParams.pageNum"
+          v-model:page-size="queryParams.pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="dialogVisible" title="新增返修计划" width="500px" destroy-on-close>
@@ -145,10 +157,13 @@ const historyData = ref([])
 const productOptions = ref([])
 const currentRow = ref(null)
 const repairUnqualifiedOptions = ref([])
+const total = ref(0)
 
 const queryParams = reactive({
   sn_code: '',
   bom_name: '',
+  pageNum: 1,
+  pageSize: 10,
 })
 
 const formData = reactive({
@@ -158,14 +173,20 @@ const formData = reactive({
 })
 
 onMounted(() => {
-  loadData()
+  getList()
 })
 
-async function loadData() {
+async function getList() {
   loading.value = true
   try {
-    const res = await listRepairProducts()
-    tableData.value = res || []
+    const res = await listRepairProducts({
+      sn_code: queryParams.sn_code,
+      bom_name: queryParams.bom_name,
+      page: queryParams.pageNum,
+      page_size: queryParams.pageSize,
+    })
+    tableData.value = res?.list || []
+    total.value = res?.total || 0
   } catch (error) {
     ElMessage.error('加载失败: ' + error.message)
   } finally {
@@ -173,8 +194,18 @@ async function loadData() {
   }
 }
 
-async function handleSearch() {
-  await loadData()
+const handleSearch = () => {
+  queryParams.pageNum = 1
+  getList()
+}
+
+const handleSizeChange = () => {
+  queryParams.pageNum = 1
+  getList()
+}
+
+const handleCurrentChange = () => {
+  getList()
 }
 
 function resetSearch() {
@@ -275,7 +306,7 @@ async function handleSubmit() {
     })
     ElMessage.success('创建成功')
     dialogVisible.value = false
-    await loadData()
+    await getList()
   } catch (error) {
     ElMessage.error('创建失败: ' + error.message)
   } finally {
@@ -309,7 +340,7 @@ async function handleDelete(row) {
     } else if (currentRow.value) {
       currentRow.value.repair_cnt = historyData.value.length
     }
-    await loadData()
+    await getList()
   } catch (error) {
     ElMessage.error('删除失败: ' + error.message)
   }
@@ -321,5 +352,10 @@ async function handleDelete(row) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>
