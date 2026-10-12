@@ -51,7 +51,7 @@ http.interceptors.response.use(
     }
 
     const { code, data, msg } = response.data;
-    console.log("🚀 后端返回的 code:", code, "枚举值 SUCCESS:", ApiCodeEnum.SUCCESS); 
+    // console.log("🚀 后端返回的 code:", code, "枚举值 SUCCESS:", ApiCodeEnum.SUCCESS); 
     if (code === ApiCodeEnum.SUCCESS) {
       return data;
     }
