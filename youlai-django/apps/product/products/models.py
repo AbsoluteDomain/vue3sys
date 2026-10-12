@@ -127,6 +127,8 @@ class WarehouseLog(models.Model):
     name = models.CharField(max_length=255, null=True, blank=True, verbose_name="名称")
     sn_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="SN码")
     material_code = models.CharField(max_length=255, null=True, blank=True, verbose_name="物料编码")
+    # 产品型号：仅成品管理(module=finish_product)来源的记录保存，其他来源无此字段则留空
+    product_model = models.CharField(max_length=255, null=True, blank=True, verbose_name="产品型号")
     storage_status = models.IntegerField(choices=STORAGE_CHOICES, verbose_name="操作类型")
     count = models.IntegerField(default=1, verbose_name="数量")
     description = models.TextField(null=True, blank=True, verbose_name="操作描述")

@@ -146,6 +146,7 @@ def create_warehouse_log(
     name: str = '',
     sn_code: str = '',
     material_code: str = '',
+    product_model: str = '',
     count: int = 1,
     description: str = '',
     user_description: str = '',
@@ -156,13 +157,14 @@ def create_warehouse_log(
 ) -> Optional['WarehouseLog']:
     """
     创建库存操作日志
-    
+
     Args:
         request: Django HTTP 请求对象（用于获取操作人信息）
         storage_status: 操作类型（1-入库, 2-出库外销, 3-出库研发, 4-绑定, 5-解除绑定, 6-回退, 7-手动调整）
         name: 产品/物料名称
         sn_code: SN码
         material_code: 物料编码
+        product_model: 产品型号（仅成品管理等有型号概念的来源传入，其他来源不传则留空跳过）
         count: 数量
         description: 系统自动生成的操作描述
         user_description: 用户手动输入的补充描述
@@ -170,16 +172,16 @@ def create_warehouse_log(
         action_type: 具体操作类型（如 bind_joint, unbind_joint 等）
         operation_detail: 操作详情列表，每个元素是一个字典，描述对数据的具体操作
         **kwargs: 其他可选参数
-    
+
     Returns:
         WarehouseLog 实例或 None
     """
     try:
         from apps.product.products.models import WarehouseLog
-        
+
         # 获取操作人信息
         operator_info = get_operator_info(request)
-        
+
         # 将操作详情转换为 JSON
         if operation_detail is not None:
             if isinstance(operation_detail, list):
@@ -188,11 +190,12 @@ def create_warehouse_log(
                 operation_detail_json = [operation_detail]
         else:
             operation_detail_json = []
-        
+
         log = WarehouseLog.objects.create(
             name=name,
             sn_code=sn_code,
             material_code=material_code,
+            product_model=product_model or None,
             storage_status=storage_status,
             count=count,
             description=description,
@@ -275,6 +278,7 @@ def log_inventory_operation(
                 'product_name': product.get('name', ''),
                 'sn_code': product.get('sn_code', ''),
                 'material_code': product.get('material_code', ''),
+                'product_model': product.get('product_model', ''),
                 'quantity_change': product.get('quantity_change', 0),
                 'before_stock': product.get('before_stock'),
                 'after_stock': product.get('after_stock'),
@@ -282,24 +286,27 @@ def log_inventory_operation(
             if product.get('details'):
                 detail['product_details'] = product['details']
             operation_detail.append(detail)
-        
+
         if extra_details:
             operation_detail.append({
                 'extra_info': extra_details
             })
-        
+
         # 计算总数量变化
         total_count = sum(p.get('quantity_change', 1) for p in products)
-        
+
         # 主名称取第一个产品
         main_name = products[0].get('name', '') if products else ''
         main_sn_code = products[0].get('sn_code', '') if products else ''
         main_material_code = products[0].get('material_code', '') if products else ''
-        
+        # 产品型号取第一个产品，无型号概念的来源该值为空则留空跳过
+        main_product_model = products[0].get('product_model', '') if products else ''
+
         log = WarehouseLog.objects.create(
             name=main_name,
             sn_code=main_sn_code,
             material_code=main_material_code,
+            product_model=main_product_model or None,
             storage_status=storage_status,
             count=abs(total_count) if total_count != 0 else 1,
             description=description or f"{operation_type}: 操作 {len(products)} 个产品",
@@ -354,15 +361,17 @@ def create_single_product_log(
                 'product_name': product.get('name', ''),
                 'sn_code': product.get('sn_code', ''),
                 'material_code': product.get('material_code', ''),
+                'product_model': product.get('product_model', ''),
                 'quantity_change': product.get('quantity_change', 1),
                 'before_stock': product.get('before_stock'),
                 'after_stock': product.get('after_stock'),
             }
-        
+
         log = WarehouseLog.objects.create(
             name=product.get('name', ''),
             sn_code=product.get('sn_code', ''),
             material_code=product.get('material_code', ''),
+            product_model=product.get('product_model', '') or None,
             storage_status=storage_status,
             count=abs(product.get('quantity_change', 1)),
             description=description,

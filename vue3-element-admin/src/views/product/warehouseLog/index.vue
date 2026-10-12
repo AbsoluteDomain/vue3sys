@@ -125,6 +125,11 @@
             <span>{{ row.name || '—' }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="product_model" label="产品型号" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.product_model || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="sn_code" label="SN码" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.sn_code || '—' }}</span>
@@ -293,6 +298,7 @@ const exportLoading = ref(false)
 
 const EXPORT_COLUMNS = [
   { header: '名称', key: 'name' },
+  { header: '产品型号', key: 'product_model' },
   { header: 'SN码', key: 'sn_code' },
   { header: '物料编码', key: 'material_code' },
   { header: '库存类型', key: 'product_type_name' },

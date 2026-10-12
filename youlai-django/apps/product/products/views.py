@@ -629,6 +629,7 @@ def warehouse_log_list(request):
             "name": item.name or "",
             "sn_code": item.sn_code or "",
             "material_code": item.material_code or "",
+            "product_model": item.product_model or "",
             "product_type_name": _resolve_type_name(item),
             "storage_status": item.storage_status,
             "storage_status_name": item.get_storage_status_display(),
@@ -662,6 +663,7 @@ def create_warehouse_log(request):
         sn_code = (body.get("sn_code") or "").strip() or None
         material_code = (body.get("material_code") or "").strip() or None
         name = (body.get("name") or "").strip() or None
+        product_model = (body.get("product_model") or "").strip() or None
         storage_status = body.get("storage_status")
         count = body.get("count", 1)
         description = (body.get("description") or "").strip() or None
@@ -704,6 +706,7 @@ def create_warehouse_log(request):
             name=name,
             sn_code=sn_code,
             material_code=material_code,
+            product_model=product_model or "",
             count=count,
             description=description,
             user_description=user_description,
