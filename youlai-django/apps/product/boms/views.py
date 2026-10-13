@@ -1052,7 +1052,8 @@ def assemble_bom(request):
                     sn_code=None,
                     bom_id=bom.id,
                     name=_bom_display_name(bom),
-                    status=FinishProduct.STATUS_UNTESTED,
+                    # 组装生成时尚未录入SN码，默认为「未组装」；SN码录入后由成品管理更新为「未测试」
+                    status=FinishProduct.STATUS_UNASSEMBLED,
                     description="",
                     inventory_stock=FinishProduct.INVENTORY_NOT_IN,
                     repair=FinishProduct.REPAIR_NEW,

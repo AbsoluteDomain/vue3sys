@@ -337,6 +337,9 @@
             clearable
             placeholder="请填写产品 SN 码"
           />
+          <div v-if="lockNonSnFields" class="finish-edit-form__hint">
+            未组装产品仅可填写SN码，保存后测试状态将自动变为「未测试」
+          </div>
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
@@ -361,6 +364,7 @@
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
                 clearable
+                :disabled="lockNonSnFields"
               />
             </el-form-item>
           </el-col>
@@ -374,19 +378,20 @@
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
                 clearable
+                :disabled="lockNonSnFields"
               />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="返修" class="finish-edit-form__radio-row">
-          <el-radio-group v-model="formData.repair">
+          <el-radio-group v-model="formData.repair" :disabled="lockNonSnFields">
             <el-radio :value="0">新品</el-radio>
             <el-radio :value="1">返修品</el-radio>
           </el-radio-group>
         </el-form-item>
         
         <el-form-item label="测试状态" class="finish-edit-form__radio-row">
-          <el-radio-group v-model="formData.status">
+          <el-radio-group v-model="formData.status" :disabled="lockNonSnFields">
             <el-radio :value="4" :disabled="requiresPassStatus">未组装</el-radio>
             <el-radio :value="0" :disabled="requiresPassStatus">未测试</el-radio>
             <el-radio :value="1" :disabled="requiresPassStatus">测试中</el-radio>
@@ -411,6 +416,7 @@
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
                 clearable
+                :disabled="lockNonSnFields"
               />
             </el-form-item>
           </el-col>
@@ -424,6 +430,7 @@
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
                 clearable
+                :disabled="lockNonSnFields"
               />
             </el-form-item>
           </el-col>
@@ -433,7 +440,7 @@
             v-model="formData.inventory_stock"
             placeholder="请选择库存状态"
             style="width: 100%"
-            :disabled="isJointWithParent"
+            :disabled="isJointWithParent || lockNonSnFields"
           >
             <el-option
               v-for="item in availableStockOptions"
@@ -455,6 +462,7 @@
             maxlength="255"
             show-word-limit
             placeholder="请输入描述"
+            :disabled="lockNonSnFields"
           />
         </el-form-item>
         <el-form-item label="父级SN码">
@@ -463,7 +471,7 @@
             placeholder="请输入父级产品SN码"
             maxlength="255"
             clearable
-            :disabled="isArmProduct"
+            :disabled="isArmProduct || lockNonSnFields"
           />
           <div v-if="isArmProduct" class="finish-edit-form__hint">
             机械臂类型不可填写父级SN码
@@ -1255,6 +1263,12 @@ const isJointWithParent = computed(() => {
   return String(formData.bom_type) === '0' && !!formData.parent_sn_code
 })
 
+// 当前编辑行的原始SN码（handleEdit 填充时记录）
+const editingOriginalSnCode = ref('')
+
+// 未组装产品（SN码为空）编辑锁定：仅允许填写SN码，保存后后端自动将测试状态改为未测试
+const lockNonSnFields = computed(() => !editingOriginalSnCode.value)
+
 // 可用的库存状态选项
 const availableStockOptions = computed(() => {
   if (isJointWithParent.value) {
@@ -1691,6 +1705,7 @@ const getRowClassName = ({ row }) => {
 
 const handleEdit = (row) => {
   formData.id = row.id
+  editingOriginalSnCode.value = row.sn_code || ''
   formData.sn_code = row.sn_code
   formData.bom_id = row.bom_id
   formData.bom_type = row.bom_type
