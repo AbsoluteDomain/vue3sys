@@ -796,6 +796,17 @@ def update_bom(request):
                 bom.type = bom_type
                 update_fields.append("type")
             bom.save(update_fields=update_fields)
+
+            # BOM 物料编码/名称变更时同步到关联的 Product（保持两端一致）
+            if bom.finished_product_id:
+                fp_updates = {}
+                if material_code:
+                    fp_updates["material_code"] = material_code
+                if bom_name:
+                    fp_updates["name"] = bom_name
+                if fp_updates:
+                    Product.objects.filter(id=bom.finished_product_id, is_del=0).update(**fp_updates)
+
             old_recipes, new_recipes = _save_recipes(bom, recipes_data)
             
             # 验证保存结果

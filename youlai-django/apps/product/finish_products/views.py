@@ -344,7 +344,7 @@ def finish_product_daily_stats(request):
     start_dt, end_dt = local_day_range_datetimes(start_date, end_date)
 
     # 新增成品：仅有SN码的算成品；有SN码录入时间的按录入时间归日，
-    # 旧数据（无SN码录入时间）按创建时间归日
+    # 旧数据（无SN码录入时间）按更新时间归日
     create_qs = FinishProduct.active_queryset().filter(
         Q(
             sn_code_time__isnull=False,
@@ -353,15 +353,15 @@ def finish_product_daily_stats(request):
         )
         | Q(
             sn_code_time__isnull=True,
-            create_time__isnull=False,
-            create_time__gte=start_dt,
-            create_time__lte=end_dt,
+            update_time__isnull=False,
+            update_time__gte=start_dt,
+            update_time__lte=end_dt,
         )
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
     create_qs = _filter_finish_by_bom(create_qs, bom_type, bom_ids_param)
 
     for item in create_qs:
-        day = local_date_key(item.sn_code_time or item.create_time)
+        day = local_date_key(item.sn_code_time or item.update_time)
         if not day:
             continue
         bucket = daily_map.get(day)
@@ -465,10 +465,12 @@ def finish_product_daily_stats(request):
         FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type, bom_ids_param
     ).count()
 
-    # 未组装：SN码为空的成品总数（当前状态，不受日期筛选影响）
-    current_unassembled_count = _filter_finish_by_bom(
+    # 未组装：SN码为空的成品，按创建时间筛选
+    unassembled_qs = _filter_finish_by_bom(
         FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")), bom_type, bom_ids_param
-    ).count()
+    )
+    unassembled_qs = _apply_field_date_range(unassembled_qs, "create_time", start_date, end_date)
+    current_unassembled_count = unassembled_qs.count()
 
     return JsonResponse(
         {
@@ -760,7 +762,7 @@ def finish_product_board_detail(request):
 
     if single_date:
         start_date = end_date = single_date
-    elif category not in ("currentStockInCount", "unassembledCount"):
+    elif category not in ("currentStockInCount",):
         if not end_date:
             # USE_TZ=False 时 timezone.now() 即本地时间，localdate() 会因 naive datetime 报错
             end_date = timezone.now().date()
@@ -775,14 +777,17 @@ def finish_product_board_detail(request):
     qs = _apply_board_category_filter(qs, category)
     qs = _filter_finish_by_bom(qs, bom_type, bom_ids_param)
 
-    if category in ("currentStockInCount", "unassembledCount"):
+    if category in ("currentStockInCount",):
         pass
     elif category == "newCount":
-        # 有SN码录入时间的按录入时间，旧数据按创建时间
-        qs = _apply_effective_date_range(qs, "sn_code_time", "create_time", start_date, end_date)
+        # 有SN码录入时间的按录入时间，旧数据按更新时间
+        qs = _apply_effective_date_range(qs, "sn_code_time", "update_time", start_date, end_date)
     elif category == "pendingNewCount":
         # 有SN码录入时间的按录入时间，旧数据按测试状态修改时间
         qs = _apply_effective_date_range(qs, "sn_code_time", "test_time", start_date, end_date)
+    elif category == "unassembledCount":
+        # 未组装按创建时间筛选
+        qs = _apply_field_date_range(qs, "create_time", start_date, end_date)
     elif category in TEST_TIME_STAT_CATEGORIES:
         qs = _apply_field_date_range(qs, "test_time", start_date, end_date)
     elif category == "stockInCount":
@@ -794,8 +799,8 @@ def finish_product_board_detail(request):
 
     order_fields = ["-create_time", "-id"]
     if category == "newCount":
-        # 与统计口径一致：按有效时间（SN码录入时间优先，回退创建时间）排序
-        qs = qs.annotate(_effective_time=Coalesce("sn_code_time", "create_time"))
+        # 与统计口径一致：按有效时间（SN码录入时间优先，回退更新时间）排序
+        qs = qs.annotate(_effective_time=Coalesce("sn_code_time", "update_time"))
         order_fields = ["-_effective_time", "-id"]
     elif category == "pendingNewCount":
         # 与统计口径一致：按有效时间（SN码录入时间优先，回退测试状态修改时间）排序
@@ -1103,8 +1108,7 @@ def update_finish_product(request):
             if status not in VALID_STATUS:
                 return JsonResponse({"code": "400", "msg": "测试状态值无效"})
             if status != item.status:
-                if "test_time" not in body and "testTime" not in body:
-                    item.test_time = timezone.now()
+                item.test_time = timezone.now()
             item.status = status
 
         # SN码从空变为非空时，状态强制设为未测试（覆盖手动设置）
@@ -1173,18 +1177,8 @@ def update_finish_product(request):
             if is_joint and new_parent_sn_code and item.inventory_stock != FinishProduct.INVENTORY_CONSUME:
                 item.inventory_stock = FinishProduct.INVENTORY_CONSUME
 
-        if "create_time" in body or "createTime" in body:
-            create_time_raw = body.get("create_time", body.get("createTime"))
-            if create_time_raw is None or str(create_time_raw).strip() == "":
-                item.create_time = None
-            else:
-                parsed = parse_local_datetime_text(create_time_raw)
-                if parsed is None:
-                    return JsonResponse({"code": "400", "msg": "创建时间格式无效，请使用 YYYY-MM-DD HH:MM:SS"})
-                item.create_time = make_local_aware(parsed)
-
+        # create_time / test_time / sn_code_time / update_time 均由后端自动管理，不接受客户端传入
         datetime_fields = (
-            ("test_time", ("test_time", "testTime"), "测试状态修改时间"),
             ("stock_in_time", ("stock_in_time", "stockInTime"), "入库时间"),
             ("stock_out_time", ("stock_out_time", "stockOutTime"), "出库时间"),
         )

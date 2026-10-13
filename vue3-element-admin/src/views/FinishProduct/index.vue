@@ -359,12 +359,11 @@
               <el-date-picker
                 v-model="formData.create_time"
                 type="datetime"
-                placeholder="选择创建时间"
+                placeholder="数据生成时自动写入"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
-                clearable
-                :disabled="lockNonSnFields"
+                disabled
               />
             </el-form-item>
           </el-col>
@@ -373,12 +372,39 @@
               <el-date-picker
                 v-model="formData.test_time"
                 type="datetime"
-                placeholder="选择测试状态修改时间"
+                placeholder="测试状态变更时自动写入"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
-                clearable
-                :disabled="lockNonSnFields"
+                disabled
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="SN码录入时间">
+              <el-date-picker
+                v-model="formData.sn_code_time"
+                type="datetime"
+                placeholder="SN码修改时自动写入"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                disabled
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="上次更改时间">
+              <el-date-picker
+                v-model="formData.update_time"
+                type="datetime"
+                placeholder="保存时自动写入"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+                disabled
               />
             </el-form-item>
           </el-col>
@@ -1229,6 +1255,8 @@ const formData = reactive({
   repair: 0,
   create_time: '',
   test_time: '',
+  sn_code_time: '',
+  update_time: '',
   stock_in_time: '',
   stock_out_time: '',
   description: '',
@@ -1717,6 +1745,8 @@ const handleEdit = (row) => {
   formData.repair = row.repair
   formData.create_time = row.create_time || ''
   formData.test_time = row.test_time || ''
+  formData.sn_code_time = row.sn_code_time || ''
+  formData.update_time = row.update_time || ''
   formData.stock_in_time = row.stock_in_time || ''
   formData.stock_out_time = row.stock_out_time || ''
   formData.description = row.description || ''

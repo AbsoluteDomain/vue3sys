@@ -290,7 +290,9 @@ const selectedAfterValue = ref('')
 const beforeDialogVisible = ref(false)
 const afterDialogVisible = ref(false)
 
-const STATUS_MAP = { 0: '未测试', 1: '测试中', 2: '测试合格', 3: '测试不良' }
+// 本地兜底映射表（筛选弹窗下拉选项 + formatFieldValue fallback）
+// 优先使用后端序列化返回的 *_name 字段，此表仅作为兜底
+const STATUS_MAP = { 0: '未测试', 1: '测试中', 2: '测试合格', 3: '测试不良', 4: '未组装' }
 const STOCK_MAP = { 0: '未入库', 1: '入库', 2: '出库(外销)', 3: '出库(研发)', 4: '组件消耗' }
 const REPAIR_MAP = { 0: '新品', 1: '返修品' }
 const BOM_TYPE_MAP = { 0: '关节', 1: '机械臂' }
@@ -326,6 +328,13 @@ const formatFieldValue = (data, field) => {
   if (field === 'unqualified_items') {
     return Array.isArray(val) && val.length ? val.map(i => i.label).join('、') : '-'
   }
+  // 优先使用后端序列化返回的 *_name 字段（status_name / inventory_stock_name / bom_type_name 等）
+  // 这样后端新增任何枚举值/字典项，日志自动正确显示文本，前端无需同步
+  const nameField = field + '_name'
+  if (data[nameField] !== undefined && data[nameField] !== null && data[nameField] !== '') {
+    return data[nameField]
+  }
+  // 回退：本地映射表兜底
   if (field === 'status') return STATUS_MAP[val] || val
   if (field === 'inventory_stock') return STOCK_MAP[val] || val
   if (field === 'repair') return REPAIR_MAP[val] || val
