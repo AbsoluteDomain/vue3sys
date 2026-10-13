@@ -239,7 +239,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">新增成品</span>
-                      <el-tooltip content="仅有SN码的算成品；有SN码录入时间的按录入时间统计，旧数据（无录入时间）按创建时间统计" placement="top">
+                      <el-tooltip content="仅有SN码的算成品；有SN码录入时间的按录入时间统计，旧数据（无录入时间）按更新时间统计" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -344,7 +344,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">未组装</span>
-                      <el-tooltip content="SN码为空的成品总数，不受日期筛选影响" placement="top">
+                      <el-tooltip content="SN码为空的成品，按创建时间筛选" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -1548,7 +1548,7 @@ const fetchBoardDetail = async () => {
       sort_prop: detailSortProp.value || undefined,
       sort_order: detailSortOrder.value || undefined,
     };
-    if (detailCategory.value !== "currentStockInCount" && detailCategory.value !== "unassembledCount") {
+    if (detailCategory.value !== "currentStockInCount") {
       if (detailSingleDate.value) {
         params.date = detailSingleDate.value;
       } else if (finishDateRange.value?.[0] && finishDateRange.value?.[1]) {
