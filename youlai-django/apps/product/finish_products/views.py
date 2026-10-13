@@ -3,7 +3,8 @@ import logging
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -34,6 +35,7 @@ VALID_STATUS = {
     FinishProduct.STATUS_TESTING,
     FinishProduct.STATUS_PASS,
     FinishProduct.STATUS_FAIL,
+    FinishProduct.STATUS_UNASSEMBLED,
 }
 
 TRACKABLE_FIELDS = FinishedProductLog.TRACKABLE_FIELDS
@@ -234,6 +236,30 @@ def _filter_by_bom_type(qs, bom_type):
     return qs
 
 
+def _filter_by_bom_ids(qs, bom_ids):
+    """根据BOM ID多选筛选成品查询集（bom_ids 支持逗号分隔字符串，用于产品型号多选）"""
+    if not bom_ids:
+        return qs
+    id_list = []
+    for part in str(bom_ids).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            id_list.append(int(part))
+        except (TypeError, ValueError):
+            continue
+    if not id_list:
+        return qs
+    return qs.filter(bom_id__in=id_list)
+
+
+def _filter_finish_by_bom(qs, bom_type="", bom_ids=""):
+    """组合筛选：先按BOM类型，再按BOM ID多选（产品型号）"""
+    qs = _filter_by_bom_type(qs, bom_type)
+    return _filter_by_bom_ids(qs, bom_ids)
+
+
 def _increment_daily_count(daily_map, summary, day, count_key):
     bucket = daily_map.get(day)
     if not bucket:
@@ -245,7 +271,6 @@ def _increment_daily_count(daily_map, summary, day, count_key):
 TEST_TIME_STAT_CATEGORIES = {
     "passCount",
     "failCount",
-    "pendingNewCount",
     "testingCount",
     "repairTestingCount",
     "repairPassCount",
@@ -270,10 +295,7 @@ def _accumulate_test_time_stats(item, daily_map, summary):
         summary["failCount"] += 1
 
     if item.repair == FinishProduct.REPAIR_NEW:
-        if item.status == FinishProduct.STATUS_UNTESTED:
-            bucket["pendingNewCount"] += 1
-            summary["pendingNewCount"] += 1
-        elif item.status == FinishProduct.STATUS_TESTING:
+        if item.status == FinishProduct.STATUS_TESTING:
             bucket["testingCount"] += 1
             summary["testingCount"] += 1
     elif item.repair == FinishProduct.REPAIR_REPAIRED:
@@ -298,7 +320,8 @@ def finish_product_daily_stats(request):
     )
 
     if not end_date:
-        end_date = timezone.localdate()
+        # USE_TZ=False 时 timezone.now() 即本地时间，localdate() 会因 naive datetime 报错
+        end_date = timezone.now().date()
     if not start_date:
         start_date = end_date - timedelta(days=29)
     if start_date > end_date:
@@ -307,6 +330,7 @@ def finish_product_daily_stats(request):
         return JsonResponse({"code": "400", "msg": "日期范围不能超过366天"})
 
     bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
+    bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
 
     daily_map = {}
     current = start_date
@@ -319,15 +343,25 @@ def finish_product_daily_stats(request):
 
     start_dt, end_dt = local_day_range_datetimes(start_date, end_date)
 
+    # 新增成品：仅有SN码的算成品；有SN码录入时间的按录入时间归日，
+    # 旧数据（无SN码录入时间）按创建时间归日
     create_qs = FinishProduct.active_queryset().filter(
-        create_time__isnull=False,
-        create_time__gte=start_dt,
-        create_time__lte=end_dt,
-    )
-    create_qs = _filter_by_bom_type(create_qs, bom_type)
+        Q(
+            sn_code_time__isnull=False,
+            sn_code_time__gte=start_dt,
+            sn_code_time__lte=end_dt,
+        )
+        | Q(
+            sn_code_time__isnull=True,
+            create_time__isnull=False,
+            create_time__gte=start_dt,
+            create_time__lte=end_dt,
+        )
+    ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
+    create_qs = _filter_finish_by_bom(create_qs, bom_type, bom_ids_param)
 
     for item in create_qs:
-        day = local_date_key(item.create_time)
+        day = local_date_key(item.sn_code_time or item.create_time)
         if not day:
             continue
         bucket = daily_map.get(day)
@@ -342,16 +376,46 @@ def finish_product_daily_stats(request):
         test_time__gte=start_dt,
         test_time__lte=end_dt,
     )
-    test_qs = _filter_by_bom_type(test_qs, bom_type)
+    test_qs = _filter_finish_by_bom(test_qs, bom_type, bom_ids_param)
     for item in test_qs:
         _accumulate_test_time_stats(item, daily_map, summary)
+
+    # 待测试新品：新品+未测试+仅有SN码的算成品；有SN码录入时间的按录入时间归日，
+    # 旧数据（无SN码录入时间）按测试状态修改时间归日
+    pending_qs = FinishProduct.active_queryset().filter(
+        Q(
+            sn_code_time__isnull=False,
+            sn_code_time__gte=start_dt,
+            sn_code_time__lte=end_dt,
+        )
+        | Q(
+            sn_code_time__isnull=True,
+            test_time__isnull=False,
+            test_time__gte=start_dt,
+            test_time__lte=end_dt,
+        ),
+        repair=FinishProduct.REPAIR_NEW,
+        status=FinishProduct.STATUS_UNTESTED,
+    ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
+    pending_qs = _filter_finish_by_bom(pending_qs, bom_type, bom_ids_param)
+
+    for item in pending_qs:
+        day = local_date_key(item.sn_code_time or item.test_time)
+        if not day:
+            continue
+        bucket = daily_map.get(day)
+        if not bucket:
+            continue
+
+        bucket["pendingNewCount"] += 1
+        summary["pendingNewCount"] += 1
 
     update_qs = FinishProduct.active_queryset().filter(
         update_time__isnull=False,
         update_time__gte=start_dt,
         update_time__lte=end_dt,
     )
-    update_qs = _filter_by_bom_type(update_qs, bom_type)
+    update_qs = _filter_finish_by_bom(update_qs, bom_type, bom_ids_param)
 
     for item in update_qs:
         day = local_date_key(item.update_time)
@@ -371,7 +435,7 @@ def finish_product_daily_stats(request):
         stock_in_time__lte=end_dt,
         inventory_stock=FinishProduct.INVENTORY_IN,
     )
-    stock_in_qs = _filter_by_bom_type(stock_in_qs, bom_type)
+    stock_in_qs = _filter_finish_by_bom(stock_in_qs, bom_type, bom_ids_param)
     for item in stock_in_qs:
         day = local_date_key(item.stock_in_time)
         _increment_daily_count(daily_map, summary, day, "stockInCount")
@@ -382,7 +446,7 @@ def finish_product_daily_stats(request):
         stock_out_time__lte=end_dt,
         inventory_stock__in=[FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV],
     )
-    stock_out_qs = _filter_by_bom_type(stock_out_qs, bom_type)
+    stock_out_qs = _filter_finish_by_bom(stock_out_qs, bom_type, bom_ids_param)
     for item in stock_out_qs:
         day = local_date_key(item.stock_out_time)
         bucket = daily_map.get(day)
@@ -397,8 +461,13 @@ def finish_product_daily_stats(request):
             bucket["stockOutSaleCount"] += 1
             summary["stockOutSaleCount"] += 1
 
-    current_stock_in_count = _filter_by_bom_type(
-        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type
+    current_stock_in_count = _filter_finish_by_bom(
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type, bom_ids_param
+    ).count()
+
+    # 未组装：SN码为空的成品总数（当前状态，不受日期筛选影响）
+    current_unassembled_count = _filter_finish_by_bom(
+        FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")), bom_type, bom_ids_param
     ).count()
 
     return JsonResponse(
@@ -408,6 +477,7 @@ def finish_product_daily_stats(request):
             "data": {
                 "summary": summary,
                 "currentStockInCount": current_stock_in_count,
+                "currentUnassembledCount": current_unassembled_count,
                 "daily": list(daily_map.values()),
                 "startDate": start_date.isoformat(),
                 "endDate": end_date.isoformat(),
@@ -434,6 +504,28 @@ def _apply_field_date_range(qs, time_field, start_date, end_date):
         **{f"{time_field}__isnull": False},
         **{f"{time_field}__gte": start_dt},
         **{f"{time_field}__lte": end_dt},
+    )
+
+
+def _apply_effective_date_range(qs, primary_field, fallback_field, start_date, end_date):
+    """按有效时间筛选（含首尾日全天）：主时间字段非空用之，否则回退备用字段（兼容旧数据）"""
+    if not start_date and not end_date:
+        return qs
+    if start_date and end_date and start_date > end_date:
+        return qs.none()
+
+    if not start_date:
+        start_date = end_date
+    if not end_date:
+        end_date = start_date
+
+    start_dt, end_dt = local_day_range_datetimes(start_date, end_date)
+    return qs.annotate(
+        _effective_time=Coalesce(primary_field, fallback_field)
+    ).filter(
+        _effective_time__isnull=False,
+        _effective_time__gte=start_dt,
+        _effective_time__lte=end_dt,
     )
 
 
@@ -517,6 +609,7 @@ def _serialize_finish_product(item, bom_map=None):
             "test_time": format_local_datetime(item.test_time) or "",
             "stock_in_time": format_local_datetime(item.stock_in_time) or "",
             "stock_out_time": format_local_datetime(item.stock_out_time) or "",
+            "sn_code_time": format_local_datetime(item.sn_code_time) or "",
             "inventory_stock": item.inventory_stock,
             "inventory_stock_name": _get_dict_label("storage_status", item.inventory_stock),
             "repair": item.repair,
@@ -541,13 +634,61 @@ BOARD_DETAIL_CATEGORIES = {
     "stockOutSaleCount",
     "stockOutDevCount",
     "currentStockInCount",
+    "unassembledCount",
 }
+
+# 看板明细排序：直接字段（FinishProduct 模型）
+BOARD_DETAIL_DIRECT_SORT_MAP = {
+    "sn_code": "sn_code",
+    "sn_code_time": "sn_code_time",
+    "parent_sn_code": "parent_sn_code",
+    "status": "status",
+    "inventory_stock": "inventory_stock",
+    "repair": "repair",
+    "create_time": "create_time",
+    "test_time": "test_time",
+    "stock_in_time": "stock_in_time",
+    "stock_out_time": "stock_out_time",
+    "update_time": "update_time",
+    "description": "description",
+}
+
+# 看板明细排序：BOM 关联字段（bom_id 为普通 IntegerField，需 Subquery 标注后排序）
+BOARD_DETAIL_BOM_SORT_MAP = {
+    "bom_type_name": "type",
+    "bom_model": "bom_model",
+    "bom_name": "bom_name",
+    "material_code": "material_code",
+}
+
+
+def _apply_board_sort(qs, sort_prop, sort_order):
+    """根据前端传入的排序参数应用排序，返回处理后的 queryset 与 order_fields。
+    返回 (qs, order_fields)；无有效排序时 order_fields 为空（由调用方使用默认排序）。
+    """
+    if not sort_prop:
+        return qs, []
+    if sort_prop in BOARD_DETAIL_DIRECT_SORT_MAP:
+        order_field = BOARD_DETAIL_DIRECT_SORT_MAP[sort_prop]
+    elif sort_prop in BOARD_DETAIL_BOM_SORT_MAP:
+        annotate_key = "_sort_bom_field"
+        bom_col = BOARD_DETAIL_BOM_SORT_MAP[sort_prop]
+        sub = BomList.objects.filter(id=OuterRef("bom_id"), is_del=0).values(bom_col)
+        qs = qs.annotate(**{annotate_key: Subquery(sub)})
+        order_field = annotate_key
+    else:
+        return qs, []
+
+    prefix = "-" if sort_order == "desc" else ""
+    return qs, [f"{prefix}{order_field}", "-id"]
 
 
 def _apply_board_category_filter(qs, category):
     """按看板统计项筛选，规则与 finish_product_daily_stats 一致"""
     if category == "newCount":
-        return qs
+        return qs.exclude(Q(sn_code="") | Q(sn_code__isnull=True))
+    if category == "unassembledCount":
+        return qs.filter(Q(sn_code__isnull=True) | Q(sn_code=""))
     if category in TEST_TIME_STAT_CATEGORIES:
         qs = qs.filter(test_time__isnull=False)
     if category == "passCount":
@@ -558,7 +699,7 @@ def _apply_board_category_filter(qs, category):
         return qs.filter(
             repair=FinishProduct.REPAIR_NEW,
             status=FinishProduct.STATUS_UNTESTED,
-        )
+        ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
     if category == "testingCount":
         return qs.filter(
             repair=FinishProduct.REPAIR_NEW,
@@ -604,6 +745,9 @@ def finish_product_board_detail(request):
         return JsonResponse({"code": "400", "msg": "无效的统计类别"})
 
     bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
+    bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
+    sort_prop = (request.GET.get("sort_prop") or request.GET.get("sortProp") or "").strip()
+    sort_order = (request.GET.get("sort_order") or request.GET.get("sortOrder") or "").strip().lower()
 
     page_num, page_size = _parse_page_params(request)
     end_date = _parse_date_param(
@@ -616,9 +760,10 @@ def finish_product_board_detail(request):
 
     if single_date:
         start_date = end_date = single_date
-    elif category != "currentStockInCount":
+    elif category not in ("currentStockInCount", "unassembledCount"):
         if not end_date:
-            end_date = timezone.localdate()
+            # USE_TZ=False 时 timezone.now() 即本地时间，localdate() 会因 naive datetime 报错
+            end_date = timezone.now().date()
         if not start_date:
             start_date = end_date - timedelta(days=29)
         if start_date > end_date:
@@ -628,12 +773,16 @@ def finish_product_board_detail(request):
     # 看板详情列表默认过滤已回退记录
     qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     qs = _apply_board_category_filter(qs, category)
-    qs = _filter_by_bom_type(qs, bom_type)
+    qs = _filter_finish_by_bom(qs, bom_type, bom_ids_param)
 
-    if category == "currentStockInCount":
+    if category in ("currentStockInCount", "unassembledCount"):
         pass
     elif category == "newCount":
-        qs = _apply_field_date_range(qs, "create_time", start_date, end_date)
+        # 有SN码录入时间的按录入时间，旧数据按创建时间
+        qs = _apply_effective_date_range(qs, "sn_code_time", "create_time", start_date, end_date)
+    elif category == "pendingNewCount":
+        # 有SN码录入时间的按录入时间，旧数据按测试状态修改时间
+        qs = _apply_effective_date_range(qs, "sn_code_time", "test_time", start_date, end_date)
     elif category in TEST_TIME_STAT_CATEGORIES:
         qs = _apply_field_date_range(qs, "test_time", start_date, end_date)
     elif category == "stockInCount":
@@ -644,12 +793,25 @@ def finish_product_board_detail(request):
         qs = _apply_field_date_range(qs, "update_time", start_date, end_date)
 
     order_fields = ["-create_time", "-id"]
-    if category in TEST_TIME_STAT_CATEGORIES:
+    if category == "newCount":
+        # 与统计口径一致：按有效时间（SN码录入时间优先，回退创建时间）排序
+        qs = qs.annotate(_effective_time=Coalesce("sn_code_time", "create_time"))
+        order_fields = ["-_effective_time", "-id"]
+    elif category == "pendingNewCount":
+        # 与统计口径一致：按有效时间（SN码录入时间优先，回退测试状态修改时间）排序
+        qs = qs.annotate(_effective_time=Coalesce("sn_code_time", "test_time"))
+        order_fields = ["-_effective_time", "-id"]
+    elif category in TEST_TIME_STAT_CATEGORIES:
         order_fields = ["-test_time", "-id"]
     elif category == "stockInCount":
         order_fields = ["-stock_in_time", "-id"]
     elif category in ("stockOutCount", "stockOutSaleCount", "stockOutDevCount"):
         order_fields = ["-stock_out_time", "-id"]
+
+    # 用户排序覆盖默认排序（服务端排序，保证分页结果正确）
+    qs, user_order_fields = _apply_board_sort(qs, sort_prop, sort_order)
+    if user_order_fields:
+        order_fields = user_order_fields
 
     total = qs.count()
     start = (page_num - 1) * page_size
@@ -849,7 +1011,7 @@ def create_finish_product(request):
             sn_code=sn_code,
             bom_id=bom.id,
             name=bom.bom_name or bom.bom_model or "",
-            status=FinishProduct.STATUS_UNTESTED,
+            status=FinishProduct.STATUS_UNTESTED if sn_code else FinishProduct.STATUS_UNASSEMBLED,
             inventory_stock=FinishProduct.INVENTORY_NOT_IN,
             repair=FinishProduct.REPAIR_NEW,
             cons_status=FinishProduct.CONS_STATUS_NOT_CONSUMED,
@@ -858,6 +1020,7 @@ def create_finish_product(request):
             create_time=now,
             update_time=now,
             test_time=now,
+            sn_code_time=now if sn_code else None,
         )
 
         _log_if_available(
@@ -922,11 +1085,18 @@ def update_finish_product(request):
         except BomList.DoesNotExist:
             bom_type = None
 
+        sn_code_activated = False
         if "sn_code" in body:
             sn_code = (body.get("sn_code") or "").strip()
             if sn_code and FinishProduct.active_queryset().filter(sn_code=sn_code).exclude(id=item.id).exists():
                 return JsonResponse({"code": "400", "msg": "SN码已存在"})
-            item.sn_code = sn_code or None
+            new_sn_code = sn_code or None
+            if new_sn_code != item.sn_code:
+                old_sn_code = item.sn_code
+                item.sn_code = new_sn_code
+                item.sn_code_time = timezone.now()
+                # SN码从空变为非空时，状态自动改为未测试
+                sn_code_activated = not old_sn_code and bool(new_sn_code)
 
         if "status" in body:
             status = int(body.get("status"))
@@ -936,6 +1106,10 @@ def update_finish_product(request):
                 if "test_time" not in body and "testTime" not in body:
                     item.test_time = timezone.now()
             item.status = status
+
+        # SN码从空变为非空时，状态强制设为未测试（覆盖手动设置）
+        if sn_code_activated:
+            item.status = FinishProduct.STATUS_UNTESTED
 
         # 先处理父级SN码变更（影响后续库存状态验证）
         new_parent_sn_code = item.parent_sn_code

@@ -12,6 +12,7 @@ export function getFinishProductDailyStats(params: {
   start_date: string
   end_date: string
   bom_type?: string
+  bom_ids?: string
 }) {
   return request({
     url: '/api/v1/finish-product/daily-stats/',
@@ -28,6 +29,9 @@ export function getFinishProductBoardDetail(params: {
   pageNum?: number
   pageSize?: number
   bom_type?: string
+  bom_ids?: string
+  sort_prop?: string
+  sort_order?: string
 }) {
   return request({
     url: '/api/v1/finish-product/board-detail/',

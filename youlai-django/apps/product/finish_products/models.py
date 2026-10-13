@@ -8,11 +8,13 @@ class FinishProduct(models.Model):
     STATUS_TESTING = 1
     STATUS_PASS = 2
     STATUS_FAIL = 3
+    STATUS_UNASSEMBLED = 4
     STATUS_CHOICES = (
         (STATUS_UNTESTED, "未测试"),
         (STATUS_TESTING, "测试中"),
         (STATUS_PASS, "测试合格"),
         (STATUS_FAIL, "测试不良"),
+        (STATUS_UNASSEMBLED, "未组装"),
     )
 
     INVENTORY_NOT_IN = 0
@@ -89,6 +91,12 @@ class FinishProduct(models.Model):
         blank=True,
         null=True,
         verbose_name="出库时间",
+    )
+    sn_code_time = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="SN码录入时间",
+        help_text="SN码发生变化时由系统自动写入，不可编辑",
     )
     inventory_stock = models.IntegerField(
         default=INVENTORY_NOT_IN,
@@ -180,7 +188,7 @@ class FinishedProductLog(models.Model):
 
     # 列展示字段白名单（与前端 useFinishProductTableColumns 一致）
     TRACKABLE_FIELDS = (
-        "sn_code", "bom_type", "bom_model", "bom_name", "material_code",
+        "sn_code", "sn_code_time", "bom_type", "bom_model", "bom_name", "material_code",
         "parent_sn_code", "status", "inventory_stock", "repair",
         "test_time", "stock_in_time", "stock_out_time",
         "create_time", "update_time", "description",

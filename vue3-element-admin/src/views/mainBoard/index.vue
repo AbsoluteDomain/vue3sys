@@ -192,19 +192,43 @@
               <el-option label="关节" value="joint" />
             </el-select>
           </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-[--el-text-color-regular]" style="width: 90px">产品型号：</span>
+            <el-select
+              v-model="bomModelIds"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              filterable
+              clearable
+              placeholder="请选择产品型号（默认全部）"
+              style="min-width: 280px"
+              @change="fetchFinishData"
+            >
+              <el-option
+                v-for="bom in boardBomList"
+                :key="bom.id"
+                :label="bom.bom_model || bom.bom_name"
+                :value="bom.id"
+              >
+                <span>{{ bom.bom_model }}</span>
+                <span style="float: right; color: #8492a6; font-size: 13px">{{ bom.bom_name }}</span>
+              </el-option>
+            </el-select>
+          </div>
           <el-button type="primary" :icon="Refresh" @click="fetchFinishData">刷新</el-button>
         </div>
       </el-card>
 
       <el-row :gutter="10" class="mt-2">
-        <el-col :xs="24" :lg="12" class="mb-3">
+        <el-col :xs="24" :lg="13" class="mb-3">
           <el-card shadow="never" class="h-full">
             <template #header>
               <div class="flex items-center gap-2">
                 <span class="font-semibold">新品相关</span>
               </div>
             </template>
-            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div class="compact-stat-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
               <div>
                 <el-card
                   shadow="never"
@@ -215,7 +239,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">新增成品</span>
-                      <el-tooltip content="按产品创建时间统计指定周期内新创建的成品数量" placement="top">
+                      <el-tooltip content="仅有SN码的算成品；有SN码录入时间的按录入时间统计，旧数据（无录入时间）按创建时间统计" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -236,7 +260,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">待测试新品</span>
-                      <el-tooltip content="按测试状态修改时间统计，状态为未测试且为新品的数量" placement="top">
+                      <el-tooltip content="状态为未测试的新品（仅有SN码）；有SN码录入时间的按录入时间统计，旧数据（无录入时间）按测试状态修改时间统计" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -310,19 +334,40 @@
                   </div>
                 </el-card>
               </div>
+              <div>
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': currentUnassembledCount > 0 }"
+                  @click="openBoardDetail('unassembledCount', currentUnassembledCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">未组装</span>
+                      <el-tooltip content="SN码为空的成品总数，不受日期筛选影响" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-gray-600">{{ currentUnassembledCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </div>
             </div>
             <ECharts :options="newProductPassRateOptions" height="260px" class="mt-2" />
           </el-card>
         </el-col>
 
-        <el-col :xs="24" :lg="12" class="mb-3">
+        <el-col :xs="24" :lg="11" class="mb-3">
           <el-card shadow="never" class="h-full">
             <template #header>
               <div class="flex items-center gap-2">
                 <span class="font-semibold">返修品相关</span>
               </div>
             </template>
-            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div class="compact-stat-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
               <div>
                 <el-card
                   shadow="never"
@@ -746,17 +791,20 @@
         </el-button>
       </div>
       <el-table
+        ref="detailTableRef"
         :data="detailList"
         border
         stripe
         style="width: 100%"
         max-height="480px"
         v-loading="detailLoading"
+        @sort-change="handleDetailSortChange"
       >
         <el-table-column type="index" label="序号" width="60" align="center" fixed="left" />
         <el-table-column
           v-if="isColumnVisible('sn_code')"
           prop="sn_code"
+          sortable="custom"
           label="SN码"
           min-width="180"
           show-overflow-tooltip
@@ -767,10 +815,18 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="isColumnVisible('sn_code_time')"
+          prop="sn_code_time"
+          sortable="custom"
+          label="SN码录入时间"
+          width="170"
+        />
+        <el-table-column
           v-if="isColumnVisible('bom_type')"
           prop="bom_type_name"
+          sortable="custom"
           label="BOM类型"
-          width="100"
+          width="110"
           align="center"
         >
           <template #default="{ row }">
@@ -782,6 +838,7 @@
         <el-table-column
           v-if="isColumnVisible('bom_model')"
           prop="bom_model"
+          sortable="custom"
           label="BOM型号"
           min-width="120"
           show-overflow-tooltip
@@ -789,6 +846,7 @@
         <el-table-column
           v-if="isColumnVisible('bom_name')"
           prop="bom_name"
+          sortable="custom"
           label="BOM名称"
           min-width="120"
           show-overflow-tooltip
@@ -796,15 +854,25 @@
         <el-table-column
           v-if="isColumnVisible('material_code')"
           prop="material_code"
+          sortable="custom"
           label="物料编码"
           min-width="110"
           show-overflow-tooltip
         />
         <el-table-column
+          v-if="isColumnVisible('parent_sn_code')"
+          prop="parent_sn_code"
+          sortable="custom"
+          label="父级SN码"
+          min-width="160"
+          show-overflow-tooltip
+        />
+        <el-table-column
           v-if="isColumnVisible('status')"
           prop="status"
+          sortable="custom"
           label="测试状态"
-          width="100"
+          width="110"
           align="center"
         >
           <template #default="{ row }">
@@ -816,6 +884,7 @@
         <el-table-column
           v-if="isColumnVisible('inventory_stock')"
           prop="inventory_stock"
+          sortable="custom"
           label="库存状态"
           width="120"
           align="center"
@@ -827,6 +896,7 @@
         <el-table-column
           v-if="isColumnVisible('repair')"
           prop="repair"
+          sortable="custom"
           label="返修"
           width="90"
           align="center"
@@ -840,36 +910,42 @@
         <el-table-column
           v-if="isColumnVisible('create_time')"
           prop="create_time"
+          sortable="custom"
           label="创建时间"
           width="170"
         />
         <el-table-column
           v-if="isColumnVisible('test_time')"
           prop="test_time"
+          sortable="custom"
           label="测试状态修改时间"
           width="170"
         />
         <el-table-column
           v-if="isColumnVisible('stock_in_time')"
           prop="stock_in_time"
+          sortable="custom"
           label="入库时间"
           width="170"
         />
         <el-table-column
           v-if="isColumnVisible('stock_out_time')"
           prop="stock_out_time"
+          sortable="custom"
           label="出库时间"
           width="170"
         />
         <el-table-column
           v-if="isColumnVisible('update_time')"
           prop="update_time"
+          sortable="custom"
           label="更新时间"
           width="170"
         />
         <el-table-column
           v-if="isColumnVisible('description')"
           prop="description"
+          sortable="custom"
           label="描述"
           min-width="140"
           show-overflow-tooltip
@@ -1080,7 +1156,7 @@ defineOptions({
   name: "MainBoard",
 });
 
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { getProductList, getBomList as getBomListApi } from "@/api/product";
 import { getFinishProductDailyStats, getFinishProductBoardDetail, getJointTestReport } from "@/api/finish-product";
 import ECharts from "@/components/ECharts/index.vue";
@@ -1178,6 +1254,7 @@ const boardCategoryLabels: Record<string, string> = {
   stockOutSaleCount: "出库(外销)数量",
   stockOutDevCount: "出库(研发)数量",
   currentStockInCount: "成品库存",
+  unassembledCount: "未组装",
 };
 
 type BoardCategoryKey = keyof typeof boardCategoryLabels;
@@ -1264,11 +1341,14 @@ watch(finishDateRange, (range) => {
 });
 const finishSummary = ref(emptyFinishSummary());
 const currentStockInCount = ref(0);
+const currentUnassembledCount = ref(0);
 const dailyStats = ref<FinishDailyStat[]>([]);
 const finishDataLoaded = ref(false);
 
 const periodType = ref("30d");
 const bomType = ref("");
+const bomModelIds = ref<number[]>([]);
+const boardBomList = ref<any[]>([]);
 const NEW_BOARD_DATE_RANGE_STORAGE_KEY = "new-board-date-range";
 
 /** el-date-picker 自定义日期范围的快捷选项 */
@@ -1408,11 +1488,15 @@ const detailPageNum = ref(1);
 const detailPageSize = ref(10);
 const detailCategory = ref<BoardCategoryKey>("newCount");
 const detailSingleDate = ref<string | null>(null);
+const detailTableRef = ref<any>(null);
+const detailSortProp = ref("");
+const detailSortOrder = ref("");
 
 const statusTagType = (value: number) => {
   if (value === 2) return "success";
   if (value === 3) return "danger";
   if (value === 1) return "primary";
+  if (value === 4) return "info";
   return "warning";
 };
 
@@ -1427,6 +1511,9 @@ const buildDetailTitle = (category: BoardCategoryKey, singleDate?: string | null
   const bomLabel = bomType.value === "arm" ? "（机械臂）" : bomType.value === "joint" ? "（关节）" : "";
   if (category === "currentStockInCount") {
     return `${label} - 明细（当前已入库）${bomLabel}`;
+  }
+  if (category === "unassembledCount") {
+    return `${label} - 明细（SN码为空）${bomLabel}`;
   }
   if (singleDate) {
     return `${label} - 明细（${singleDate}）${bomLabel}`;
@@ -1449,13 +1536,19 @@ const fetchBoardDetail = async () => {
       pageNum?: number;
       pageSize?: number;
       bom_type?: string;
+      bom_ids?: string;
+      sort_prop?: string;
+      sort_order?: string;
     } = {
       category: detailCategory.value,
       pageNum: detailPageNum.value,
       pageSize: detailPageSize.value,
       bom_type: bomType.value,
+      bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
+      sort_prop: detailSortProp.value || undefined,
+      sort_order: detailSortOrder.value || undefined,
     };
-    if (detailCategory.value !== "currentStockInCount") {
+    if (detailCategory.value !== "currentStockInCount" && detailCategory.value !== "unassembledCount") {
       if (detailSingleDate.value) {
         params.date = detailSingleDate.value;
       } else if (finishDateRange.value?.[0] && finishDateRange.value?.[1]) {
@@ -1475,6 +1568,13 @@ const fetchBoardDetail = async () => {
   }
 };
 
+const handleDetailSortChange = ({ prop, order }: { prop: string | null; order: string | null }) => {
+  detailSortProp.value = prop || "";
+  detailSortOrder.value = order === "ascending" ? "asc" : order === "descending" ? "desc" : "";
+  detailPageNum.value = 1;
+  fetchBoardDetail();
+};
+
 const openBoardDetail = (category: BoardCategoryKey, count: number, singleDate?: string) => {
   if (!count || count <= 0) {
     return;
@@ -1482,6 +1582,10 @@ const openBoardDetail = (category: BoardCategoryKey, count: number, singleDate?:
   detailCategory.value = category;
   detailSingleDate.value = singleDate || null;
   detailPageNum.value = 1;
+  // 切换统计项时重置排序，使用各统计项默认排序
+  detailSortProp.value = "";
+  detailSortOrder.value = "";
+  nextTick(() => detailTableRef.value?.clearSort());
   detailDialogTitle.value = buildDetailTitle(category, singleDate);
   detailDialogVisible.value = true;
   fetchBoardDetail();
@@ -1598,6 +1702,16 @@ const isMaterialAlert = (product: any) => {
   return alertQty > 0 && qty <= alertQty;
 };
 
+const fetchBoardBomList = async () => {
+  if (boardBomList.value.length > 0) return;
+  try {
+    const res = await getBomListApi({ pageNum: 1, pageSize: 1000 });
+    boardBomList.value = res?.list || [];
+  } catch (e) {
+    console.error("获取BOM列表失败", e);
+  }
+};
+
 const fetchFinishData = async () => {
   if (!finishDateRange.value?.[0] || !finishDateRange.value?.[1]) {
     return;
@@ -1609,12 +1723,14 @@ const fetchFinishData = async () => {
       start_date: finishDateRange.value[0],
       end_date: finishDateRange.value[1],
       bom_type: bomType.value,
+      bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
     });
     finishSummary.value = {
       ...emptyFinishSummary(),
       ...(res?.summary || {}),
     };
     currentStockInCount.value = res?.currentStockInCount ?? 0;
+    currentUnassembledCount.value = res?.currentUnassembledCount ?? 0;
     dailyStats.value = res?.daily || [];
     finishDataLoaded.value = true;
     updateFinishDailyCharts();
@@ -2136,6 +2252,7 @@ onMounted(() => {
   dictStore.loadDictItems('storage_status', true);
   periodType.value = "30d";
   finishDateRange.value = computeDateRangeByPeriod("30d");
+  fetchBoardBomList();
   fetchFinishData();
 });
 </script>
@@ -2158,6 +2275,32 @@ onMounted(() => {
 
 .stat-card--clickable {
   cursor: pointer;
+}
+
+/* 紧凑统计卡片：缩小内边距，标题不换行（空间不足时省略号截断） */
+.compact-stat-grid {
+  :deep(.el-card__header) {
+    padding: 8px 10px;
+
+    > div {
+      min-width: 0;
+    }
+
+    span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .el-icon {
+      flex-shrink: 0;
+    }
+  }
+
+  :deep(.el-card__body) {
+    padding: 10px 12px;
+  }
 }
 
 .finish-stat-row--9 {

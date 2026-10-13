@@ -47,19 +47,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="测试状态">
-          <el-select
+          <DictSelect
             v-model="queryParams.status"
+            code="test_status"
             placeholder="全部"
-            clearable
-            style="width: 120px"
+            style="width: 130px"
             @change="handleSearch"
-            @clear="handleSearch"
-          >
-            <el-option label="未测试" value="0" />
-            <el-option label="测试中" value="1" />
-            <el-option label="测试合格" value="2" />
-            <el-option label="测试不良" value="3" />
-          </el-select>
+          />
         </el-form-item>
         <el-form-item label="库存状态">
           <DictSelect
@@ -178,6 +172,12 @@
             <span v-else class="text-muted">待填写</span>
           </template>
         </el-table-column>
+        <el-table-column
+          v-if="isColumnVisible('sn_code_time')"
+          prop="sn_code_time"
+          label="SN码录入时间"
+          width="170"
+        />
         <el-table-column
           v-if="isColumnVisible('bom_type')"
           prop="bom_type_name"
@@ -387,6 +387,7 @@
         
         <el-form-item label="测试状态" class="finish-edit-form__radio-row">
           <el-radio-group v-model="formData.status">
+            <el-radio :value="4" :disabled="requiresPassStatus">未组装</el-radio>
             <el-radio :value="0" :disabled="requiresPassStatus">未测试</el-radio>
             <el-radio :value="1" :disabled="requiresPassStatus">测试中</el-radio>
             <el-radio :value="2">测试合格</el-radio>
@@ -1317,6 +1318,7 @@ const statusTagType = (value) => {
   if (value === 2) return 'success'
   if (value === 3) return 'danger'
   if (value === 1) return 'primary'
+  if (value === 4) return 'info'
   return 'warning'
 }
 
@@ -1390,6 +1392,7 @@ const exportLoading = ref(false)
 
 const EXPORT_COLUMNS = [
   { header: 'SN码', key: 'sn_code' },
+  { header: 'SN码录入时间', key: 'sn_code_time' },
   { header: 'BOM类型', key: 'bom_type' },
   { header: 'BOM型号', key: 'bom_model' },
   { header: 'BOM名称', key: 'bom_name' },
@@ -2270,6 +2273,7 @@ onMounted(() => {
   loadColumnSettings()
   dictStore.loadDictItems('storage_status', true)
   dictStore.loadDictItems('unqualified_status', true)
+  dictStore.loadDictItems('test_status', true)
   getList()
   checkJointConsistency()
 })
