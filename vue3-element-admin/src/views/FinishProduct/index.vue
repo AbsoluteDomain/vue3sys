@@ -753,11 +753,29 @@
             </template>
           </el-select>
         </el-form-item>
-        <el-form-item label="SN码">
+        <el-form-item label="SN码" required>
           <el-input
             v-model="addJointSnCode"
-            placeholder="请输入SN码（选填）"
+            placeholder="请输入SN码"
             clearable
+          />
+        </el-form-item>
+        <el-form-item label="创建时间">
+          <el-date-picker
+            v-model="addJointCreateTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="SN码录入时间">
+          <el-date-picker
+            v-model="addJointSnCodeTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
           />
         </el-form-item>
       </el-form>
@@ -894,6 +912,13 @@
         >
           批量绑定SN码
         </el-button>
+        <el-button
+          type="warning"
+          size="large"
+          @click="openBatchAddJointDialog"
+        >
+          添加关节
+        </el-button>
       </div>
       <template #footer>
         <el-button @click="quickActionVisible = false">取消</el-button>
@@ -938,6 +963,76 @@
         <el-button @click="quickActionSnVisible = false">取消</el-button>
         <el-button type="primary" :loading="quickActionSnSubmitting" @click="handleQuickActionSnConfirm">
           {{ quickActionType === 'pass' ? '保存' : '确认' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 快捷操作：批量添加关节 -->
+    <el-dialog
+      v-model="batchAddJointVisible"
+      title="批量添加关节"
+      width="520px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <el-form label-width="90px">
+        <el-form-item label="关节BOM" required>
+          <el-select
+            v-model="batchAddJointBomId"
+            filterable
+            placeholder="请选择关节BOM"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="bom in jointBomList"
+              :key="bom.id"
+              :label="`${bom.bom_model} ${bom.bom_name || ''} (${bom.type_name || ''})`"
+              :value="bom.id"
+            />
+            <template #empty>
+              <div class="select-empty">暂无关节类型的BOM</div>
+            </template>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="SN码" required>
+          <div class="quick-sn-list">
+            <el-input
+              v-for="(sn, index) in batchAddJointSnList"
+              :key="index"
+              :ref="(el) => setBatchAddJointSnRef(el, index)"
+              v-model="batchAddJointSnList[index]"
+              placeholder="请输入SN码，按回车填写下一个"
+              clearable
+              @keydown.enter.prevent="addBatchAddJointSnInput"
+            />
+            <el-button class="quick-sn-add" @click="addBatchAddJointSnInput">
+              <el-icon><Plus /></el-icon> 填写下一个
+            </el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="创建时间">
+          <el-date-picker
+            v-model="batchAddJointCreateTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="SN码录入时间">
+          <el-date-picker
+            v-model="batchAddJointSnCodeTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchAddJointVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchAddJointSubmitting" @click="handleBatchAddJoint">
+          批量创建
         </el-button>
       </template>
     </el-dialog>
@@ -1174,6 +1269,8 @@ const addJointVisible = ref(false)
 const addJointSubmitting = ref(false)
 const addJointBomId = ref(null)
 const addJointSnCode = ref('')
+const addJointCreateTime = ref('')
+const addJointSnCodeTime = ref('')
 const addJointBomList = ref([])
 
 // 不合格项选择对话框（编辑时使用）
@@ -1200,6 +1297,15 @@ const quickActionType = ref('')
 // 测试合格批量：SN码输入框列表（每个元素对应一个输入框）
 const quickActionSnList = ref([''])
 const quickSnInputRefs = []
+
+// 快捷操作：批量添加关节
+const batchAddJointVisible = ref(false)
+const batchAddJointSubmitting = ref(false)
+const batchAddJointBomId = ref(null)
+const batchAddJointSnList = ref([''])
+const batchAddJointCreateTime = ref('')
+const batchAddJointSnCodeTime = ref('')
+const batchAddJointSnRefs = []
 
 // 批量绑定SN码相关状态
 const batchBindSnVisible = ref(false)
@@ -1948,14 +2054,8 @@ const handleRollback = (row) => {
     })
 }
 
-const handleBindJoints = async (row) => {
-  bindJointRow.value = row
-  selectedJointIds.value = []
-  bindJointVisible.value = true
+const loadBindableJoints = async () => {
   bindJointLoading.value = true
-  loadJointBomList()
-
-  // 加载全部可绑定关节（专用不分页接口，避免 max_page_size=100 截断）
   try {
     const res = await getBindableJoints()
     bindJointData.value = res?.list || []
@@ -1965,6 +2065,16 @@ const handleBindJoints = async (row) => {
   } finally {
     bindJointLoading.value = false
   }
+}
+
+const handleBindJoints = async (row) => {
+  bindJointRow.value = row
+  selectedJointIds.value = []
+  bindJointVisible.value = true
+  loadJointBomList()
+
+  // 加载全部可绑定关节（专用不分页接口，避免 max_page_size=100 截断）
+  await loadBindableJoints()
 }
 
 const loadJointBomList = async () => {
@@ -1979,6 +2089,8 @@ const loadJointBomList = async () => {
 const openAddJointDialog = () => {
   addJointBomId.value = null
   addJointSnCode.value = ''
+  addJointCreateTime.value = nowStr()
+  addJointSnCodeTime.value = nowStr()
   addJointVisible.value = true
 }
 
@@ -1987,17 +2099,30 @@ const handleAddJoint = async () => {
     ElMessage.warning('请选择关节BOM')
     return
   }
+  if (!addJointSnCode.value?.trim()) {
+    ElMessage.warning('请输入SN码')
+    return
+  }
   addJointSubmitting.value = true
   try {
     await createFinishProduct({
       bom_id: addJointBomId.value,
-      sn_code: addJointSnCode.value?.trim() || ''
+      sn_code: addJointSnCode.value.trim(),
+      description: '非计划添加',
+      status: STATUS_PASS,
+      inventory_stock: INVENTORY_IN,
+      create_time: addJointCreateTime.value || null,
+      sn_code_time: addJointSnCodeTime.value || null
     })
     ElMessage.success('关节创建成功')
     addJointVisible.value = false
     addJointBomId.value = null
     addJointSnCode.value = ''
+    addJointCreateTime.value = ''
+    addJointSnCodeTime.value = ''
     await getList()
+    // 刷新"关节绑定"的可绑定下拉，使新关节可直接被搜索到
+    await loadBindableJoints()
   } catch (e) {
     // 错误由request拦截器提示
   } finally {
@@ -2076,6 +2201,74 @@ const addQuickSnInput = async () => {
   quickActionSnList.value.push('')
   await nextTick()
   quickSnInputRefs[quickActionSnList.value.length - 1]?.focus()
+}
+
+// ==================== 快捷操作：批量添加关节 ====================
+
+// 打开批量添加关节对话框
+const openBatchAddJointDialog = async () => {
+  batchAddJointBomId.value = null
+  batchAddJointSnList.value = ['']
+  batchAddJointSnRefs.length = 0
+  batchAddJointCreateTime.value = nowStr()
+  batchAddJointSnCodeTime.value = nowStr()
+  batchAddJointVisible.value = true
+  await loadJointBomList()
+}
+
+// 记录批量添加关节的SN码输入框引用
+const setBatchAddJointSnRef = (el, index) => {
+  if (el) batchAddJointSnRefs[index] = el
+}
+
+// 新增下一个SN码输入框并聚焦
+const addBatchAddJointSnInput = async () => {
+  batchAddJointSnList.value.push('')
+  await nextTick()
+  batchAddJointSnRefs[batchAddJointSnList.value.length - 1]?.focus()
+}
+
+// 批量创建关节：逐个调用创建接口，等同于多次使用「添加关节」，日志逐条保存
+const handleBatchAddJoint = async () => {
+  if (!batchAddJointBomId.value) {
+    ElMessage.warning('请选择关节BOM')
+    return
+  }
+  const snCodes = batchAddJointSnList.value
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.indexOf(s) === i)
+  if (!snCodes.length) {
+    ElMessage.warning('请输入SN码')
+    return
+  }
+  batchAddJointSubmitting.value = true
+  const results = []
+  try {
+    for (const sn of snCodes) {
+      try {
+        await createFinishProduct({
+          bom_id: batchAddJointBomId.value,
+          sn_code: sn,
+          description: '非计划添加',
+          status: STATUS_PASS,
+          inventory_stock: INVENTORY_IN,
+          create_time: batchAddJointCreateTime.value || null,
+          sn_code_time: batchAddJointSnCodeTime.value || null
+        })
+        results.push({ sn, ok: true })
+      } catch (e) {
+        results.push({ sn, ok: false, reason: '创建失败（SN码可能已存在）' })
+      }
+    }
+    batchAddJointVisible.value = false
+    quickActionVisible.value = false
+    getList()
+    await loadBindableJoints()
+    showBatchResult(results)
+  } finally {
+    batchAddJointSubmitting.value = false
+  }
 }
 
 // 按SN码查找成品，找不到返回 null
@@ -2554,23 +2747,18 @@ onMounted(() => {
 }
 
 .quick-action-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
   padding: 20px 0;
 }
 
 .quick-action-buttons .el-button {
-  width: 180px;
+  width: 100%;
   height: 64px;
   font-size: 16px;
   font-weight: 500;
-}
-
-/* 文字较多的按钮宽度自适应 */
-.quick-action-buttons .el-button.el-button--primary {
-  width: auto;
-  padding: 0 20px;
+  margin-left: 0;
 }
 
 .quick-sn-list {

@@ -881,8 +881,15 @@ def finish_product_list(request):
             qs = qs.filter(bom_id=int(bom_id))
         except (TypeError, ValueError):
             qs = qs.none()
-    if status in ("0", "1", "2", "3"):
-        qs = qs.filter(status=int(status))
+    if status:
+        try:
+            status_val = int(status)
+        except (TypeError, ValueError):
+            status_val = None
+        if status_val is not None and status_val in VALID_STATUS:
+            qs = qs.filter(status=status_val)
+        else:
+            qs = qs.none()
     if inventory_stock:
         try:
             inv_val = int(inventory_stock)
@@ -1007,26 +1014,124 @@ def create_finish_product(request):
         except BomList.DoesNotExist:
             return JsonResponse({"code": "400", "msg": "关联的 BOM 不存在"})
 
-        sn_code = (body.get("sn_code") or "").strip() or None
-        if sn_code and FinishProduct.active_queryset().filter(sn_code=sn_code).exists():
+        sn_code = (body.get("sn_code") or "").strip()
+        if not sn_code:
+            return JsonResponse({"code": "400", "msg": "SN码不能为空"})
+        if FinishProduct.active_queryset().filter(sn_code=sn_code).exists():
             return JsonResponse({"code": "400", "msg": "SN码已存在"})
 
         now = timezone.now()
-        item = FinishProduct.objects.create(
-            sn_code=sn_code,
-            bom_id=bom.id,
-            name=bom.bom_name or bom.bom_model or "",
-            status=FinishProduct.STATUS_UNTESTED if sn_code else FinishProduct.STATUS_UNASSEMBLED,
-            inventory_stock=FinishProduct.INVENTORY_NOT_IN,
-            repair=FinishProduct.REPAIR_NEW,
-            cons_status=FinishProduct.CONS_STATUS_NOT_CONSUMED,
-            description=(body.get("description") or "").strip() or None,
-            parent_sn_code=(body.get("parent_sn_code") or "").strip() or None,
-            create_time=now,
-            update_time=now,
-            test_time=now,
-            sn_code_time=now if sn_code else None,
-        )
+
+        # 可选：测试状态（不传默认「未测试」）
+        status = body.get("status")
+        if status in (None, ""):
+            status_val = FinishProduct.STATUS_UNTESTED
+        else:
+            try:
+                status_val = int(status)
+            except (TypeError, ValueError):
+                return JsonResponse({"code": "400", "msg": "测试状态值无效"})
+            if status_val not in VALID_STATUS:
+                return JsonResponse({"code": "400", "msg": "测试状态值无效"})
+
+        # 可选：库存状态（不传默认「未入库」）
+        inventory_stock = body.get("inventory_stock")
+        if inventory_stock in (None, ""):
+            inventory_val = FinishProduct.INVENTORY_NOT_IN
+        else:
+            try:
+                inventory_val = int(inventory_stock)
+            except (TypeError, ValueError):
+                return JsonResponse({"code": "400", "msg": "库存状态值无效"})
+            if inventory_val not in _get_valid_dict_int_values("storage_status"):
+                return JsonResponse({"code": "400", "msg": "库存状态值无效"})
+
+        # 可选：创建时间 / SN码录入时间（不传则用当前时间）
+        try:
+            create_time_val, _ = _parse_optional_datetime(body, ("create_time", "createTime"), "创建时间")
+            sn_code_time_val, _ = _parse_optional_datetime(body, ("sn_code_time", "snCodeTime"), "SN码录入时间")
+        except ValueError as exc:
+            return JsonResponse({"code": "400", "msg": str(exc)})
+
+        create_time = create_time_val or now
+        sn_code_time = sn_code_time_val or now
+
+        # 入库/出库前必须测试合格（与更新接口保持一致）
+        if inventory_val in (
+            FinishProduct.INVENTORY_IN,
+            FinishProduct.INVENTORY_OUT_SALE,
+            FinishProduct.INVENTORY_OUT_DEV,
+        ) and status_val != FinishProduct.STATUS_PASS:
+            return JsonResponse({"code": "400", "msg": "入库或出库时，测试状态必须为测试合格"})
+
+        with transaction.atomic():
+            item = FinishProduct.objects.create(
+                sn_code=sn_code,
+                bom_id=bom.id,
+                name=bom.bom_name or bom.bom_model or "",
+                status=status_val,
+                inventory_stock=inventory_val,
+                repair=FinishProduct.REPAIR_NEW,
+                cons_status=FinishProduct.CONS_STATUS_NOT_CONSUMED,
+                description=(body.get("description") or "").strip() or None,
+                parent_sn_code=(body.get("parent_sn_code") or "").strip() or None,
+                create_time=create_time,
+                update_time=now,
+                test_time=now,
+                sn_code_time=sn_code_time,
+                stock_in_time=now if inventory_val == FinishProduct.INVENTORY_IN else None,
+            )
+
+            # 入库/出库：同步产品库存并写入出入库日志（等同库存变更操作）
+            if inventory_val in (
+                FinishProduct.INVENTORY_IN,
+                FinishProduct.INVENTORY_OUT_SALE,
+                FinishProduct.INVENTORY_OUT_DEV,
+            ):
+                inventory_action = "in" if inventory_val == FinishProduct.INVENTORY_IN else "out"
+                warehouse_log_type = {
+                    FinishProduct.INVENTORY_IN: WarehouseLog.STORAGE_IN,
+                    FinishProduct.INVENTORY_OUT_SALE: WarehouseLog.STORAGE_OUT_SALE,
+                    FinishProduct.INVENTORY_OUT_DEV: WarehouseLog.STORAGE_OUT_RANDD,
+                }[inventory_val]
+                _sync_product_inventory(bom, inventory_action)
+
+                stock_status_names = {
+                    FinishProduct.INVENTORY_NOT_IN: "未入库",
+                    FinishProduct.INVENTORY_IN: "入库",
+                    FinishProduct.INVENTORY_OUT_SALE: "出库(外销)",
+                    FinishProduct.INVENTORY_OUT_DEV: "出库(研发)",
+                    FinishProduct.INVENTORY_CONSUME: "组件消耗",
+                }
+                new_status_name = stock_status_names.get(inventory_val, str(inventory_val))
+                action_desc = "入库" if inventory_action == "in" else "出库"
+                operation_detail = {
+                    "action": action_desc,
+                    "product_name": item.name,
+                    "sn_code": item.sn_code,
+                    "bom_id": bom.id,
+                    "bom_name": bom.bom_name,
+                    "bom_model": bom.bom_model,
+                    "material_code": bom.material_code,
+                    "old_stock_status": FinishProduct.INVENTORY_NOT_IN,
+                    "old_stock_status_name": "未入库",
+                    "new_stock_status": inventory_val,
+                    "new_stock_status_name": new_status_name,
+                }
+                create_warehouse_log(
+                    request=request,
+                    storage_status=warehouse_log_type,
+                    name=bom.bom_name or bom.bom_model or item.name,
+                    sn_code=item.sn_code or "",
+                    material_code=bom.material_code or "",
+                    product_model=bom.bom_model or "",
+                    count=1,
+                    description=f"BOM: {bom.bom_model or ''} {bom.bom_name or ''}, 操作: {action_desc} (未入库 → {new_status_name})",
+                    user_description=(body.get("description") or "").strip(),
+                    module="finish_product",
+                    action_type=f"product_{inventory_action}",
+                    operation_detail=[operation_detail],
+                )
 
         _log_if_available(
             request,

@@ -49,6 +49,7 @@ export function createFinishProduct(data: {
   description?: string
   parent_sn_code?: string
   create_time?: string | null
+  sn_code_time?: string | null
   test_time?: string | null
   stock_in_time?: string | null
   stock_out_time?: string | null
