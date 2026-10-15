@@ -894,6 +894,12 @@ def finish_product_list(request):
         request.GET.get("parent_sn_code", "") or request.GET.get("parentSnCode", "") or ""
     ).strip()
     description = (request.GET.get("description", "") or "").strip()
+    creator_name = (
+        request.GET.get("creator_name", "") or request.GET.get("creatorName", "") or ""
+    ).strip()
+    editor_name = (
+        request.GET.get("editor_name", "") or request.GET.get("editorName", "") or ""
+    ).strip()
 
     qs = FinishProduct.objects.all()
     # 默认过滤已回退记录（cons_status=2），include_rolled_back=1 时包含
@@ -904,6 +910,10 @@ def finish_product_list(request):
         qs = qs.filter(sn_code__icontains=sn_code)
     if description:
         qs = qs.filter(description__icontains=description)
+    if creator_name:
+        qs = qs.filter(creator_name__icontains=creator_name)
+    if editor_name:
+        qs = qs.filter(editor_name__icontains=editor_name)
     if parent_sn_code:
         qs = qs.filter(parent_sn_code=parent_sn_code)
     if bom_id:

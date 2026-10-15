@@ -74,6 +74,26 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="创建人">
+          <el-input
+            v-model="queryParams.creator_name"
+            placeholder="创建人"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="最后操作人">
+          <el-input
+            v-model="queryParams.editor_name"
+            placeholder="最后操作人"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="返修">
           <el-select
             v-model="queryParams.repair"
@@ -1233,6 +1253,9 @@ const queryParams = reactive({
   status: '',
   inventory_stock: '',
   repair: '',
+  description: '',
+  creator_name: '',
+  editor_name: '',
   createDateRange: null,
   updateDateRange: null
 })
@@ -1255,7 +1278,9 @@ const buildListParams = () => {
     status: queryParams.status,
     inventory_stock: queryParams.inventory_stock,
     repair: queryParams.repair,
-    description: queryParams.description
+    description: queryParams.description,
+    creator_name: queryParams.creator_name,
+    editor_name: queryParams.editor_name
   }
   appendDateRangeParams(params, queryParams.createDateRange, 'create_start_date', 'create_end_date')
   appendDateRangeParams(params, queryParams.updateDateRange, 'update_start_date', 'update_end_date')
@@ -1711,6 +1736,8 @@ const resetQuery = () => {
   queryParams.inventory_stock = ''
   queryParams.repair = ''
   queryParams.description = ''
+  queryParams.creator_name = ''
+  queryParams.editor_name = ''
   queryParams.createDateRange = null
   queryParams.updateDateRange = null
   queryParams.pageNum = 1
