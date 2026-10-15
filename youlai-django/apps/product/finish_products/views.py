@@ -1076,15 +1076,17 @@ def create_finish_product(request):
             if inventory_val not in _get_valid_dict_int_values("storage_status"):
                 return JsonResponse({"code": "400", "msg": "库存状态值无效"})
 
-        # 可选：创建时间 / SN码录入时间（不传则用当前时间）
+        # 可选：创建时间 / SN码录入时间 / 入库时间（不传则用当前时间）
         try:
             create_time_val, _ = _parse_optional_datetime(body, ("create_time", "createTime"), "创建时间")
             sn_code_time_val, _ = _parse_optional_datetime(body, ("sn_code_time", "snCodeTime"), "SN码录入时间")
+            stock_in_time_val, _ = _parse_optional_datetime(body, ("stock_in_time", "stockInTime"), "入库时间")
         except ValueError as exc:
             return JsonResponse({"code": "400", "msg": str(exc)})
 
         create_time = create_time_val or now
         sn_code_time = sn_code_time_val or now
+        stock_in_time = (stock_in_time_val or now) if inventory_val == FinishProduct.INVENTORY_IN else None
 
         # 入库/出库前必须测试合格（与更新接口保持一致）
         if inventory_val in (
@@ -1111,7 +1113,7 @@ def create_finish_product(request):
                 update_time=now,
                 test_time=now,
                 sn_code_time=sn_code_time,
-                stock_in_time=now if inventory_val == FinishProduct.INVENTORY_IN else None,
+                stock_in_time=stock_in_time,
                 creator_id=creator_id,
                 creator_name=creator_name or "",
             )

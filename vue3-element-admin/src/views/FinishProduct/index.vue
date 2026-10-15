@@ -794,6 +794,15 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="入库时间">
+          <el-date-picker
+            v-model="addJointStockInTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="addJointVisible = false">取消</el-button>
@@ -1038,6 +1047,15 @@
         <el-form-item label="SN码录入时间">
           <el-date-picker
             v-model="batchAddJointSnCodeTime"
+            type="datetime"
+            placeholder="默认为当前时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="入库时间">
+          <el-date-picker
+            v-model="batchAddJointStockInTime"
             type="datetime"
             placeholder="默认为当前时间"
             value-format="YYYY-MM-DD HH:mm:ss"
@@ -1303,6 +1321,7 @@ const addJointBomId = ref(null)
 const addJointSnCode = ref('')
 const addJointCreateTime = ref('')
 const addJointSnCodeTime = ref('')
+const addJointStockInTime = ref('')
 const addJointBomList = ref([])
 
 // 不合格项选择对话框（编辑时使用）
@@ -1337,6 +1356,7 @@ const batchAddJointBomId = ref(null)
 const batchAddJointSnList = ref([''])
 const batchAddJointCreateTime = ref('')
 const batchAddJointSnCodeTime = ref('')
+const batchAddJointStockInTime = ref('')
 const batchAddJointSnRefs = []
 
 // 批量绑定SN码相关状态
@@ -2123,6 +2143,7 @@ const openAddJointDialog = () => {
   addJointSnCode.value = ''
   addJointCreateTime.value = nowStr()
   addJointSnCodeTime.value = nowStr()
+  addJointStockInTime.value = nowStr()
   addJointVisible.value = true
 }
 
@@ -2144,7 +2165,8 @@ const handleAddJoint = async () => {
       status: STATUS_PASS,
       inventory_stock: INVENTORY_IN,
       create_time: addJointCreateTime.value || null,
-      sn_code_time: addJointSnCodeTime.value || null
+      sn_code_time: addJointSnCodeTime.value || null,
+      stock_in_time: addJointStockInTime.value || null
     })
     ElMessage.success('关节创建成功')
     addJointVisible.value = false
@@ -2152,6 +2174,7 @@ const handleAddJoint = async () => {
     addJointSnCode.value = ''
     addJointCreateTime.value = ''
     addJointSnCodeTime.value = ''
+    addJointStockInTime.value = ''
     await getList()
     // 刷新"关节绑定"的可绑定下拉，使新关节可直接被搜索到
     await loadBindableJoints()
@@ -2244,6 +2267,7 @@ const openBatchAddJointDialog = async () => {
   batchAddJointSnRefs.length = 0
   batchAddJointCreateTime.value = nowStr()
   batchAddJointSnCodeTime.value = nowStr()
+  batchAddJointStockInTime.value = nowStr()
   batchAddJointVisible.value = true
   await loadJointBomList()
 }
@@ -2286,7 +2310,8 @@ const handleBatchAddJoint = async () => {
           status: STATUS_PASS,
           inventory_stock: INVENTORY_IN,
           create_time: batchAddJointCreateTime.value || null,
-          sn_code_time: batchAddJointSnCodeTime.value || null
+          sn_code_time: batchAddJointSnCodeTime.value || null,
+          stock_in_time: batchAddJointStockInTime.value || null
         })
         results.push({ sn, ok: true })
       } catch (e) {
