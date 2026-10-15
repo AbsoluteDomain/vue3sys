@@ -19,6 +19,7 @@ from core.datetime import format_local_datetime, local_date_key, local_day_range
 from core.datetime import make_local_aware, parse_local_datetime_text
 
 from apps.system.dicts.models import DictionaryItem
+from apps.system.operation_logs.request_user import get_request_operator
 from apps.system.operation_logs.utils import format_finish_product_rollback_description
 
 try:
@@ -199,6 +200,7 @@ def _empty_daily_bucket(date_str):
         "repairCount": 0,
         "repairTestingCount": 0,
         "repairPassCount": 0,
+        "repairFailCount": 0,
         "pendingRepairCount": 0,
         "stockInCount": 0,
         "stockOutCount": 0,
@@ -254,10 +256,15 @@ def _filter_by_bom_ids(qs, bom_ids):
     return qs.filter(bom_id__in=id_list)
 
 
-def _filter_finish_by_bom(qs, bom_type="", bom_ids=""):
-    """组合筛选：先按BOM类型，再按BOM ID多选（产品型号）"""
+def _filter_finish_scope(qs, bom_type="", bom_ids="", creator_name="", editor_name=""):
+    """组合筛选：BOM类型、产品型号（BOM ID多选）、创建人、最后操作人（文本模糊匹配，空=全部）"""
     qs = _filter_by_bom_type(qs, bom_type)
-    return _filter_by_bom_ids(qs, bom_ids)
+    qs = _filter_by_bom_ids(qs, bom_ids)
+    if creator_name:
+        qs = qs.filter(creator_name__icontains=creator_name)
+    if editor_name:
+        qs = qs.filter(editor_name__icontains=editor_name)
+    return qs
 
 
 def _increment_daily_count(daily_map, summary, day, count_key):
@@ -274,6 +281,7 @@ TEST_TIME_STAT_CATEGORIES = {
     "testingCount",
     "repairTestingCount",
     "repairPassCount",
+    "repairFailCount",
     "pendingRepairCount",
 }
 
@@ -287,21 +295,23 @@ def _accumulate_test_time_stats(item, daily_map, summary):
     if not bucket:
         return
 
-    if item.status == FinishProduct.STATUS_PASS:
-        bucket["passCount"] += 1
-        summary["passCount"] += 1
-    elif item.status == FinishProduct.STATUS_FAIL:
-        bucket["failCount"] += 1
-        summary["failCount"] += 1
-
     if item.repair == FinishProduct.REPAIR_NEW:
-        if item.status == FinishProduct.STATUS_TESTING:
+        if item.status == FinishProduct.STATUS_PASS:
+            bucket["passCount"] += 1
+            summary["passCount"] += 1
+        elif item.status == FinishProduct.STATUS_FAIL:
+            bucket["failCount"] += 1
+            summary["failCount"] += 1
+        elif item.status == FinishProduct.STATUS_TESTING:
             bucket["testingCount"] += 1
             summary["testingCount"] += 1
     elif item.repair == FinishProduct.REPAIR_REPAIRED:
         if item.status == FinishProduct.STATUS_PASS:
             bucket["repairPassCount"] += 1
             summary["repairPassCount"] += 1
+        elif item.status == FinishProduct.STATUS_FAIL:
+            bucket["repairFailCount"] += 1
+            summary["repairFailCount"] += 1
         elif item.status == FinishProduct.STATUS_UNTESTED:
             bucket["pendingRepairCount"] += 1
             summary["pendingRepairCount"] += 1
@@ -331,6 +341,8 @@ def finish_product_daily_stats(request):
 
     bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
     bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
+    creator_name = (request.GET.get("creator_name") or request.GET.get("creatorName") or "").strip()
+    editor_name = (request.GET.get("editor_name") or request.GET.get("editorName") or "").strip()
 
     daily_map = {}
     current = start_date
@@ -358,7 +370,7 @@ def finish_product_daily_stats(request):
             update_time__lte=end_dt,
         )
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
-    create_qs = _filter_finish_by_bom(create_qs, bom_type, bom_ids_param)
+    create_qs = _filter_finish_scope(create_qs, bom_type, bom_ids_param, creator_name, editor_name)
 
     for item in create_qs:
         day = local_date_key(item.sn_code_time or item.update_time)
@@ -376,7 +388,7 @@ def finish_product_daily_stats(request):
         test_time__gte=start_dt,
         test_time__lte=end_dt,
     )
-    test_qs = _filter_finish_by_bom(test_qs, bom_type, bom_ids_param)
+    test_qs = _filter_finish_scope(test_qs, bom_type, bom_ids_param, creator_name, editor_name)
     for item in test_qs:
         _accumulate_test_time_stats(item, daily_map, summary)
 
@@ -397,7 +409,7 @@ def finish_product_daily_stats(request):
         repair=FinishProduct.REPAIR_NEW,
         status=FinishProduct.STATUS_UNTESTED,
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
-    pending_qs = _filter_finish_by_bom(pending_qs, bom_type, bom_ids_param)
+    pending_qs = _filter_finish_scope(pending_qs, bom_type, bom_ids_param, creator_name, editor_name)
 
     for item in pending_qs:
         day = local_date_key(item.sn_code_time or item.test_time)
@@ -415,7 +427,7 @@ def finish_product_daily_stats(request):
         update_time__gte=start_dt,
         update_time__lte=end_dt,
     )
-    update_qs = _filter_finish_by_bom(update_qs, bom_type, bom_ids_param)
+    update_qs = _filter_finish_scope(update_qs, bom_type, bom_ids_param, creator_name, editor_name)
 
     for item in update_qs:
         day = local_date_key(item.update_time)
@@ -435,7 +447,7 @@ def finish_product_daily_stats(request):
         stock_in_time__lte=end_dt,
         inventory_stock=FinishProduct.INVENTORY_IN,
     )
-    stock_in_qs = _filter_finish_by_bom(stock_in_qs, bom_type, bom_ids_param)
+    stock_in_qs = _filter_finish_scope(stock_in_qs, bom_type, bom_ids_param, creator_name, editor_name)
     for item in stock_in_qs:
         day = local_date_key(item.stock_in_time)
         _increment_daily_count(daily_map, summary, day, "stockInCount")
@@ -446,7 +458,7 @@ def finish_product_daily_stats(request):
         stock_out_time__lte=end_dt,
         inventory_stock__in=[FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV],
     )
-    stock_out_qs = _filter_finish_by_bom(stock_out_qs, bom_type, bom_ids_param)
+    stock_out_qs = _filter_finish_scope(stock_out_qs, bom_type, bom_ids_param, creator_name, editor_name)
     for item in stock_out_qs:
         day = local_date_key(item.stock_out_time)
         bucket = daily_map.get(day)
@@ -461,13 +473,13 @@ def finish_product_daily_stats(request):
             bucket["stockOutSaleCount"] += 1
             summary["stockOutSaleCount"] += 1
 
-    current_stock_in_count = _filter_finish_by_bom(
-        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type, bom_ids_param
+    current_stock_in_count = _filter_finish_scope(
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type, bom_ids_param, creator_name, editor_name
     ).count()
 
     # 未组装：SN码为空的成品，按创建时间筛选
-    unassembled_qs = _filter_finish_by_bom(
-        FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")), bom_type, bom_ids_param
+    unassembled_qs = _filter_finish_scope(
+        FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")), bom_type, bom_ids_param, creator_name, editor_name
     )
     unassembled_qs = _apply_field_date_range(unassembled_qs, "create_time", start_date, end_date)
     current_unassembled_count = unassembled_qs.count()
@@ -618,6 +630,10 @@ def _serialize_finish_product(item, bom_map=None):
             "repair_name": item.get_repair_display(),
             "cons_status": item.cons_status,
             "cons_status_name": item.get_cons_status_display() if item.cons_status is not None else "",
+            "creator_id": item.creator_id,
+            "creator_name": item.creator_name or "",
+            "editor_id": item.editor_id,
+            "editor_name": item.editor_name or "",
         }
 
 
@@ -630,6 +646,7 @@ BOARD_DETAIL_CATEGORIES = {
     "repairCount",
     "repairTestingCount",
     "repairPassCount",
+    "repairFailCount",
     "pendingRepairCount",
     "stockInCount",
     "stockOutCount",
@@ -694,9 +711,15 @@ def _apply_board_category_filter(qs, category):
     if category in TEST_TIME_STAT_CATEGORIES:
         qs = qs.filter(test_time__isnull=False)
     if category == "passCount":
-        return qs.filter(status=FinishProduct.STATUS_PASS)
+        return qs.filter(
+            repair=FinishProduct.REPAIR_NEW,
+            status=FinishProduct.STATUS_PASS,
+        )
     if category == "failCount":
-        return qs.filter(status=FinishProduct.STATUS_FAIL)
+        return qs.filter(
+            repair=FinishProduct.REPAIR_NEW,
+            status=FinishProduct.STATUS_FAIL,
+        )
     if category == "pendingNewCount":
         return qs.filter(
             repair=FinishProduct.REPAIR_NEW,
@@ -718,6 +741,11 @@ def _apply_board_category_filter(qs, category):
         return qs.filter(
             repair=FinishProduct.REPAIR_REPAIRED,
             status=FinishProduct.STATUS_PASS,
+        )
+    if category == "repairFailCount":
+        return qs.filter(
+            repair=FinishProduct.REPAIR_REPAIRED,
+            status=FinishProduct.STATUS_FAIL,
         )
     if category == "pendingRepairCount":
         return qs.filter(
@@ -748,6 +776,8 @@ def finish_product_board_detail(request):
 
     bom_type = (request.GET.get("bom_type") or request.GET.get("bomType") or "").strip()
     bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
+    creator_name = (request.GET.get("creator_name") or request.GET.get("creatorName") or "").strip()
+    editor_name = (request.GET.get("editor_name") or request.GET.get("editorName") or "").strip()
     sort_prop = (request.GET.get("sort_prop") or request.GET.get("sortProp") or "").strip()
     sort_order = (request.GET.get("sort_order") or request.GET.get("sortOrder") or "").strip().lower()
 
@@ -775,7 +805,7 @@ def finish_product_board_detail(request):
     # 看板详情列表默认过滤已回退记录
     qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     qs = _apply_board_category_filter(qs, category)
-    qs = _filter_finish_by_bom(qs, bom_type, bom_ids_param)
+    qs = _filter_finish_scope(qs, bom_type, bom_ids_param, creator_name, editor_name)
 
     if category in ("currentStockInCount",):
         pass
@@ -1065,6 +1095,8 @@ def create_finish_product(request):
             return JsonResponse({"code": "400", "msg": "入库或出库时，测试状态必须为测试合格"})
 
         with transaction.atomic():
+            creator = get_request_operator(request)
+            creator_id, creator_name = creator if creator else (None, "")
             item = FinishProduct.objects.create(
                 sn_code=sn_code,
                 bom_id=bom.id,
@@ -1080,6 +1112,8 @@ def create_finish_product(request):
                 test_time=now,
                 sn_code_time=sn_code_time,
                 stock_in_time=now if inventory_val == FinishProduct.INVENTORY_IN else None,
+                creator_id=creator_id,
+                creator_name=creator_name or "",
             )
 
             # 入库/出库：同步产品库存并写入出入库日志（等同库存变更操作）
@@ -1441,6 +1475,9 @@ def update_finish_product(request):
                         operation_detail=[operation_detail],
                     )
 
+        editor = get_request_operator(request)
+        if editor:
+            item.editor_id, item.editor_name = editor[0], editor[1] or ""
         item.update_time = timezone.now()
         item.save()
 
@@ -1707,7 +1744,10 @@ def rollback_finish_product(request):
 
             # 回退不删除记录，仅标记为已回退
             item.cons_status = FinishProduct.CONS_STATUS_ROLLED_BACK
-            item.save(update_fields=["cons_status"])
+            editor = get_request_operator(request)
+            if editor:
+                item.editor_id, item.editor_name = editor[0], editor[1] or ""
+            item.save(update_fields=["cons_status", "editor_id", "editor_name"])
 
         _log_if_available(
             request,
@@ -1926,6 +1966,7 @@ def bind_joints_to_arm(request):
         bound_count = 0
         errors = []
         bound_joints_info = []  # 收集绑定的关节信息用于日志
+        editor = get_request_operator(request)
 
         with transaction.atomic():
             for joint_id in joint_ids:
@@ -1967,6 +2008,8 @@ def bind_joints_to_arm(request):
                     # 设置父级SN码和库存状态
                     joint.parent_sn_code = arm_sn_code
                     joint.inventory_stock = FinishProduct.INVENTORY_CONSUME
+                    if editor:
+                        joint.editor_id, joint.editor_name = editor[0], editor[1] or ""
 
                     # 同步库存：如果之前是入库状态，减少库存
                     if old_inventory == FinishProduct.INVENTORY_IN:

@@ -293,6 +293,22 @@
           min-width="140"
           show-overflow-tooltip
         />
+        <el-table-column
+          v-if="isColumnVisible('creator_name')"
+          prop="creator_name"
+          label="创建人"
+          width="120"
+          align="center"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('editor_name')"
+          prop="editor_name"
+          label="最后操作人"
+          width="120"
+          align="center"
+          show-overflow-tooltip
+        />
         <el-table-column label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
@@ -1133,6 +1149,22 @@
             prop="description"
             label="描述"
             min-width="140"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            v-if="isColumnVisible('creator_name')"
+            prop="creator_name"
+            label="创建人"
+            width="120"
+            align="center"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            v-if="isColumnVisible('editor_name')"
+            prop="editor_name"
+            label="最后操作人"
+            width="120"
+            align="center"
             show-overflow-tooltip
           />
         </el-table>

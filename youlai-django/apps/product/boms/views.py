@@ -11,6 +11,7 @@ from core.datetime import format_local_datetime
 from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
+from apps.system.operation_logs.request_user import get_request_operator
 from .models import AssemblyRecipe, BomList
 
 from apps.system.operation_logs.utils import (
@@ -1058,6 +1059,8 @@ def assemble_bom(request):
                     consumed_details.append(f"{product.name} - {needed}")
 
             now = timezone.now()
+            creator = get_request_operator(request)
+            creator_id, creator_name = creator if creator else (None, "")
             for idx in range(assemble_qty):
                 finish_product = FinishProduct.objects.create(
                     sn_code=None,
@@ -1076,6 +1079,8 @@ def assemble_bom(request):
                     create_time=now,
                     update_time=now,
                     test_time=now,
+                    creator_id=creator_id,
+                    creator_name=creator_name or "",
                 )
                 finish_products_created.append(
                     {

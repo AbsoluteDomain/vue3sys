@@ -13,6 +13,8 @@ export function getFinishProductDailyStats(params: {
   end_date: string
   bom_type?: string
   bom_ids?: string
+  creator_name?: string
+  editor_name?: string
 }) {
   return request({
     url: '/api/v1/finish-product/daily-stats/',
@@ -30,6 +32,8 @@ export function getFinishProductBoardDetail(params: {
   pageSize?: number
   bom_type?: string
   bom_ids?: string
+  creator_name?: string
+  editor_name?: string
   sort_prop?: string
   sort_order?: string
 }) {

@@ -122,6 +122,32 @@ class FinishProduct(models.Model):
         verbose_name="物料消耗状态",
         help_text="0=组装已扣料 1=组装未扣料 2=已回退（回退不删除记录）；NULL=历史数据",
     )
+    creator_id = models.BigIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="创建人ID",
+        help_text="创建该成品时的操作用户ID",
+    )
+    creator_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="创建人",
+        help_text="创建该成品时的操作用户姓名（昵称优先，无昵称取用户名）",
+    )
+    editor_id = models.BigIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="最后操作人ID",
+        help_text="最后一次修改该成品的操作用户ID",
+    )
+    editor_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="最后操作人",
+        help_text="最后一次修改该成品的操作用户姓名（昵称优先，无昵称取用户名）",
+    )
 
     class Meta:
         db_table = "finish_product"

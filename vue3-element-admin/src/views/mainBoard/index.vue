@@ -216,6 +216,28 @@
               </el-option>
             </el-select>
           </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-[--el-text-color-regular]">创建人：</span>
+            <el-input
+              v-model="creatorName"
+              clearable
+              placeholder="全部"
+              style="width: 160px"
+              @clear="fetchFinishData"
+              @keyup.enter="fetchFinishData"
+            />
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-[--el-text-color-regular]">最后修改人：</span>
+            <el-input
+              v-model="editorName"
+              clearable
+              placeholder="全部"
+              style="width: 160px"
+              @clear="fetchFinishData"
+              @keyup.enter="fetchFinishData"
+            />
+          </div>
           <el-button type="primary" :icon="Refresh" @click="fetchFinishData">刷新</el-button>
         </div>
       </el-card>
@@ -302,7 +324,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">新品测试合格</span>
-                      <el-tooltip content="按测试状态修改时间统计，测试状态为合格的数量（含新品和返修）" placement="top">
+                      <el-tooltip content="按测试状态修改时间统计，新品测试状态为合格的数量" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -323,7 +345,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">新品测试不良</span>
-                      <el-tooltip content="按测试状态修改时间统计，测试状态为不良的数量（含新品和返修）" placement="top">
+                      <el-tooltip content="按测试状态修改时间统计，新品测试状态为不良的数量" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -950,6 +972,22 @@
           min-width="140"
           show-overflow-tooltip
         />
+        <el-table-column
+          v-if="isColumnVisible('creator_name')"
+          prop="creator_name"
+          label="创建人"
+          width="120"
+          align="center"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="isColumnVisible('editor_name')"
+          prop="editor_name"
+          label="最后操作人"
+          width="120"
+          align="center"
+          show-overflow-tooltip
+        />
       </el-table>
       <div class="detail-pagination">
         <el-pagination
@@ -1349,6 +1387,8 @@ const periodType = ref("30d");
 const bomType = ref("");
 const bomModelIds = ref<number[]>([]);
 const boardBomList = ref<any[]>([]);
+const creatorName = ref("");
+const editorName = ref("");
 const NEW_BOARD_DATE_RANGE_STORAGE_KEY = "new-board-date-range";
 
 /** el-date-picker 自定义日期范围的快捷选项 */
@@ -1537,6 +1577,8 @@ const fetchBoardDetail = async () => {
       pageSize?: number;
       bom_type?: string;
       bom_ids?: string;
+      creator_name?: string;
+      editor_name?: string;
       sort_prop?: string;
       sort_order?: string;
     } = {
@@ -1545,6 +1587,8 @@ const fetchBoardDetail = async () => {
       pageSize: detailPageSize.value,
       bom_type: bomType.value,
       bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
+      creator_name: creatorName.value || undefined,
+      editor_name: editorName.value || undefined,
       sort_prop: detailSortProp.value || undefined,
       sort_order: detailSortOrder.value || undefined,
     };
@@ -1724,6 +1768,8 @@ const fetchFinishData = async () => {
       end_date: finishDateRange.value[1],
       bom_type: bomType.value,
       bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
+      creator_name: creatorName.value || undefined,
+      editor_name: editorName.value || undefined,
     });
     finishSummary.value = {
       ...emptyFinishSummary(),

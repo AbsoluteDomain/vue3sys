@@ -26,6 +26,8 @@ export const finishProductColumnOptions: FinishProductColumnOption[] = [
   { key: "stock_out_time", label: "出库时间", defaultVisible: false },
   { key: "create_time", label: "创建时间", defaultVisible: false },
   { key: "update_time", label: "更新时间", defaultVisible: true },
+  { key: "creator_name", label: "创建人", defaultVisible: true },
+  { key: "editor_name", label: "最后操作人", defaultVisible: true },
   { key: "description", label: "描述", defaultVisible: false },
 ];
 
