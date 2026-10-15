@@ -1000,7 +1000,7 @@
       :close-on-click-modal="false"
       destroy-on-close
     >
-      <el-form label-width="90px">
+      <el-form label-width="110px">
         <el-form-item label="关节BOM" required>
           <el-select
             v-model="batchAddJointBomId"
