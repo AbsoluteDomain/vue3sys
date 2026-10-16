@@ -369,6 +369,8 @@ def finish_product_daily_stats(request):
             update_time__gte=start_dt,
             update_time__lte=end_dt,
         )
+    ).filter(
+        repair=FinishProduct.REPAIR_NEW
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
     create_qs = _filter_finish_scope(create_qs, bom_type, bom_ids_param, creator_name, editor_name)
 
@@ -705,7 +707,9 @@ def _apply_board_sort(qs, sort_prop, sort_order):
 def _apply_board_category_filter(qs, category):
     """按看板统计项筛选，规则与 finish_product_daily_stats 一致"""
     if category == "newCount":
-        return qs.exclude(Q(sn_code="") | Q(sn_code__isnull=True))
+        return qs.filter(repair=FinishProduct.REPAIR_NEW).exclude(
+            Q(sn_code="") | Q(sn_code__isnull=True)
+        )
     if category == "unassembledCount":
         return qs.filter(Q(sn_code__isnull=True) | Q(sn_code=""))
     if category in TEST_TIME_STAT_CATEGORIES:
