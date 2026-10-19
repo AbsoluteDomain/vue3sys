@@ -242,6 +242,11 @@
         </div>
       </el-card>
 
+      <el-collapse v-model="activeBoardPanels" class="board-collapse mt-2" @change="handleBoardPanelChange">
+        <el-collapse-item name="newRepair">
+          <template #title>
+            <span class="font-semibold">新品返修相关</span>
+          </template>
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="24" :lg="13" class="mb-3">
           <el-card shadow="never" class="h-full">
@@ -501,6 +506,11 @@
         </el-col>
       </el-row>
 
+        </el-collapse-item>
+        <el-collapse-item name="stockFlow">
+          <template #title>
+            <span class="font-semibold">库存与出入库相关</span>
+          </template>
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="24" class="mb-3">
           <el-card shadow="never">
@@ -656,7 +666,11 @@
                 </el-card>
               </el-col>
             </el-row>
-            <el-row :gutter="20" class="mt-4">
+            <div class="mt-4 flex items-center justify-end gap-2">
+              <span class="text-xs text-[--el-text-color-secondary]">饼图</span>
+              <el-switch v-model="showStockPies" size="small" />
+            </div>
+            <el-row v-if="showStockPies" :gutter="20" class="mt-2">
               <el-col :xs="24" :md="8" class="mb-4">
                 <div class="text-xs font-medium text-[--el-text-color-secondary] mb-2">入库 BOM 型号占比</div>
                 <ECharts :options="bomStockInPieOptions" height="330px" />
@@ -770,6 +784,11 @@
         </el-col>
       </el-row>
 
+        </el-collapse-item>
+        <el-collapse-item name="dailyTrend">
+          <template #title>
+            <span class="font-semibold">每日成品趋势</span>
+          </template>
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="24" class="mb-3">
           <el-card>
@@ -789,6 +808,11 @@
         </el-col>
       </el-row>
 
+        </el-collapse-item>
+        <el-collapse-item name="dailyCompare">
+          <template #title>
+            <span class="font-semibold">每日统计对比</span>
+          </template>
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="24" class="mb-3">
           <el-card>
@@ -805,13 +829,18 @@
         </el-col>
       </el-row>
 
+        </el-collapse-item>
+        <el-collapse-item name="dailyDetail">
+          <template #title>
+            <span class="font-semibold">每日统计明细</span>
+          </template>
       <el-row :gutter="10" class="mt-2">
         <el-col :xs="24" class="mb-3">
           <el-card>
             <template #header>
               <span class="font-semibold">每日统计明细</span>
             </template>
-            <el-table :data="dailyStatsDisplay" border stripe style="width: 100%" max-height="420px">
+            <el-table ref="dailyStatsTableRef" :data="dailyStatsDisplay" border stripe style="width: 100%" max-height="420px">
               <el-table-column prop="date" label="日期" width="120" align="center" fixed />
               <el-table-column prop="newCount" label="新增成品" width="100" align="center">
                 <template #default="{ row }">
@@ -947,6 +976,8 @@
           </el-card>
         </el-col>
       </el-row>
+        </el-collapse-item>
+      </el-collapse>
     </template>
 
     <el-dialog
@@ -1397,6 +1428,21 @@ const {
 } = useFinishProductTableColumns(BOM_STOCK_COLUMN_STORAGE_KEY, bomStockColumnOptions);
 
 type BoardType = "material" | "finish";
+
+/** 成品看板折叠面板展开项：前两组默认展开，其余默认收起 */
+const activeBoardPanels = ref<string[]>(["newRepair", "stockFlow"]);
+
+/** 折叠面板展开后重新计算表格列宽（隐藏状态下表格宽度会被算作 0） */
+const dailyStatsTableRef = ref();
+const handleBoardPanelChange = () => {
+  nextTick(() => {
+    bomStockTableRef.value?.doLayout();
+    dailyStatsTableRef.value?.doLayout();
+  });
+};
+
+/** 库存与出入库：三个占比饼图的显示/隐藏开关 */
+const showStockPies = ref(true);
 
 interface FinishDailyStat {
   date: string;
@@ -2652,6 +2698,18 @@ onMounted(() => {
 .board-type-card {
   :deep(.el-card__body) {
     padding: 16px 20px;
+  }
+}
+
+/* 成品看板折叠面板：标题行高与字号
+   EP 标题行由 min-height/line-height 取 var(--el-collapse-header-height) 控制，
+   直接写 height 不生效，需覆盖变量 */
+.board-collapse {
+  --el-collapse-header-height: 25px;
+  --el-collapse-header-font-size: 15px;
+  
+  :deep(.el-collapse-item__content) {
+    padding-bottom: 0;
   }
 }
 
