@@ -510,7 +510,7 @@
               </div>
             </template>
             <el-row :gutter="10">
-              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
                 <el-card
                   shadow="never"
                   class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -531,7 +531,7 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
                 <el-card
                   shadow="never"
                   class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -552,7 +552,7 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
                 <el-card
                   shadow="never"
                   class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -573,7 +573,7 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
                 <el-card
                   shadow="never"
                   class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -594,7 +594,7 @@
                   </div>
                 </el-card>
               </el-col>
-              <el-col :xs="12" :sm="8" :md="8" :lg="4" class="mb-3">
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
                 <el-card
                   shadow="never"
                   class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -615,8 +615,141 @@
                   </div>
                 </el-card>
               </el-col>
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': currentConsumeCount > 0 }"
+                  @click="openBoardDetail('currentConsumeCount', currentConsumeCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">组件消耗</span>
+                      <el-tooltip content="绑定关节后被消耗的成品总数，属成品的一种流出方式，不受日期筛选影响" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-amber-600">{{ currentConsumeCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">流出合计</span>
+                      <el-tooltip content="本周期出库数量 + 当前组件消耗数量；成品库存 = 入库数量 − 流出合计" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-rose-600">{{ totalOutflowCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
             </el-row>
-            <ECharts :options="outboundRatioOptions" height="260px" class="mt-2" />
+            <el-row :gutter="20" class="mt-4">
+              <el-col :xs="24" :md="8" class="mb-4">
+                <div class="text-xs font-medium text-[--el-text-color-secondary] mb-2">入库 BOM 型号占比</div>
+                <ECharts :options="bomStockInPieOptions" height="330px" />
+              </el-col>
+              <el-col :xs="24" :md="8" class="mb-4">
+                <div class="text-xs font-medium text-[--el-text-color-secondary] mb-2">出库 BOM 型号占比</div>
+                <ECharts :options="bomStockOutPieOptions" height="330px" />
+              </el-col>
+              <el-col :xs="24" :md="8" class="mb-4">
+                <div class="text-xs font-medium text-[--el-text-color-secondary] mb-2">出库类型占比</div>
+                <ECharts :options="outboundRatioOptions" height="330px" />
+              </el-col>
+            </el-row>
+            <div class="mt-4 mb-2 flex items-center justify-end">
+              <el-button size="small" @click="openBomColumnDialog">
+                <el-icon><Setting /></el-icon> 列展示
+              </el-button>
+            </div>
+            <el-table
+              :data="bomStockTableRows"
+              size="default"
+              border
+              empty-text="当前筛选条件下暂无出入库数据"
+            >
+              <el-table-column
+                v-if="isBomColumnVisible('bom_model')"
+                prop="bom_model"
+                sortable
+                label="BOM型号"
+                min-width="140"
+                show-overflow-tooltip
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('bom_name')"
+                prop="bom_name"
+                sortable
+                label="名称"
+                min-width="140"
+                show-overflow-tooltip
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('inCount')"
+                prop="inCount"
+                sortable
+                label="入库数"
+                width="100"
+                align="right"
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('inPercent')"
+                prop="inPercent"
+                sortable
+                label="入库占比"
+                width="110"
+                align="right"
+              >
+                <template #default="{ row }">{{ row.inPercent.toFixed(1) }}%</template>
+              </el-table-column>
+              <el-table-column
+                v-if="isBomColumnVisible('outCount')"
+                prop="outCount"
+                sortable
+                label="出库数"
+                width="100"
+                align="right"
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('outPercent')"
+                prop="outPercent"
+                sortable
+                label="出库占比"
+                width="110"
+                align="right"
+              >
+                <template #default="{ row }">{{ row.outPercent.toFixed(1) }}%</template>
+              </el-table-column>
+              <el-table-column
+                v-if="isBomColumnVisible('outSaleCount')"
+                prop="outSaleCount"
+                sortable
+                label="出库(外销)"
+                width="120"
+                align="right"
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('outDevCount')"
+                prop="outDevCount"
+                sortable
+                label="出库(研发)"
+                width="120"
+                align="right"
+              />
+            </el-table>
           </el-card>
         </el-col>
       </el-row>
@@ -1002,6 +1135,20 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="bomColumnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
+      <div class="column-setting-tip">勾选需要在 BOM 型号出入库明细表中展示的字段</div>
+      <el-checkbox-group v-model="bomColumnDraftKeys" class="column-checkbox-group">
+        <el-checkbox v-for="col in bomStockColumnOptions" :key="col.key" :label="col.key">
+          {{ col.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="resetBomColumnDraft">恢复默认</el-button>
+        <el-button @click="bomColumnDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveBomColumnSettings">确定</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="columnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
       <div class="column-setting-tip">勾选需要在表格中展示的字段（序号列始终显示）</div>
       <el-checkbox-group v-model="columnDraftKeys" class="column-checkbox-group">
@@ -1200,7 +1347,12 @@ import { getFinishProductDailyStats, getFinishProductBoardDetail, getJointTestRe
 import ECharts from "@/components/ECharts/index.vue";
 import DictTag from "@/components/DictTag/index.vue";
 import { InfoFilled, Setting, Refresh, DataAnalysis } from "@element-plus/icons-vue";
-import { useFinishProductTableColumns, FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY } from "@/composables/useFinishProductTableColumns";
+import {
+  useFinishProductTableColumns,
+  FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY,
+  BOM_STOCK_COLUMN_STORAGE_KEY,
+  bomStockColumnOptions,
+} from "@/composables/useFinishProductTableColumns";
 import { useDictStore } from "@/store";
 
 const dictStore = useDictStore();
@@ -1215,6 +1367,17 @@ const {
   resetColumnDraft,
   saveColumnSettings,
 } = useFinishProductTableColumns(FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY);
+
+// BOM 型号出入库明细表列展示
+const {
+  columnDialogVisible: bomColumnDialogVisible,
+  columnDraftKeys: bomColumnDraftKeys,
+  isColumnVisible: isBomColumnVisible,
+  loadColumnSettings: loadBomColumnSettings,
+  openColumnDialog: openBomColumnDialog,
+  resetColumnDraft: resetBomColumnDraft,
+  saveColumnSettings: saveBomColumnSettings,
+} = useFinishProductTableColumns(BOM_STOCK_COLUMN_STORAGE_KEY, bomStockColumnOptions);
 
 type BoardType = "material" | "finish";
 
@@ -1234,6 +1397,16 @@ interface FinishDailyStat {
   stockOutCount: number;
   stockOutSaleCount: number;
   stockOutDevCount: number;
+}
+
+interface BomStockStat {
+  bom_id: number;
+  bom_model: string;
+  bom_name: string;
+  inCount: number;
+  outCount: number;
+  outSaleCount: number;
+  outDevCount: number;
 }
 
 const finishChartSeries = [
@@ -1293,6 +1466,7 @@ const boardCategoryLabels: Record<string, string> = {
   stockOutDevCount: "出库(研发)数量",
   currentStockInCount: "成品库存",
   unassembledCount: "未组装",
+  currentConsumeCount: "组件消耗",
 };
 
 type BoardCategoryKey = keyof typeof boardCategoryLabels;
@@ -1380,7 +1554,15 @@ watch(finishDateRange, (range) => {
 const finishSummary = ref(emptyFinishSummary());
 const currentStockInCount = ref(0);
 const currentUnassembledCount = ref(0);
+const currentConsumeCount = ref(0);
+
+/** 流出合计 = 本周期出库数量 + 当前组件消耗数量 */
+const totalOutflowCount = computed(
+  () => (finishSummary.value.stockOutCount || 0) + (currentConsumeCount.value || 0)
+);
 const dailyStats = ref<FinishDailyStat[]>([]);
+const bomStockBreakdown = ref<BomStockStat[]>([]);
+const bomStockTotal = ref({ inCount: 0, outCount: 0 });
 const finishDataLoaded = ref(false);
 
 const periodType = ref("30d");
@@ -1552,6 +1734,9 @@ const buildDetailTitle = (category: BoardCategoryKey, singleDate?: string | null
   if (category === "currentStockInCount") {
     return `${label} - 明细（当前已入库）${bomLabel}`;
   }
+  if (category === "currentConsumeCount") {
+    return `${label} - 明细（当前组件消耗）${bomLabel}`;
+  }
   if (category === "unassembledCount") {
     return `${label} - 明细（SN码为空）${bomLabel}`;
   }
@@ -1592,7 +1777,7 @@ const fetchBoardDetail = async () => {
       sort_prop: detailSortProp.value || undefined,
       sort_order: detailSortOrder.value || undefined,
     };
-    if (detailCategory.value !== "currentStockInCount") {
+    if (detailCategory.value !== "currentStockInCount" && detailCategory.value !== "currentConsumeCount") {
       if (detailSingleDate.value) {
         params.date = detailSingleDate.value;
       } else if (finishDateRange.value?.[0] && finishDateRange.value?.[1]) {
@@ -1692,6 +1877,25 @@ const repairProductPassRateOptions = computed(() => {
   };
 });
 
+/** 同排三个饼图共用的几何参数：保证圆环大小、图例位置、标签样式完全一致 */
+const PIE_COMMON = {
+  legend: {
+    bottom: 6,
+    type: "scroll",
+    itemGap: 12,
+    itemWidth: 14,
+    itemHeight: 10,
+    // 下方图例文字大小：调这个数值即可放大/缩小
+    textStyle: { fontSize: 15 },
+  },
+  // 圆饼上移并收小半径，与下方标签/图例之间留出空隙，避免标签被遮挡
+  center: ["50%", "40%"],
+  radius: ["30%", "52%"],
+  itemStyle: { borderRadius: 4, borderColor: "var(--el-bg-color)", borderWidth: 2 },
+  labelLine: { length: 12, length2: 14, smooth: true },
+  labelLayout: { hideOverlap: true },
+};
+
 const outboundRatioOptions = computed(() => {
   const sale = finishSummary.value.stockOutSaleCount || 0;
   const dev = finishSummary.value.stockOutDevCount || 0;
@@ -1699,20 +1903,86 @@ const outboundRatioOptions = computed(() => {
 
   return {
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-    legend: { bottom: 0 },
+    legend: PIE_COMMON.legend,
     series: [{
       name: "出库类型占比",
       type: "pie",
-      radius: ["40%", "70%"],
-      avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 4, borderColor: "var(--el-bg-color)", borderWidth: 2 },
-      label: { show: true, formatter: total > 0 ? "{b}\n{d}%" : "{b}\n0%" },
+      center: PIE_COMMON.center,
+      radius: PIE_COMMON.radius,
+      avoidLabelOverlap: true,
+      itemStyle: PIE_COMMON.itemStyle,
+      label: {
+        show: true,
+        fontSize: 12,
+        formatter: total > 0 ? "{b}\n{d}%" : "{b}\n0%",
+      },
+      labelLine: PIE_COMMON.labelLine,
+      labelLayout: PIE_COMMON.labelLayout,
       data: [
         { value: sale, name: "外销", itemStyle: { color: "#3B82F6" } },
         { value: dev, name: "研发", itemStyle: { color: "#F97316" } },
       ],
     }],
   };
+});
+
+/** BOM 型号饼图配色（与入库/出库两张饼图保持一致，同一型号同色） */
+const BOM_CHART_COLORS = [
+  "#3B82F6", "#F97316", "#10B981", "#8B5CF6", "#EF4444",
+  "#06B6D4", "#F59E0B", "#64748B", "#EC4899", "#84CC16",
+];
+
+const bomColorMap = computed(() => {
+  const map: Record<number, string> = {};
+  bomStockBreakdown.value.forEach((row, index) => {
+    map[row.bom_id] = BOM_CHART_COLORS[index % BOM_CHART_COLORS.length];
+  });
+  return map;
+});
+
+const buildBomStockPieOptions = (countKey: "inCount" | "outCount", seriesName: string) => {
+  const total = bomStockBreakdown.value.reduce((sum, row) => sum + (row[countKey] || 0), 0);
+  const data = bomStockBreakdown.value
+    .filter((row) => (row[countKey] || 0) > 0)
+    .map((row) => ({
+      value: row[countKey],
+      name: row.bom_model || `BOM#${row.bom_id}`,
+      itemStyle: { color: bomColorMap.value[row.bom_id] },
+    }));
+
+  return {
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    legend: PIE_COMMON.legend,
+    series: [{
+      name: seriesName,
+      type: "pie",
+      center: PIE_COMMON.center,
+      radius: PIE_COMMON.radius,
+      avoidLabelOverlap: true,
+      itemStyle: PIE_COMMON.itemStyle,
+      label: {
+        show: true,
+        fontSize: 12,
+        formatter: total > 0 ? "{b}\n{d}%" : "{b}\n0%",
+      },
+      labelLine: PIE_COMMON.labelLine,
+      labelLayout: PIE_COMMON.labelLayout,
+      data,
+    }],
+  };
+};
+
+const bomStockInPieOptions = computed(() => buildBomStockPieOptions("inCount", "入库BOM型号占比"));
+const bomStockOutPieOptions = computed(() => buildBomStockPieOptions("outCount", "出库BOM型号占比"));
+
+const bomStockTableRows = computed(() => {
+  const totalIn = bomStockTotal.value.inCount || 0;
+  const totalOut = bomStockTotal.value.outCount || 0;
+  return bomStockBreakdown.value.map((row) => ({
+    ...row,
+    inPercent: totalIn > 0 ? (row.inCount / totalIn) * 100 : 0,
+    outPercent: totalOut > 0 ? (row.outCount / totalOut) * 100 : 0,
+  }));
 });
 
 const materialHealthPercent = computed(() => {
@@ -1777,7 +2047,13 @@ const fetchFinishData = async () => {
     };
     currentStockInCount.value = res?.currentStockInCount ?? 0;
     currentUnassembledCount.value = res?.currentUnassembledCount ?? 0;
+    currentConsumeCount.value = res?.currentConsumeCount ?? 0;
     dailyStats.value = res?.daily || [];
+    bomStockBreakdown.value = res?.bomStockBreakdown || [];
+    bomStockTotal.value = {
+      inCount: res?.bomStockTotal?.inCount ?? 0,
+      outCount: res?.bomStockTotal?.outCount ?? 0,
+    };
     finishDataLoaded.value = true;
     updateFinishDailyCharts();
   } catch (error) {
@@ -2295,6 +2571,7 @@ const fetchJointReport = async () => {
 
 onMounted(() => {
   loadColumnSettings();
+  loadBomColumnSettings();
   dictStore.loadDictItems('storage_status', true);
   periodType.value = "30d";
   finishDateRange.value = computeDateRangeByPeriod("30d");

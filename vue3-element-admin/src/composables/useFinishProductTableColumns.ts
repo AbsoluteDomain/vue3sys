@@ -3,6 +3,7 @@ import { ElMessage } from "element-plus";
 
 export const FINISH_PRODUCT_COLUMN_STORAGE_KEY = "finish-product-table-columns";
 export const FINISH_PRODUCT_BOARD_DETAIL_COLUMN_STORAGE_KEY = "finish-product-board-detail-columns";
+export const BOM_STOCK_COLUMN_STORAGE_KEY = "bom-stock-table-columns";
 
 export interface FinishProductColumnOption {
   key: string;
@@ -31,46 +32,57 @@ export const finishProductColumnOptions: FinishProductColumnOption[] = [
   { key: "description", label: "描述", defaultVisible: false },
 ];
 
-const getDefaultVisibleColumns = () =>
-  Object.fromEntries(finishProductColumnOptions.map((col) => [col.key, col.defaultVisible]));
+/** 库存看板 - BOM 型号出入库明细表列定义 */
+export const bomStockColumnOptions: FinishProductColumnOption[] = [
+  { key: "bom_model", label: "BOM型号", defaultVisible: true },
+  { key: "bom_name", label: "名称", defaultVisible: true },
+  { key: "inCount", label: "入库数", defaultVisible: true },
+  { key: "inPercent", label: "入库占比", defaultVisible: true },
+  { key: "outCount", label: "出库数", defaultVisible: true },
+  { key: "outPercent", label: "出库占比", defaultVisible: true },
+  { key: "outSaleCount", label: "出库(外销)", defaultVisible: true },
+  { key: "outDevCount", label: "出库(研发)", defaultVisible: true },
+];
 
-const getDefaultVisibleColumnKeys = () =>
-  finishProductColumnOptions.filter((col) => col.defaultVisible).map((col) => col.key);
+const getDefaultVisibleColumns = (options: FinishProductColumnOption[]) =>
+  Object.fromEntries(options.map((col) => [col.key, col.defaultVisible]));
+
+const getDefaultVisibleColumnKeys = (options: FinishProductColumnOption[]) =>
+  options.filter((col) => col.defaultVisible).map((col) => col.key);
 
 export function useFinishProductTableColumns(
-  storageKey: string = FINISH_PRODUCT_COLUMN_STORAGE_KEY
+  storageKey: string = FINISH_PRODUCT_COLUMN_STORAGE_KEY,
+  options: FinishProductColumnOption[] = finishProductColumnOptions
 ) {
-  const visibleColumns = ref<Record<string, boolean>>(getDefaultVisibleColumns());
+  const visibleColumns = ref<Record<string, boolean>>(getDefaultVisibleColumns(options));
   const columnDialogVisible = ref(false);
   const columnDraftKeys = ref<string[]>([]);
 
   const loadColumnSettings = () => {
     const saved = localStorage.getItem(storageKey);
     if (!saved) {
-      visibleColumns.value = getDefaultVisibleColumns();
+      visibleColumns.value = getDefaultVisibleColumns(options);
       return;
     }
     try {
       const parsed = JSON.parse(saved) as Record<string, boolean>;
       visibleColumns.value = Object.fromEntries(
-        finishProductColumnOptions.map((col) => [col.key, parsed[col.key] ?? col.defaultVisible])
+        options.map((col) => [col.key, parsed[col.key] ?? col.defaultVisible])
       );
     } catch {
-      visibleColumns.value = getDefaultVisibleColumns();
+      visibleColumns.value = getDefaultVisibleColumns(options);
     }
   };
 
   const isColumnVisible = (key: string) => visibleColumns.value[key] !== false;
 
   const openColumnDialog = () => {
-    columnDraftKeys.value = finishProductColumnOptions
-      .filter((col) => isColumnVisible(col.key))
-      .map((col) => col.key);
+    columnDraftKeys.value = options.filter((col) => isColumnVisible(col.key)).map((col) => col.key);
     columnDialogVisible.value = true;
   };
 
   const resetColumnDraft = () => {
-    columnDraftKeys.value = getDefaultVisibleColumnKeys();
+    columnDraftKeys.value = getDefaultVisibleColumnKeys(options);
   };
 
   const saveColumnSettings = () => {
@@ -79,7 +91,7 @@ export function useFinishProductTableColumns(
       return;
     }
     visibleColumns.value = Object.fromEntries(
-      finishProductColumnOptions.map((col) => [col.key, columnDraftKeys.value.includes(col.key)])
+      options.map((col) => [col.key, columnDraftKeys.value.includes(col.key)])
     );
     localStorage.setItem(storageKey, JSON.stringify(visibleColumns.value));
     columnDialogVisible.value = false;
@@ -87,7 +99,7 @@ export function useFinishProductTableColumns(
   };
 
   return {
-    columnOptions: finishProductColumnOptions,
+    columnOptions: options,
     visibleColumns,
     columnDialogVisible,
     columnDraftKeys,

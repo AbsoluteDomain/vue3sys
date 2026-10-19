@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q, OuterRef, Subquery
+from django.db.models import Count, Q, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.utils import timezone
@@ -486,6 +486,52 @@ def finish_product_daily_stats(request):
     unassembled_qs = _apply_field_date_range(unassembled_qs, "create_time", start_date, end_date)
     current_unassembled_count = unassembled_qs.count()
 
+    # 组件消耗（绑定关节消耗）：当前口径，与「成品库存」一致，不受日期筛选影响
+    current_consume_count = _filter_finish_scope(
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_CONSUME),
+        bom_type, bom_ids_param, creator_name, editor_name,
+    ).count()
+
+    # 按 BOM 型号汇总入库/出库（口径与上方卡片一致，复用同一 queryset）
+    bom_in_map = {}
+    for row in stock_in_qs.values("bom_id").annotate(c=Count("id")):
+        bom_in_map[row["bom_id"]] = row["c"]
+
+    bom_out_map = {}
+    bom_out_sale_map = {}
+    bom_out_dev_map = {}
+    for row in stock_out_qs.values("bom_id", "inventory_stock").annotate(c=Count("id")):
+        bom_key = row["bom_id"]
+        bom_out_map[bom_key] = bom_out_map.get(bom_key, 0) + row["c"]
+        if row["inventory_stock"] == FinishProduct.INVENTORY_OUT_DEV:
+            bom_out_dev_map[bom_key] = bom_out_dev_map.get(bom_key, 0) + row["c"]
+        else:
+            bom_out_sale_map[bom_key] = bom_out_sale_map.get(bom_key, 0) + row["c"]
+
+    breakdown_bom_ids = {bid for bid in (set(bom_in_map) | set(bom_out_map)) if bid}
+    bom_meta_map = {}
+    if breakdown_bom_ids:
+        bom_meta_map = {
+            bom.id: bom
+            for bom in BomList.objects.filter(id__in=breakdown_bom_ids, is_del=0)
+        }
+
+    bom_breakdown = []
+    for bid in breakdown_bom_ids:
+        bom = bom_meta_map.get(bid)
+        bom_breakdown.append(
+            {
+                "bom_id": bid,
+                "bom_model": (bom.bom_model if bom else "") or f"BOM#{bid}",
+                "bom_name": (bom.bom_name if bom else "") or "",
+                "inCount": bom_in_map.get(bid, 0),
+                "outCount": bom_out_map.get(bid, 0),
+                "outSaleCount": bom_out_sale_map.get(bid, 0),
+                "outDevCount": bom_out_dev_map.get(bid, 0),
+            }
+        )
+    bom_breakdown.sort(key=lambda row: (-(row["inCount"] + row["outCount"]), row["bom_model"]))
+
     return JsonResponse(
         {
             "code": "00000",
@@ -494,7 +540,13 @@ def finish_product_daily_stats(request):
                 "summary": summary,
                 "currentStockInCount": current_stock_in_count,
                 "currentUnassembledCount": current_unassembled_count,
+                "currentConsumeCount": current_consume_count,
                 "daily": list(daily_map.values()),
+                "bomStockBreakdown": bom_breakdown,
+                "bomStockTotal": {
+                    "inCount": sum(bom_in_map.values()),
+                    "outCount": sum(bom_out_map.values()),
+                },
                 "startDate": start_date.isoformat(),
                 "endDate": end_date.isoformat(),
                 "bomType": bom_type or "all",
@@ -656,6 +708,7 @@ BOARD_DETAIL_CATEGORIES = {
     "stockOutDevCount",
     "currentStockInCount",
     "unassembledCount",
+    "currentConsumeCount",
 }
 
 # 看板明细排序：直接字段（FinishProduct 模型）
@@ -769,6 +822,8 @@ def _apply_board_category_filter(qs, category):
         return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_DEV)
     if category == "currentStockInCount":
         return qs.filter(inventory_stock=FinishProduct.INVENTORY_IN)
+    if category == "currentConsumeCount":
+        return qs.filter(inventory_stock=FinishProduct.INVENTORY_CONSUME)
     return qs.none()
 
 
@@ -828,6 +883,9 @@ def finish_product_board_detail(request):
         qs = _apply_field_date_range(qs, "stock_in_time", start_date, end_date)
     elif category == "stockOutCount" or category == "stockOutSaleCount" or category == "stockOutDevCount":
         qs = _apply_field_date_range(qs, "stock_out_time", start_date, end_date)
+    elif category == "currentConsumeCount":
+        # 组件消耗为当前口径，与统计一致不做日期筛选
+        pass
     else:
         qs = _apply_field_date_range(qs, "update_time", start_date, end_date)
 
