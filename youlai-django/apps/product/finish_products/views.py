@@ -508,7 +508,17 @@ def finish_product_daily_stats(request):
         else:
             bom_out_sale_map[bom_key] = bom_out_sale_map.get(bom_key, 0) + row["c"]
 
-    breakdown_bom_ids = {bid for bid in (set(bom_in_map) | set(bom_out_map)) if bid}
+    # 当前剩余库存（时点口径，与「成品库存」卡片一致，不受日期筛选影响）
+    stock_qs = _filter_finish_scope(
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN),
+        bom_type, bom_ids_param, creator_name, editor_name,
+    )
+    bom_stock_map = {}
+    for row in stock_qs.values("bom_id").annotate(c=Count("id")):
+        bom_stock_map[row["bom_id"]] = row["c"]
+
+    # 行集合 = 本期有入库或出库记录 的型号 ∪ 当前有剩余库存 的型号
+    breakdown_bom_ids = {bid for bid in (set(bom_in_map) | set(bom_out_map) | set(bom_stock_map)) if bid}
     bom_meta_map = {}
     if breakdown_bom_ids:
         bom_meta_map = {
@@ -528,6 +538,7 @@ def finish_product_daily_stats(request):
                 "outCount": bom_out_map.get(bid, 0),
                 "outSaleCount": bom_out_sale_map.get(bid, 0),
                 "outDevCount": bom_out_dev_map.get(bid, 0),
+                "stockCount": bom_stock_map.get(bid, 0),
             }
         )
     bom_breakdown.sort(key=lambda row: (-(row["inCount"] + row["outCount"]), row["bom_model"]))
@@ -546,6 +557,7 @@ def finish_product_daily_stats(request):
                 "bomStockTotal": {
                     "inCount": sum(bom_in_map.values()),
                     "outCount": sum(bom_out_map.values()),
+                    "stockCount": sum(bom_stock_map.values()),
                 },
                 "startDate": start_date.isoformat(),
                 "endDate": end_date.isoformat(),

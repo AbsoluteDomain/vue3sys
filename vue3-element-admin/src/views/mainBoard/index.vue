@@ -676,9 +676,12 @@
               </el-button>
             </div>
             <el-table
+              ref="bomStockTableRef"
               :data="bomStockTableRows"
               size="default"
               border
+              :show-summary="bomStockTableRows.length > 0"
+              :summary-method="bomStockSummaryMethod"
               empty-text="当前筛选条件下暂无出入库数据"
             >
               <el-table-column
@@ -697,6 +700,18 @@
                 min-width="140"
                 show-overflow-tooltip
               />
+              <el-table-column
+                v-if="isBomColumnVisible('stockCount')"
+                prop="stockCount"
+                sortable
+                label="当前剩余库存"
+                width="150"
+                align="right"
+              >
+                <template #default="{ row }">
+                  <span class="bom-stock-value">{{ row.stockCount }}</span>
+                </template>
+              </el-table-column>
               <el-table-column
                 v-if="isBomColumnVisible('inCount')"
                 prop="inCount"
@@ -749,6 +764,7 @@
                 width="120"
                 align="right"
               />
+              
             </el-table>
           </el-card>
         </el-col>
@@ -1372,6 +1388,7 @@ const {
 const {
   columnDialogVisible: bomColumnDialogVisible,
   columnDraftKeys: bomColumnDraftKeys,
+  visibleColumns: bomVisibleColumns,
   isColumnVisible: isBomColumnVisible,
   loadColumnSettings: loadBomColumnSettings,
   openColumnDialog: openBomColumnDialog,
@@ -1984,6 +2001,53 @@ const bomStockTableRows = computed(() => {
     outPercent: totalOut > 0 ? (row.outCount / totalOut) * 100 : 0,
   }));
 });
+
+const bomStockTableRef = ref();
+
+/** BOM 型号明细表合计行数据（按当前行集合汇总，不受列显隐影响） */
+const bomStockTableTotals = computed(() => {
+  const rows = bomStockTableRows.value;
+  const pick = (key: string) => rows.reduce((sum, row) => sum + (row[key] || 0), 0);
+  return {
+    inCount: pick("inCount"),
+    outCount: pick("outCount"),
+    outSaleCount: pick("outSaleCount"),
+    outDevCount: pick("outDevCount"),
+    stockCount: pick("stockCount"),
+  };
+});
+
+/** 合计行：首列显示「合计」，占比列在合计行按 100% 展示 */
+const bomStockSummaryMethod = ({ columns }: { columns: any[] }) => {
+  const totals = bomStockTableTotals.value;
+  return columns.map((column: any, index: number) => {
+    if (index === 0) return "合计";
+    switch (column.property) {
+      case "inCount":
+        return totals.inCount;
+      case "inPercent":
+        return totals.inCount > 0 ? "100%" : "0.0%";
+      case "outCount":
+        return totals.outCount;
+      case "outPercent":
+        return totals.outCount > 0 ? "100%" : "0.0%";
+      case "outSaleCount":
+        return totals.outSaleCount;
+      case "outDevCount":
+        return totals.outDevCount;
+      case "stockCount":
+        return totals.stockCount;
+      default:
+        return "";
+    }
+  });
+};
+
+/** 列显隐变化后重新计算列宽，避免表头、表体与合计行错位 */
+watch(
+  () => JSON.stringify(bomVisibleColumns.value),
+  () => nextTick(() => bomStockTableRef.value?.doLayout())
+);
 
 const materialHealthPercent = computed(() => {
   if (materialStats.value.totalCount === 0) return 0;
@@ -2678,6 +2742,20 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px 12px;
+}
+
+/* ==================== BOM 型号出入库明细表 ==================== */
+
+/* 当前剩余库存：绿色标注（时点口径，与上方日期筛选无关） */
+.bom-stock-value {
+  font-weight: 600;
+  color: var(--el-color-success);
+}
+
+/* 合计行：橙红标注 */
+:deep(.el-table__footer-wrapper .el-table__footer .cell) {
+  font-weight: 600;
+  color: var(--el-color-danger);
 }
 
 // ==================== 关节测试每日报表样式 ====================

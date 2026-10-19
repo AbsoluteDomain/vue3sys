@@ -36,6 +36,7 @@ export const finishProductColumnOptions: FinishProductColumnOption[] = [
 export const bomStockColumnOptions: FinishProductColumnOption[] = [
   { key: "bom_model", label: "BOM型号", defaultVisible: true },
   { key: "bom_name", label: "名称", defaultVisible: true },
+  { key: "stockCount", label: "当前剩余库存", defaultVisible: true },
   { key: "inCount", label: "入库数", defaultVisible: true },
   { key: "inPercent", label: "入库占比", defaultVisible: true },
   { key: "outCount", label: "出库数", defaultVisible: true },
