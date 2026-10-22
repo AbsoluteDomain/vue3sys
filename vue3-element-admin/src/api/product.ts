@@ -123,6 +123,14 @@ export function deleteRepair(data: { id: number }) {
   })
 }
 
+export function updateRepairStatus(data: { id: number; repair_status: number }) {
+  return request({
+    url: '/api/v1/repair/update-status/',
+    method: 'post',
+    data
+  })
+}
+
 export function createWarehouseLog(data: {
   name?: string
   sn_code?: string

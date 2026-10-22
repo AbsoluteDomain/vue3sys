@@ -21,12 +21,22 @@
               @keyup.enter="handleSearch"
             />
           </el-form-item>
+          <el-form-item label="返修时间">
+            <el-date-picker
+              v-model="queryParams.dateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              value-format="YYYY-MM-DD"
+              style="width: 260px"
+            />
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="handleSearch">搜索</el-button>
             <el-button @click="resetSearch">重置</el-button>
           </el-form-item>
         </el-form>
-        <el-button type="primary" @click="showCreateDialog">新增返修计划</el-button>
       </div>
     </el-card>
 
@@ -43,6 +53,14 @@
         <el-table-column prop="sn_code" label="SN码" min-width="150" />
         <el-table-column prop="bom_name" label="BOM名称" min-width="180" />
         <el-table-column prop="repair_cnt" label="返修次数" width="100" align="center" />
+        <el-table-column label="返修状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="Number(row.repair_status) === 1 ? 'success' : 'warning'">
+              {{ row.repair_status_name || repairStatusLabels[row.repair_status] }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="create_time" label="创建时间" min-width="170" />
         <el-table-column prop="last_repair_time" label="最后返修时间" min-width="170" />
         <el-table-column label="操作" width="100" align="center">
           <template #default="{ row }">
@@ -66,70 +84,38 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="新增返修计划" width="500px" destroy-on-close>
-      <el-form :model="formData" label-width="100px">
-        <el-form-item label="选择成品" required>
-          <el-select
-            v-model="formData.product_id"
-            placeholder="请选择拥有SN码的成品"
-            style="width: 100%"
-            filterable
-            @change="handleProductChange"
-          >
-            <el-option
-              v-for="item in productOptions"
-              :key="item.id"
-              :label="`${item.sn_code} - ${item.bom_name}`"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="不良项">
-          <el-select
-            v-model="formData.unqualified_values"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            placeholder="请选择不良项"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in repairUnqualifiedOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="返修内容" required>
-          <el-input
-            v-model="formData.repair_info"
-            type="textarea"
-            placeholder="请输入返修内容"
-            :rows="4"
-            maxlength="500"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="saving">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="historyDialogVisible" title="返修历史记录" width="1000px">
+    <el-dialog v-model="historyDialogVisible" title="返修历史记录" width="1100px">
       <div v-if="currentRow">
         <p><strong>SN码：</strong>{{ currentRow.sn_code }}</p>
         <p><strong>BOM名称：</strong>{{ currentRow.bom_name }}</p>
         <p><strong>返修次数：</strong>{{ currentRow.repair_cnt }}</p>
       </div>
       <el-table :data="historyData" border stripe style="width: 100%; margin-top: 15px" v-loading="historyLoading">
-        <el-table-column prop="repair_cnt" label="第几次返修" width="120" align="center" />
+        <el-table-column prop="repair_cnt" label="第几次返修" width="110" align="center" />
         <el-table-column prop="repair_info" label="返修内容" min-width="300" />
         <el-table-column prop="create_time" label="返修时间" min-width="170" />
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="返修状态" width="180" align="center">
           <template #default="{ row }">
+            <el-switch
+              v-model="row.repair_status"
+              :active-value="1"
+              :inactive-value="0"
+              :active-text="repairStatusLabels[1]"
+              :inactive-text="repairStatusLabels[0]"
+              inline-prompt
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" align="center">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="primary"
+              :loading="statusSavingId === row.id"
+              @click="handleSaveRepairStatus(row)"
+            >
+              保存
+            </el-button>
             <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -139,49 +125,53 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { listRepairProducts, createRepair, getProductsWithSn, getProductRepairHistory, deleteRepair } from '@/api/product'
-import { getUnqualifiedItems } from '@/api/finish-product'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { listRepairProducts, getProductRepairHistory, deleteRepair, updateRepairStatus } from '@/api/product'
 import { useDictStore } from '@/store'
 
 const dictStore = useDictStore()
 
 const loading = ref(false)
-const saving = ref(false)
-const dialogVisible = ref(false)
 const historyDialogVisible = ref(false)
 const historyLoading = ref(false)
 const tableData = ref([])
 const historyData = ref([])
-const productOptions = ref([])
 const currentRow = ref(null)
-const repairUnqualifiedOptions = ref([])
 const total = ref(0)
+const statusSavingId = ref(null)
 
 const queryParams = reactive({
   sn_code: '',
   bom_name: '',
+  dateRange: [],
   pageNum: 1,
   pageSize: 10,
 })
 
-const formData = reactive({
-  product_id: '',
-  repair_info: '',
-  unqualified_values: []
+// 返修状态文案：优先取字典管理中的配置，字典缺失时回退默认文案
+const repairStatusLabels = computed(() => {
+  const labels = { 0: '待返修', 1: '已返修' }
+  dictStore.getDictItems('repair_status').forEach(item => {
+    labels[Number(item.value)] = item.label
+  })
+  return labels
 })
 
 onMounted(() => {
+  dictStore.loadDictItems('repair_status')
   getList()
 })
 
 async function getList() {
   loading.value = true
   try {
+    const [startDate, endDate] = queryParams.dateRange || []
     const res = await listRepairProducts({
       sn_code: queryParams.sn_code,
       bom_name: queryParams.bom_name,
+      start_date: startDate || '',
+      end_date: endDate || '',
       page: queryParams.pageNum,
       page_size: queryParams.pageSize,
     })
@@ -211,107 +201,8 @@ const handleCurrentChange = () => {
 function resetSearch() {
   queryParams.sn_code = ''
   queryParams.bom_name = ''
+  queryParams.dateRange = []
   handleSearch()
-}
-
-async function showCreateDialog() {
-  formData.product_id = ''
-  formData.repair_info = ''
-  formData.unqualified_values = []
-  repairUnqualifiedOptions.value = []
-  
-  try {
-      const res = await getProductsWithSn()
-      productOptions.value = res || []
-    } catch (error) {
-    ElMessage.error('加载成品列表失败: ' + error.message)
-  }
-  
-  dialogVisible.value = true
-}
-
-// 当选择成品时，加载该产品的不良项
-async function handleProductChange(productId) {
-  formData.unqualified_values = []
-  
-  // 加载字典项
-  await dictStore.loadDictItems('unqualified_status')
-  const allOptions = dictStore.getDictItems('unqualified_status').map(item => ({
-    value: item.value,
-    label: item.label
-  }))
-
-  // 加载产品已绑定的不良项
-  if (productId) {
-    try {
-      const res = await getUnqualifiedItems({ finish_product_id: productId })
-      const boundItems = res || []
-      if (boundItems.length > 0) {
-        // 如果有绑定的不良项，显示绑定的几项
-        repairUnqualifiedOptions.value = boundItems.map(item => ({
-          value: item.unqualified_value,
-          label: item.unqualified_label
-        }))
-        formData.unqualified_values = boundItems.map(item => item.unqualified_value)
-      } else {
-        // 如果没有绑定，显示全部
-        repairUnqualifiedOptions.value = allOptions
-      }
-    } catch {
-      // 如果加载失败，显示全部
-      repairUnqualifiedOptions.value = allOptions
-    }
-  } else {
-    repairUnqualifiedOptions.value = []
-  }
-}
-
-async function handleSubmit() {
-  if (!formData.product_id) {
-    ElMessage.warning('请选择成品')
-    return
-  }
-
-  // 构建返修内容：将选中的不良项标签拼接到返修内容中
-  const selectedLabels = repairUnqualifiedOptions.value
-    .filter(opt => formData.unqualified_values.includes(opt.value))
-    .map(opt => opt.label)
-  let finalRepairInfo = formData.repair_info.trim()
-  if (selectedLabels.length > 0) {
-    const prefix = `不良项：${selectedLabels.join('、')}`
-    finalRepairInfo = finalRepairInfo ? `${prefix}\n${finalRepairInfo}` : prefix
-  }
-
-  // === 调试日志 ===
-  console.log('===== 返修计划提交日志 =====')
-  console.log('选中的不良项值:', formData.unqualified_values)
-  console.log('选中的不良项标签:', selectedLabels)
-  console.log('原返修内容:', formData.repair_info)
-  console.log('最终拼接的返修内容:', finalRepairInfo)
-  console.log('==============================')
-  // === 调试日志结束 ===
-
-  if (!finalRepairInfo) {
-    ElMessage.warning('请填写返修内容或选择不良项')
-    return
-  }
-  
-  saving.value = true
-  try {
-    // 显式传 sn_code 为空：返修管理页创建的是返修计划，不是记录具体 SN 码
-    await createRepair({
-      product_id: formData.product_id,
-      repair_info: finalRepairInfo,
-      sn_code: '',
-    })
-    ElMessage.success('创建成功')
-    dialogVisible.value = false
-    await getList()
-  } catch (error) {
-    ElMessage.error('创建失败: ' + error.message)
-  } finally {
-    saving.value = false
-  }
 }
 
 async function handleViewDetail(row) {
@@ -320,7 +211,11 @@ async function handleViewDetail(row) {
   historyLoading.value = true
   try {
     const res = await getProductRepairHistory({ product_id: row.product_id })
-    historyData.value = res || []
+    // 记录已保存的状态，取消或保存失败时用于回退滑块
+    historyData.value = (res || []).map(item => ({
+      ...item,
+      _saved_repair_status: item.repair_status,
+    }))
   } catch (error) {
     ElMessage.error('加载返修历史失败: ' + error.message)
   } finally {
@@ -328,7 +223,60 @@ async function handleViewDetail(row) {
   }
 }
 
+async function handleSaveRepairStatus(row) {
+  const targetLabel = repairStatusLabels.value[row.repair_status]
+  const confirmText = Number(row.repair_status) === 1
+    ? `确认将返修状态保存为「${targetLabel}」吗？保存后该 SN 的成品状态将变为「返修品 + 未测试」。`
+    : `确认将返修状态保存为「${targetLabel}」吗？`
+  try {
+    await ElMessageBox.confirm(confirmText, '保存确认', {
+      type: 'warning',
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    // 取消保存，回退滑块到已保存的状态
+    row.repair_status = row._saved_repair_status
+    return
+  }
+
+  statusSavingId.value = row.id
+  try {
+    const res = await updateRepairStatus({
+      id: row.id,
+      repair_status: row.repair_status,
+    })
+    row._saved_repair_status = row.repair_status
+    row.repair_status_name = repairStatusLabels.value[row.repair_status]
+    if (res?.product_updated) {
+      ElMessage.success('保存成功，成品状态已更新为「返修品 + 未测试」')
+    } else {
+      ElMessage.success('保存成功')
+    }
+    await getList()
+  } catch (error) {
+    // 保存失败时回退滑块状态
+    row.repair_status = row._saved_repair_status
+    ElMessage.error('保存失败: ' + error.message)
+  } finally {
+    statusSavingId.value = null
+  }
+}
+
 async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除第 ${row.repair_cnt} 次返修记录吗？删除后不可恢复。`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      }
+    )
+  } catch {
+    return
+  }
   try {
     await deleteRepair({ id: row.id })
     ElMessage.success('删除成功')

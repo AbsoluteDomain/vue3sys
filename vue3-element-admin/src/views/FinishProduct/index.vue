@@ -567,11 +567,10 @@
       title="生成返修单"
       width="420px"
       :close-on-click-modal="false"
-      @close="handleRepairConfirmCancel"
     >
       <div class="repair-confirm-tip">
         <el-icon class="warning-icon"><WarningFilled /></el-icon>
-        <span>当前产品已标记为「返修品」，是否同时生成返修单？</span>
+        <span>{{ repairConfirmTip }}</span>
       </div>
       <template #footer>
         <el-button @click="handleRepairConfirmCancel">取消</el-button>
@@ -835,8 +834,8 @@
     <!-- 不合格项选择对话框（编辑保存时使用） -->
     <el-dialog
       v-model="unqualifiedSelectVisible"
-      title="选择不合格项"
-      width="480px"
+      title="测试不良处理"
+      width="520px"
       :close-on-click-modal="false"
     >
       <div class="unqualified-tip">
@@ -859,6 +858,20 @@
               :value="Number(item.value)"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item>
+          <div class="generate-repair-row">
+            <span>同时生成返修单</span>
+            <el-switch v-model="unqualifiedGenerateRepair" />
+          </div>
+        </el-form-item>
+        <el-form-item v-if="unqualifiedGenerateRepair">
+          <el-input
+            v-model="unqualifiedRepairInfo"
+            type="textarea"
+            :rows="3"
+            placeholder="选填，默认使用已选不良项作为返修内容"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -1305,6 +1318,7 @@ const repairFormData = reactive({
 const repairUnqualifiedOptions = ref([])
 
 const repairConfirmVisible = ref(false)
+const repairConfirmTip = ref('当前产品已标记为「返修品」，是否同时生成返修单？')
 
 const collapseMode = ref(true)
 
@@ -1353,6 +1367,9 @@ const addJointBomList = ref([])
 const unqualifiedSelectVisible = ref(false)
 const unqualifiedSelectSubmitting = ref(false)
 const selectedUnqualifiedValues = ref([])
+// 测试不良弹窗内直接选择是否生成返修单
+const unqualifiedGenerateRepair = ref(false)
+const unqualifiedRepairInfo = ref('')
 
 // 不合格项详情对话框（列表中查看使用）
 const unqualifiedDetailVisible = ref(false)
@@ -1845,15 +1862,42 @@ const handleViewUnqualified = async (row) => {
 const handleUnqualifiedSelectConfirm = async () => {
   unqualifiedSelectSubmitting.value = true
   try {
-    // 先保存成品
+    // 1. 先保存成品
     await saveProduct()
-    // 再保存不合格项
+    // 2. 再保存不合格项
     await saveUnqualifiedItems({
       finish_product_id: formData.id,
       sn_code: formData.sn_code?.trim() || '',
       unqualified_values: selectedUnqualifiedValues.value,
     })
-    ElMessage.success('保存成功')
+    // 3. 勾选生成返修单时，同一次提交内创建返修单
+    if (formData.status === 3 && unqualifiedGenerateRepair.value) {
+      const options = dictStore.getDictItems('unqualified_status')
+      const selectedLabels = selectedUnqualifiedValues.value.map((value) => {
+        const matched = options.find(item => Number(item.value) === Number(value))
+        return matched ? matched.label : String(value)
+      })
+      let repairInfo = unqualifiedRepairInfo.value.trim()
+      if (selectedLabels.length > 0) {
+        const prefix = `不良项：${selectedLabels.join('、')}`
+        repairInfo = repairInfo ? `${prefix}\n${repairInfo}` : prefix
+      }
+      if (!repairInfo) {
+        repairInfo = '测试不良返修'
+      }
+      try {
+        await createRepair({
+          product_id: formData.id,
+          repair_info: repairInfo,
+        })
+        ElMessage.success('保存成功，返修单已生成')
+      } catch (repairError) {
+        // 成品与不良项已保存，返修单失败不回滚，仅提示
+        ElMessage.error('成品与不良项已保存，返修单生成失败：' + (repairError.message || repairError))
+      }
+    } else {
+      ElMessage.success('保存成功')
+    }
     unqualifiedSelectVisible.value = false
     dialogVisible.value = false
     getList()
@@ -1957,6 +2001,8 @@ const handleEdit = (row) => {
   // 同步测试状态
   formData.status =
     formData.inventory_stock === 1 || formData.inventory_stock === 2 || formData.inventory_stock === 3 ? STATUS_PASS : row.status
+  unqualifiedGenerateRepair.value = false
+  unqualifiedRepairInfo.value = ''
   dialogVisible.value = true
 }
 
@@ -1990,8 +2036,10 @@ const handleSubmit = () => {
   formRef.value?.validate((valid) => {
     if (!valid) return
 
-    // 测试不良状态：弹出不合格项选择对话框
+    // 测试不良状态：弹出不合格项选择对话框（可在同一弹窗内勾选生成返修单）
     if (formData.status === 3) {
+      unqualifiedGenerateRepair.value = false
+      unqualifiedRepairInfo.value = ''
       // 加载已有的不合格项
       getUnqualifiedItems({ finish_product_id: formData.id })
         .then((items) => {
@@ -2006,6 +2054,7 @@ const handleSubmit = () => {
     }
 
     if (formData.repair === 1) {
+      repairConfirmTip.value = '当前产品已标记为「返修品」，是否同时生成返修单？'
       repairConfirmVisible.value = true
     } else {
       doSaveProduct()
@@ -2493,6 +2542,8 @@ const executeQuickActionPass = (product) => {
 // 执行测试不良快捷操作（复用 handleEdit 填充 formData，复用不合格项选择对话框）
 const executeQuickActionFail = async (product) => {
   fillQuickFailForm(product)
+  unqualifiedGenerateRepair.value = false
+  unqualifiedRepairInfo.value = ''
   // 加载已有不合格项并弹出选择对话框（复用现有的 handleUnqualifiedSelectConfirm 流程）
   try {
     const items = await getUnqualifiedItems({ finish_product_id: formData.id })
@@ -2817,6 +2868,14 @@ onMounted(() => {
   border-radius: 4px;
   color: var(--el-text-color-regular);
   font-size: 13px;
+}
+
+.generate-repair-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--el-text-color-regular);
 }
 
 .unqualified-detail-header {

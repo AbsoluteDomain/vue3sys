@@ -6,6 +6,7 @@ from .views import (
     create_repair,
     get_products_with_sn,
     delete_repair,
+    update_repair_status,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
     path("create/", create_repair, name="repair_create"),
     path("products/", get_products_with_sn, name="repair_products"),
     path("delete/", delete_repair, name="repair_delete"),
+    path("update-status/", update_repair_status, name="repair_update_status"),
 ]
