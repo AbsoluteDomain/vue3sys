@@ -1465,7 +1465,7 @@ const handleBoardPanelChange = () => {
 const showStockPies = ref(true);
 
 /** 库存与出入库：BOM 型号明细表格的显示/隐藏开关 */
-const showStockTable = ref(true);
+const showStockTable = ref(false);
 
 interface FinishDailyStat {
   date: string;
