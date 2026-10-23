@@ -623,9 +623,16 @@ def _apply_time_range_filter(qs, request):
     update_end = _parse_date_param(
         request.GET.get("update_end_date") or request.GET.get("updateEndDate")
     )
+    sn_start = _parse_date_param(
+        request.GET.get("sn_start_date") or request.GET.get("snStartDate")
+    )
+    sn_end = _parse_date_param(
+        request.GET.get("sn_end_date") or request.GET.get("snEndDate")
+    )
 
     qs = _apply_field_date_range(qs, "create_time", create_start, create_end)
     qs = _apply_field_date_range(qs, "update_time", update_start, update_end)
+    qs = _apply_field_date_range(qs, "sn_code_time", sn_start, sn_end)
     return qs
 
 
@@ -690,6 +697,7 @@ def _serialize_finish_product(item, bom_map=None):
             "stock_in_time": format_local_datetime(item.stock_in_time) or "",
             "stock_out_time": format_local_datetime(item.stock_out_time) or "",
             "sn_code_time": format_local_datetime(item.sn_code_time) or "",
+            "sn_code_binder": item.sn_code_binder or "",
             "inventory_stock": item.inventory_stock,
             "inventory_stock_name": _get_dict_label("storage_status", item.inventory_stock),
             "repair": item.repair,
@@ -1197,6 +1205,7 @@ def create_finish_product(request):
                 update_time=now,
                 test_time=now,
                 sn_code_time=sn_code_time,
+                sn_code_binder=creator_name or "",
                 stock_in_time=stock_in_time,
                 creator_id=creator_id,
                 creator_name=creator_name or "",
@@ -1315,6 +1324,9 @@ def update_finish_product(request):
         except BomList.DoesNotExist:
             bom_type = None
 
+        # 当前操作人：SN码绑定人与最后操作人共用
+        operator = get_request_operator(request)
+
         sn_code_activated = False
         if "sn_code" in body:
             sn_code = (body.get("sn_code") or "").strip()
@@ -1325,6 +1337,8 @@ def update_finish_product(request):
                 old_sn_code = item.sn_code
                 item.sn_code = new_sn_code
                 item.sn_code_time = timezone.now()
+                # SN码绑定人追随SN码录入时间，清空SN码时同步清空
+                item.sn_code_binder = (operator[1] or "") if (operator and new_sn_code) else ""
                 # SN码从空变为非空时，状态自动改为未测试
                 sn_code_activated = not old_sn_code and bool(new_sn_code)
 
@@ -1561,9 +1575,8 @@ def update_finish_product(request):
                         operation_detail=[operation_detail],
                     )
 
-        editor = get_request_operator(request)
-        if editor:
-            item.editor_id, item.editor_name = editor[0], editor[1] or ""
+        if operator:
+            item.editor_id, item.editor_name = operator[0], operator[1] or ""
         item.update_time = timezone.now()
         item.save()
 

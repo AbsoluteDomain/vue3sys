@@ -121,6 +121,20 @@
             @clear="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="SN码录入时间">
+          <el-date-picker
+            v-model="queryParams.snDateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            clearable
+            style="width: 260px"
+            @change="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="更新时间">
           <el-date-picker
             v-model="queryParams.updateDateRange"
@@ -197,6 +211,13 @@
           prop="sn_code_time"
           label="SN码录入时间"
           width="170"
+        />
+        <el-table-column
+          v-if="isColumnVisible('sn_code_binder')"
+          prop="sn_code_binder"
+          label="SN码绑定人"
+          width="120"
+          show-overflow-tooltip
         />
         <el-table-column
           v-if="isColumnVisible('bom_type')"
@@ -376,6 +397,13 @@
           <div v-if="lockNonSnFields" class="finish-edit-form__hint">
             未组装产品仅可填写SN码，保存后测试状态将自动变为「未测试」
           </div>
+        </el-form-item>
+        <el-form-item label="SN码绑定人">
+          <el-input
+            v-model="formData.sn_code_binder"
+            disabled
+            placeholder="SN码录入时自动写入"
+          />
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
@@ -1270,6 +1298,7 @@ const queryParams = reactive({
   creator_name: '',
   editor_name: '',
   createDateRange: null,
+  snDateRange: null,
   updateDateRange: null
 })
 
@@ -1296,6 +1325,7 @@ const buildListParams = () => {
     editor_name: queryParams.editor_name
   }
   appendDateRangeParams(params, queryParams.createDateRange, 'create_start_date', 'create_end_date')
+  appendDateRangeParams(params, queryParams.snDateRange, 'sn_start_date', 'sn_end_date')
   appendDateRangeParams(params, queryParams.updateDateRange, 'update_start_date', 'update_end_date')
   return params
 }
@@ -1456,6 +1486,7 @@ const formData = reactive({
   create_time: '',
   test_time: '',
   sn_code_time: '',
+  sn_code_binder: '',
   update_time: '',
   stock_in_time: '',
   stock_out_time: '',
@@ -1635,6 +1666,7 @@ const exportLoading = ref(false)
 const EXPORT_COLUMNS = [
   { header: 'SN码', key: 'sn_code' },
   { header: 'SN码录入时间', key: 'sn_code_time' },
+  { header: 'SN码绑定人', key: 'sn_code_binder' },
   { header: 'BOM类型', key: 'bom_type' },
   { header: 'BOM型号', key: 'bom_model' },
   { header: 'BOM名称', key: 'bom_name' },
@@ -1756,6 +1788,7 @@ const resetQuery = () => {
   queryParams.creator_name = ''
   queryParams.editor_name = ''
   queryParams.createDateRange = null
+  queryParams.snDateRange = null
   queryParams.updateDateRange = null
   queryParams.pageNum = 1
   getList()
@@ -1975,6 +2008,7 @@ const handleEdit = (row) => {
   formData.create_time = row.create_time || ''
   formData.test_time = row.test_time || ''
   formData.sn_code_time = row.sn_code_time || ''
+  formData.sn_code_binder = row.sn_code_binder || ''
   formData.update_time = row.update_time || ''
   formData.stock_in_time = row.stock_in_time || ''
   formData.stock_out_time = row.stock_out_time || ''

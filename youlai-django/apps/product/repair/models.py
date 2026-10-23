@@ -12,6 +12,13 @@ class Repair(models.Model):
     id = models.AutoField(primary_key=True, verbose_name="ID")
     product_id = models.IntegerField(verbose_name="成品ID")
     sn_code = models.CharField(max_length=100, verbose_name="成品SN码")
+    product_model = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="产品型号",
+        help_text="创建返修记录时从成品关联BOM同步",
+    )
     repair_cnt = models.IntegerField(default=1, verbose_name="返修次数")
     repair_info = models.TextField(verbose_name="返修内容")
     repair_status = models.IntegerField(

@@ -14,6 +14,7 @@ export interface FinishProductColumnOption {
 export const finishProductColumnOptions: FinishProductColumnOption[] = [
   { key: "sn_code", label: "SN码", defaultVisible: true },
   { key: "sn_code_time", label: "SN码录入时间", defaultVisible: false },
+  { key: "sn_code_binder", label: "SN码绑定人", defaultVisible: false },
   { key: "bom_type", label: "BOM类型", defaultVisible: true },
   { key: "bom_model", label: "BOM型号", defaultVisible: true },
   { key: "bom_name", label: "BOM名称", defaultVisible: true },

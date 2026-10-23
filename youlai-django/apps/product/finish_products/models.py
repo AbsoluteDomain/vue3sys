@@ -98,6 +98,13 @@ class FinishProduct(models.Model):
         verbose_name="SN码录入时间",
         help_text="SN码发生变化时由系统自动写入，不可编辑",
     )
+    sn_code_binder = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="SN码绑定人",
+        help_text="SN码发生变化时由系统自动写入当前操作人，不可编辑",
+    )
     inventory_stock = models.IntegerField(
         default=INVENTORY_NOT_IN,
         choices=INVENTORY_STOCK_CHOICES,

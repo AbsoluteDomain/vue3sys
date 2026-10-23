@@ -44,6 +44,7 @@ def list_repair_products(request):
     try:
         # 搜索参数
         sn_code = (request.GET.get("sn_code") or "").strip()
+        product_model = (request.GET.get("product_model") or "").strip()
         bom_name = (request.GET.get("bom_name") or "").strip()
         start_date = _parse_date_param(request.GET.get("start_date") or request.GET.get("startDate"))
         end_date = _parse_date_param(request.GET.get("end_date") or request.GET.get("endDate"))
@@ -88,24 +89,32 @@ def list_repair_products(request):
             for product in FinishProduct.objects.filter(id__in=product_ids):
                 product_map[product.id] = product
 
+        bom_map = {}
+        bom_ids = {p.bom_id for p in product_map.values() if p.bom_id}
+        if bom_ids:
+            from apps.product.boms.models import BomList
+            bom_map = {
+                bom.id: bom
+                for bom in BomList.objects.filter(id__in=bom_ids, is_del=0)
+            }
+
         sn_map = {}
         for record in repair_records:
             # 复合 key：product_id + sn_code，避免不同产品空 SN 码被合并
             group_key = (record.product_id, record.sn_code or "")
             if group_key not in sn_map:
                 product = product_map.get(record.product_id)
-                bom_name_val = ""
-                if product:
-                    from apps.product.boms.models import BomList
-                    try:
-                        bom = BomList.objects.get(id=product.bom_id, is_del=0)
-                        bom_name_val = bom.bom_name or ""
-                    except:
-                        pass
+                bom = bom_map.get(product.bom_id) if product else None
+                bom_name_val = (bom.bom_name or "") if bom else ""
+                # 新记录取创建时快照，旧记录回退到当前 BOM 型号
+                product_model_val = (record.product_model or "").strip()
+                if not product_model_val and bom:
+                    product_model_val = bom.bom_model or ""
 
                 sn_map[group_key] = {
                     "product_id": record.product_id,
                     "sn_code": record.sn_code or "",
+                    "product_model": product_model_val,
                     "bom_name": bom_name_val,
                     "repair_cnt": 0,
                     "create_time": "",
@@ -142,6 +151,8 @@ def list_repair_products(request):
         # 搜索过滤（在聚合后做，保证分组计数不受搜索影响）
         if sn_code:
             result = [r for r in result if sn_code in (r.get("sn_code") or "")]
+        if product_model:
+            result = [r for r in result if product_model in (r.get("product_model") or "")]
         if bom_name:
             result = [r for r in result if bom_name in (r.get("bom_name") or "")]
 
@@ -219,10 +230,16 @@ def create_repair(request):
             product_id=product.id,
             is_del=0
         ).aggregate(max_cnt=Max("repair_cnt"))["max_cnt"] or 0
-        
+
+        # 创建返修记录时同步获取该成品关联 BOM 的产品型号
+        from apps.product.boms.models import BomList
+        bom = BomList.objects.filter(id=product.bom_id, is_del=0).first()
+        product_model = (bom.bom_model or "") if bom else ""
+
         Repair.objects.create(
             product_id=product.id,
             sn_code=sn_code,
+            product_model=product_model,
             repair_cnt=max_repair_cnt + 1,
             repair_info=repair_info.strip(),
             repair_status=Repair.STATUS_PENDING,

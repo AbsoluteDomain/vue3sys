@@ -12,6 +12,15 @@
               @keyup.enter="handleSearch"
             />
           </el-form-item>
+          <el-form-item label="产品型号">
+            <el-input
+              v-model="queryParams.product_model"
+              placeholder="产品型号"
+              clearable
+              style="width: 160px"
+              @keyup.enter="handleSearch"
+            />
+          </el-form-item>
           <el-form-item label="BOM名称">
             <el-input
               v-model="queryParams.bom_name"
@@ -51,6 +60,7 @@
         highlight-current-row
       >
         <el-table-column prop="sn_code" label="SN码" min-width="150" />
+        <el-table-column prop="product_model" label="产品型号" min-width="160" />
         <el-table-column prop="bom_name" label="BOM名称" min-width="180" />
         <el-table-column prop="repair_cnt" label="返修次数" width="100" align="center" />
         <el-table-column label="返修状态" width="110" align="center">
@@ -87,6 +97,7 @@
     <el-dialog v-model="historyDialogVisible" title="返修历史记录" width="1100px">
       <div v-if="currentRow">
         <p><strong>SN码：</strong>{{ currentRow.sn_code }}</p>
+        <p><strong>产品型号：</strong>{{ currentRow.product_model }}</p>
         <p><strong>BOM名称：</strong>{{ currentRow.bom_name }}</p>
         <p><strong>返修次数：</strong>{{ currentRow.repair_cnt }}</p>
       </div>
@@ -143,6 +154,7 @@ const statusSavingId = ref(null)
 
 const queryParams = reactive({
   sn_code: '',
+  product_model: '',
   bom_name: '',
   dateRange: [],
   pageNum: 1,
@@ -169,6 +181,7 @@ async function getList() {
     const [startDate, endDate] = queryParams.dateRange || []
     const res = await listRepairProducts({
       sn_code: queryParams.sn_code,
+      product_model: queryParams.product_model,
       bom_name: queryParams.bom_name,
       start_date: startDate || '',
       end_date: endDate || '',
@@ -200,6 +213,7 @@ const handleCurrentChange = () => {
 
 function resetSearch() {
   queryParams.sn_code = ''
+  queryParams.product_model = ''
   queryParams.bom_name = ''
   queryParams.dateRange = []
   handleSearch()
