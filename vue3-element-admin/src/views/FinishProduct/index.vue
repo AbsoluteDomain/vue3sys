@@ -94,6 +94,16 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
+        <el-form-item label="SN码绑定人">
+          <el-input
+            v-model="queryParams.sn_code_binder"
+            placeholder="SN码绑定人"
+            clearable
+            style="width: 160px"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
         <el-form-item label="返修">
           <el-select
             v-model="queryParams.repair"
@@ -1297,6 +1307,7 @@ const queryParams = reactive({
   description: '',
   creator_name: '',
   editor_name: '',
+  sn_code_binder: '',
   createDateRange: null,
   snDateRange: null,
   updateDateRange: null
@@ -1322,7 +1333,8 @@ const buildListParams = () => {
     repair: queryParams.repair,
     description: queryParams.description,
     creator_name: queryParams.creator_name,
-    editor_name: queryParams.editor_name
+    editor_name: queryParams.editor_name,
+    sn_code_binder: queryParams.sn_code_binder
   }
   appendDateRangeParams(params, queryParams.createDateRange, 'create_start_date', 'create_end_date')
   appendDateRangeParams(params, queryParams.snDateRange, 'sn_start_date', 'sn_end_date')
@@ -1787,6 +1799,7 @@ const resetQuery = () => {
   queryParams.description = ''
   queryParams.creator_name = ''
   queryParams.editor_name = ''
+  queryParams.sn_code_binder = ''
   queryParams.createDateRange = null
   queryParams.snDateRange = null
   queryParams.updateDateRange = null

@@ -256,14 +256,18 @@ def _filter_by_bom_ids(qs, bom_ids):
     return qs.filter(bom_id__in=id_list)
 
 
-def _filter_finish_scope(qs, bom_type="", bom_ids="", creator_name="", editor_name=""):
-    """组合筛选：BOM类型、产品型号（BOM ID多选）、创建人、最后操作人（文本模糊匹配，空=全部）"""
+def _filter_finish_scope(
+    qs, bom_type="", bom_ids="", creator_name="", editor_name="", sn_code_binder=""
+):
+    """组合筛选：BOM类型、产品型号（BOM ID多选）、创建人、最后操作人、SN码绑定人（文本模糊匹配，空=全部）"""
     qs = _filter_by_bom_type(qs, bom_type)
     qs = _filter_by_bom_ids(qs, bom_ids)
     if creator_name:
         qs = qs.filter(creator_name__icontains=creator_name)
     if editor_name:
         qs = qs.filter(editor_name__icontains=editor_name)
+    if sn_code_binder:
+        qs = qs.filter(sn_code_binder__icontains=sn_code_binder)
     return qs
 
 
@@ -343,6 +347,9 @@ def finish_product_daily_stats(request):
     bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
     creator_name = (request.GET.get("creator_name") or request.GET.get("creatorName") or "").strip()
     editor_name = (request.GET.get("editor_name") or request.GET.get("editorName") or "").strip()
+    sn_code_binder = (
+        request.GET.get("sn_code_binder") or request.GET.get("snCodeBinder") or ""
+    ).strip()
 
     daily_map = {}
     current = start_date
@@ -372,7 +379,7 @@ def finish_product_daily_stats(request):
     ).filter(
         repair=FinishProduct.REPAIR_NEW
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
-    create_qs = _filter_finish_scope(create_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    create_qs = _filter_finish_scope(create_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
 
     for item in create_qs:
         day = local_date_key(item.sn_code_time or item.update_time)
@@ -390,7 +397,7 @@ def finish_product_daily_stats(request):
         test_time__gte=start_dt,
         test_time__lte=end_dt,
     )
-    test_qs = _filter_finish_scope(test_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    test_qs = _filter_finish_scope(test_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
     for item in test_qs:
         _accumulate_test_time_stats(item, daily_map, summary)
 
@@ -411,7 +418,7 @@ def finish_product_daily_stats(request):
         repair=FinishProduct.REPAIR_NEW,
         status=FinishProduct.STATUS_UNTESTED,
     ).exclude(Q(sn_code="") | Q(sn_code__isnull=True))
-    pending_qs = _filter_finish_scope(pending_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    pending_qs = _filter_finish_scope(pending_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
 
     for item in pending_qs:
         day = local_date_key(item.sn_code_time or item.test_time)
@@ -429,7 +436,7 @@ def finish_product_daily_stats(request):
         update_time__gte=start_dt,
         update_time__lte=end_dt,
     )
-    update_qs = _filter_finish_scope(update_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    update_qs = _filter_finish_scope(update_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
 
     for item in update_qs:
         day = local_date_key(item.update_time)
@@ -449,7 +456,7 @@ def finish_product_daily_stats(request):
         stock_in_time__lte=end_dt,
         inventory_stock=FinishProduct.INVENTORY_IN,
     )
-    stock_in_qs = _filter_finish_scope(stock_in_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    stock_in_qs = _filter_finish_scope(stock_in_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
     for item in stock_in_qs:
         day = local_date_key(item.stock_in_time)
         _increment_daily_count(daily_map, summary, day, "stockInCount")
@@ -460,7 +467,7 @@ def finish_product_daily_stats(request):
         stock_out_time__lte=end_dt,
         inventory_stock__in=[FinishProduct.INVENTORY_OUT_SALE, FinishProduct.INVENTORY_OUT_DEV],
     )
-    stock_out_qs = _filter_finish_scope(stock_out_qs, bom_type, bom_ids_param, creator_name, editor_name)
+    stock_out_qs = _filter_finish_scope(stock_out_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
     for item in stock_out_qs:
         day = local_date_key(item.stock_out_time)
         bucket = daily_map.get(day)
@@ -476,12 +483,14 @@ def finish_product_daily_stats(request):
             summary["stockOutSaleCount"] += 1
 
     current_stock_in_count = _filter_finish_scope(
-        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN), bom_type, bom_ids_param, creator_name, editor_name
+        FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN),
+        bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder,
     ).count()
 
     # 未组装：SN码为空的成品，按创建时间筛选
     unassembled_qs = _filter_finish_scope(
-        FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")), bom_type, bom_ids_param, creator_name, editor_name
+        FinishProduct.active_queryset().filter(Q(sn_code__isnull=True) | Q(sn_code="")),
+        bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder,
     )
     unassembled_qs = _apply_field_date_range(unassembled_qs, "create_time", start_date, end_date)
     current_unassembled_count = unassembled_qs.count()
@@ -489,7 +498,7 @@ def finish_product_daily_stats(request):
     # 组件消耗（绑定关节消耗）：当前口径，与「成品库存」一致，不受日期筛选影响
     current_consume_count = _filter_finish_scope(
         FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_CONSUME),
-        bom_type, bom_ids_param, creator_name, editor_name,
+        bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder,
     ).count()
 
     # 按 BOM 型号汇总入库/出库（口径与上方卡片一致，复用同一 queryset）
@@ -511,7 +520,7 @@ def finish_product_daily_stats(request):
     # 当前剩余库存（时点口径，与「成品库存」卡片一致，不受日期筛选影响）
     stock_qs = _filter_finish_scope(
         FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN),
-        bom_type, bom_ids_param, creator_name, editor_name,
+        bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder,
     )
     bom_stock_map = {}
     for row in stock_qs.values("bom_id").annotate(c=Count("id")):
@@ -857,6 +866,9 @@ def finish_product_board_detail(request):
     bom_ids_param = (request.GET.get("bom_ids") or request.GET.get("bomIds") or "").strip()
     creator_name = (request.GET.get("creator_name") or request.GET.get("creatorName") or "").strip()
     editor_name = (request.GET.get("editor_name") or request.GET.get("editorName") or "").strip()
+    sn_code_binder = (
+        request.GET.get("sn_code_binder") or request.GET.get("snCodeBinder") or ""
+    ).strip()
     sort_prop = (request.GET.get("sort_prop") or request.GET.get("sortProp") or "").strip()
     sort_order = (request.GET.get("sort_order") or request.GET.get("sortOrder") or "").strip().lower()
 
@@ -884,7 +896,7 @@ def finish_product_board_detail(request):
     # 看板详情列表默认过滤已回退记录
     qs = qs.exclude(cons_status=FinishProduct.CONS_STATUS_ROLLED_BACK)
     qs = _apply_board_category_filter(qs, category)
-    qs = _filter_finish_scope(qs, bom_type, bom_ids_param, creator_name, editor_name)
+    qs = _filter_finish_scope(qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
 
     if category in ("currentStockInCount",):
         pass
@@ -982,6 +994,11 @@ def finish_product_list(request):
     editor_name = (
         request.GET.get("editor_name", "") or request.GET.get("editorName", "") or ""
     ).strip()
+    sn_code_binder = (
+        request.GET.get("sn_code_binder", "")
+        or request.GET.get("snCodeBinder", "")
+        or ""
+    ).strip()
 
     qs = FinishProduct.objects.all()
     # 默认过滤已回退记录（cons_status=2），include_rolled_back=1 时包含
@@ -996,6 +1013,8 @@ def finish_product_list(request):
         qs = qs.filter(creator_name__icontains=creator_name)
     if editor_name:
         qs = qs.filter(editor_name__icontains=editor_name)
+    if sn_code_binder:
+        qs = qs.filter(sn_code_binder__icontains=sn_code_binder)
     if parent_sn_code:
         qs = qs.filter(parent_sn_code=parent_sn_code)
     if bom_id:

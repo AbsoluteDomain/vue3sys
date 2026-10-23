@@ -160,7 +160,7 @@
     <!-- 成品看板 -->
     <template v-else>
       <el-card shadow="never" class="mb-3">
-        <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center justify-start flex-wrap gap-3">
           <div class="flex items-center gap-3 flex-wrap">
             <span class="text-sm text-[--el-text-color-regular]">统计周期：</span>
             <el-select v-model="periodType" placeholder="快捷选择" style="width: 140px" @change="onPeriodChange" clearable>
@@ -216,29 +216,42 @@
               </el-option>
             </el-select>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-sm text-[--el-text-color-regular]">创建人：</span>
-            <el-input
-              v-model="creatorName"
-              clearable
-              placeholder="全部"
-              style="width: 160px"
-              @clear="fetchFinishData"
-              @keyup.enter="fetchFinishData"
-            />
+          <div class="flex items-center gap-4 flex-wrap">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-[--el-text-color-regular]">创建人：</span>
+              <el-input
+                v-model="creatorName"
+                clearable
+                placeholder="全部"
+                style="width: 140px"
+                @clear="fetchFinishData"
+                @keyup.enter="fetchFinishData"
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-[--el-text-color-regular]">最后修改人：</span>
+              <el-input
+                v-model="editorName"
+                clearable
+                placeholder="全部"
+                style="width: 140px"
+                @clear="fetchFinishData"
+                @keyup.enter="fetchFinishData"
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-[--el-text-color-regular]">SN码绑定人：</span>
+              <el-input
+                v-model="snCodeBinder"
+                clearable
+                placeholder="全部"
+                style="width: 140px"
+                @clear="fetchFinishData"
+                @keyup.enter="fetchFinishData"
+              />
+            </div>
+            <el-button type="primary" :icon="Refresh" @click="fetchFinishData">刷新</el-button>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-sm text-[--el-text-color-regular]">最后修改人：</span>
-            <el-input
-              v-model="editorName"
-              clearable
-              placeholder="全部"
-              style="width: 160px"
-              @clear="fetchFinishData"
-              @keyup.enter="fetchFinishData"
-            />
-          </div>
-          <el-button type="primary" :icon="Refresh" @click="fetchFinishData">刷新</el-button>
         </div>
       </el-card>
 
@@ -666,9 +679,15 @@
                 </el-card>
               </el-col>
             </el-row>
-            <div class="mt-4 flex items-center justify-end gap-2">
-              <span class="text-xs text-[--el-text-color-secondary]">饼图</span>
-              <el-switch v-model="showStockPies" size="small" />
+            <div class="mt-4 flex items-center justify-end gap-4">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-[--el-text-color-secondary]">饼图</span>
+                <el-switch v-model="showStockPies" size="small" />
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-[--el-text-color-secondary]">表格</span>
+                <el-switch v-model="showStockTable" size="small" />
+              </div>
             </div>
             <el-row v-if="showStockPies" :gutter="20" class="mt-2">
               <el-col :xs="24" :md="8" class="mb-4">
@@ -684,12 +703,13 @@
                 <ECharts :options="outboundRatioOptions" height="330px" />
               </el-col>
             </el-row>
-            <div class="mt-4 mb-2 flex items-center justify-end">
+            <div v-if="showStockTable" class="mt-4 mb-2 flex items-center justify-end">
               <el-button size="small" @click="openBomColumnDialog">
                 <el-icon><Setting /></el-icon> 列展示
               </el-button>
             </div>
             <el-table
+              v-if="showStockTable"
               ref="bomStockTableRef"
               :data="bomStockTableRows"
               size="default"
@@ -1444,6 +1464,9 @@ const handleBoardPanelChange = () => {
 /** 库存与出入库：三个占比饼图的显示/隐藏开关 */
 const showStockPies = ref(true);
 
+/** 库存与出入库：BOM 型号明细表格的显示/隐藏开关 */
+const showStockTable = ref(true);
+
 interface FinishDailyStat {
   date: string;
   newCount: number;
@@ -1634,6 +1657,7 @@ const bomModelIds = ref<number[]>([]);
 const boardBomList = ref<any[]>([]);
 const creatorName = ref("");
 const editorName = ref("");
+const snCodeBinder = ref("");
 const NEW_BOARD_DATE_RANGE_STORAGE_KEY = "new-board-date-range";
 
 /** el-date-picker 自定义日期范围的快捷选项 */
@@ -1827,6 +1851,7 @@ const fetchBoardDetail = async () => {
       bom_ids?: string;
       creator_name?: string;
       editor_name?: string;
+      sn_code_binder?: string;
       sort_prop?: string;
       sort_order?: string;
     } = {
@@ -1837,6 +1862,7 @@ const fetchBoardDetail = async () => {
       bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
       creator_name: creatorName.value || undefined,
       editor_name: editorName.value || undefined,
+      sn_code_binder: snCodeBinder.value || undefined,
       sort_prop: detailSortProp.value || undefined,
       sort_order: detailSortOrder.value || undefined,
     };
@@ -2070,19 +2096,19 @@ const bomStockSummaryMethod = ({ columns }: { columns: any[] }) => {
     if (index === 0) return "合计";
     switch (column.property) {
       case "inCount":
-        return totals.inCount;
+        return String(totals.inCount);
       case "inPercent":
         return totals.inCount > 0 ? "100%" : "0.0%";
       case "outCount":
-        return totals.outCount;
+        return String(totals.outCount);
       case "outPercent":
         return totals.outCount > 0 ? "100%" : "0.0%";
       case "outSaleCount":
-        return totals.outSaleCount;
+        return String(totals.outSaleCount);
       case "outDevCount":
-        return totals.outDevCount;
+        return String(totals.outDevCount);
       case "stockCount":
-        return totals.stockCount;
+        return String(totals.stockCount);
       default:
         return "";
     }
@@ -2150,6 +2176,7 @@ const fetchFinishData = async () => {
       bom_ids: bomModelIds.value.length > 0 ? bomModelIds.value.join(",") : undefined,
       creator_name: creatorName.value || undefined,
       editor_name: editorName.value || undefined,
+      sn_code_binder: snCodeBinder.value || undefined,
     });
     finishSummary.value = {
       ...emptyFinishSummary(),
