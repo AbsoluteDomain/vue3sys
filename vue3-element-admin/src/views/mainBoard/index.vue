@@ -1044,6 +1044,14 @@
           width="170"
         />
         <el-table-column
+          v-if="isColumnVisible('sn_code_binder')"
+          prop="sn_code_binder"
+          label="SN码绑定人"
+          width="120"
+          align="center"
+          show-overflow-tooltip
+        />
+        <el-table-column
           v-if="isColumnVisible('bom_type')"
           prop="bom_type_name"
           sortable="custom"
