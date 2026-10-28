@@ -585,7 +585,7 @@
                   <template #header>
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-[--el-text-color-secondary]">出库数量</span>
-                      <el-tooltip content="按出库时间统计指定周期内出库的成品总数（含外销和研发）" placement="top">
+                      <el-tooltip content="按出库时间统计指定周期内出库的成品总数（含外销、研发和换货）" placement="top">
                         <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -634,6 +634,27 @@
                   </template>
                   <div class="mt-2 flex items-baseline gap-1.5">
                     <span class="text-2xl font-semibold text-orange-600">{{ finishSummary.stockOutDevCount }}</span>
+                    <span class="text-xs text-[--el-text-color-secondary]">件</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :xs="12" :sm="6" :md="6" :lg="3" class="mb-3">
+                <el-card
+                  shadow="never"
+                  class="h-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  :class="{ 'stat-card--clickable': finishSummary.stockOutExchangeCount > 0 }"
+                  @click="openBoardDetail('stockOutExchangeCount', finishSummary.stockOutExchangeCount)"
+                >
+                  <template #header>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-[--el-text-color-secondary]">出库(换货)数量</span>
+                      <el-tooltip content="按出库时间统计指定周期内出库类型为换货的成品数量" placement="top">
+                        <el-icon class="cursor-pointer text-gray-400"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <div class="mt-2 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-semibold text-teal-600">{{ finishSummary.stockOutExchangeCount }}</span>
                     <span class="text-xs text-[--el-text-color-secondary]">件</span>
                   </div>
                 </el-card>
@@ -795,6 +816,14 @@
                 prop="outDevCount"
                 sortable
                 label="出库(研发)"
+                width="120"
+                align="right"
+              />
+              <el-table-column
+                v-if="isBomColumnVisible('outExchangeCount')"
+                prop="outExchangeCount"
+                sortable
+                label="出库(换货)"
                 width="120"
                 align="right"
               />
@@ -990,6 +1019,16 @@
                     @click.stop="openBoardDetail('stockOutDevCount', row.stockOutDevCount, row.date)"
                   >{{ row.stockOutDevCount }}</span>
                   <span v-else class="text-orange-600">{{ row.stockOutDevCount }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="stockOutExchangeCount" label="出库(换货)" width="110" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.stockOutExchangeCount > 0"
+                    class="stat-cell-link text-teal-600"
+                    @click.stop="openBoardDetail('stockOutExchangeCount', row.stockOutExchangeCount, row.date)"
+                  >{{ row.stockOutExchangeCount }}</span>
+                  <span v-else class="text-teal-600">{{ row.stockOutExchangeCount }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -1491,6 +1530,7 @@ interface FinishDailyStat {
   stockOutCount: number;
   stockOutSaleCount: number;
   stockOutDevCount: number;
+  stockOutExchangeCount: number;
 }
 
 interface BomStockStat {
@@ -1501,6 +1541,7 @@ interface BomStockStat {
   outCount: number;
   outSaleCount: number;
   outDevCount: number;
+  outExchangeCount: number;
 }
 
 const finishChartSeries = [
@@ -1518,6 +1559,7 @@ const finishChartSeries = [
   { name: "出库数量", key: "stockOutCount", color: "#64748B", timeField: "出库时间" },
   { name: "出库(外销)", key: "stockOutSaleCount", color: "#3B82F6", timeField: "出库时间" },
   { name: "出库(研发)", key: "stockOutDevCount", color: "#F97316", timeField: "出库时间" },
+  { name: "出库(换货)", key: "stockOutExchangeCount", color: "#14B8A6", timeField: "出库时间" },
 ] as const;
 
 const finishChartTimeFieldMap = Object.fromEntries(
@@ -1558,6 +1600,7 @@ const boardCategoryLabels: Record<string, string> = {
   stockOutCount: "出库数量",
   stockOutSaleCount: "出库(外销)数量",
   stockOutDevCount: "出库(研发)数量",
+  stockOutExchangeCount: "出库(换货)数量",
   currentStockInCount: "成品库存",
   unassembledCount: "未组装",
   currentConsumeCount: "组件消耗",
@@ -1580,6 +1623,7 @@ const emptyFinishSummary = () => ({
   stockOutCount: 0,
   stockOutSaleCount: 0,
   stockOutDevCount: 0,
+  stockOutExchangeCount: 0,
 });
 
 const formatDate = (date: Date) => {
@@ -1996,7 +2040,8 @@ const PIE_COMMON = {
 const outboundRatioOptions = computed(() => {
   const sale = finishSummary.value.stockOutSaleCount || 0;
   const dev = finishSummary.value.stockOutDevCount || 0;
-  const total = sale + dev;
+  const exchange = finishSummary.value.stockOutExchangeCount || 0;
+  const total = sale + dev + exchange;
 
   return {
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
@@ -2018,6 +2063,7 @@ const outboundRatioOptions = computed(() => {
       data: [
         { value: sale, name: "外销", itemStyle: { color: "#3B82F6" } },
         { value: dev, name: "研发", itemStyle: { color: "#F97316" } },
+        { value: exchange, name: "换货", itemStyle: { color: "#14B8A6" } },
       ],
     }],
   };
@@ -2087,12 +2133,13 @@ const bomStockTableRef = ref();
 /** BOM 型号明细表合计行数据（按当前行集合汇总，不受列显隐影响） */
 const bomStockTableTotals = computed(() => {
   const rows = bomStockTableRows.value;
-  const pick = (key: string) => rows.reduce((sum, row) => sum + (row[key] || 0), 0);
+  const pick = (key: string) => rows.reduce((sum, row) => sum + ((row as Record<string, any>)[key] || 0), 0);
   return {
     inCount: pick("inCount"),
     outCount: pick("outCount"),
     outSaleCount: pick("outSaleCount"),
     outDevCount: pick("outDevCount"),
+    outExchangeCount: pick("outExchangeCount"),
     stockCount: pick("stockCount"),
   };
 });
@@ -2115,6 +2162,8 @@ const bomStockSummaryMethod = ({ columns }: { columns: any[] }) => {
         return String(totals.outSaleCount);
       case "outDevCount":
         return String(totals.outDevCount);
+      case "outExchangeCount":
+        return String(totals.outExchangeCount);
       case "stockCount":
         return String(totals.stockCount);
       default:

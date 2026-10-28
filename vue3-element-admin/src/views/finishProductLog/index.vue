@@ -250,10 +250,13 @@ import { getFinishedProductLogList } from '@/api/finish-product'
 import { finishProductColumnOptions } from '@/composables/useFinishProductTableColumns'
 import { Search, Refresh, Back, Right } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { useDictStore } from '@/store'
 
 defineOptions({
   name: 'FinishProductLog'
 })
+
+const dictStore = useDictStore()
 
 const fieldOptions = finishProductColumnOptions
 
@@ -293,27 +296,43 @@ const afterDialogVisible = ref(false)
 // 本地兜底映射表（筛选弹窗下拉选项 + formatFieldValue fallback）
 // 优先使用后端序列化返回的 *_name 字段，此表仅作为兜底
 const STATUS_MAP = { 0: '未测试', 1: '测试中', 2: '测试合格', 3: '测试不良', 4: '未组装' }
-const STOCK_MAP = { 0: '未入库', 1: '入库', 2: '出库(外销)', 3: '出库(研发)', 4: '组件消耗' }
 const REPAIR_MAP = { 0: '新品', 1: '返修品' }
 const BOM_TYPE_MAP = { 0: '关节', 1: '机械臂' }
+
+// 库存状态以字典 storage_status 为准
+const stockStatusOptions = computed(() =>
+  dictStore.getDictItems('storage_status').map(item => ({
+    label: item.label,
+    value: Number(item.value)
+  }))
+)
+const getStockStatusLabel = (value) => {
+  const item = dictStore
+    .getDictItems('storage_status')
+    .find(i => String(i.value) === String(value))
+  return item ? item.label : value
+}
+
+const ENUM_FIELDS = new Set(['status', 'inventory_stock', 'repair', 'bom_type'])
 
 // 枚举字段 → 下拉选项（值为数字）；其余字段为文本输入模糊查询
 const ENUM_OPTION_MAPS = {
   status: STATUS_MAP,
-  inventory_stock: STOCK_MAP,
   repair: REPAIR_MAP,
   bom_type: BOM_TYPE_MAP
 }
 
 const valueSelectOptions = (field) => {
+  if (field === 'inventory_stock') return stockStatusOptions.value
   const m = ENUM_OPTION_MAPS[field]
   return m ? Object.keys(m).map(k => ({ label: m[k], value: Number(k) })) : null
 }
 
-const valueHint = (field) => (ENUM_OPTION_MAPS[field] ? '值' : '包含关键字')
+const valueHint = (field) => (ENUM_FIELDS.has(field) ? '值' : '包含关键字')
 
 // 弹窗提示文案中显示的值（枚举转中文）
 const matchValueText = (field, value) => {
+  if (field === 'inventory_stock') return getStockStatusLabel(value)
   const m = ENUM_OPTION_MAPS[field]
   if (m && m[String(value)] !== undefined) return m[String(value)]
   return value
@@ -336,7 +355,7 @@ const formatFieldValue = (data, field) => {
   }
   // 回退：本地映射表兜底
   if (field === 'status') return STATUS_MAP[val] || val
-  if (field === 'inventory_stock') return STOCK_MAP[val] || val
+  if (field === 'inventory_stock') return getStockStatusLabel(val)
   if (field === 'repair') return REPAIR_MAP[val] || val
   if (field === 'bom_type') return BOM_TYPE_MAP[val] || val
   return val
@@ -460,6 +479,7 @@ const clearAfterFilter = () => {
 }
 
 onMounted(() => {
+  dictStore.loadDictItems('storage_status')
   getList()
 })
 </script>

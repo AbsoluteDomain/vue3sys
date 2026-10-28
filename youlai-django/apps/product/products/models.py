@@ -97,6 +97,7 @@ class WarehouseLog(models.Model):
     UNBIND = 5            # 解除绑定
     ROLLBACK = 6          # 成品回退
     MANUAL_ADJUST = 7     # 手动调整
+    STORAGE_OUT_EXCHANGE = 8  # 出库(换货)
     
     STORAGE_CHOICES = (
         (STORAGE_IN, '入库'),
@@ -106,6 +107,7 @@ class WarehouseLog(models.Model):
         (UNBIND, '解除绑定关节'),
         (ROLLBACK, '成品回退'),
         (MANUAL_ADJUST, '手动调整'),
+        (STORAGE_OUT_EXCHANGE, '出库(换货)'),
     )
     
     # 操作来源模块

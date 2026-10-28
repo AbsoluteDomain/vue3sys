@@ -22,12 +22,14 @@ class FinishProduct(models.Model):
     INVENTORY_OUT_SALE = 2
     INVENTORY_OUT_DEV = 3
     INVENTORY_CONSUME = 4
+    INVENTORY_OUT_EXCHANGE = 6
     INVENTORY_STOCK_CHOICES = (
         (INVENTORY_NOT_IN, "未入库"),
         (INVENTORY_IN, "入库"),
         (INVENTORY_OUT_SALE, "出库（外销）"),
         (INVENTORY_OUT_DEV, "出库（研发）"),
         (INVENTORY_CONSUME, "组件消耗"),
+        (INVENTORY_OUT_EXCHANGE, "出库（换货）"),
     )
 
     REPAIR_NEW = 0

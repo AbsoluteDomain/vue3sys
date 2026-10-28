@@ -44,6 +44,7 @@ export const bomStockColumnOptions: FinishProductColumnOption[] = [
   { key: "outPercent", label: "出库占比", defaultVisible: true },
   { key: "outSaleCount", label: "出库(外销)", defaultVisible: true },
   { key: "outDevCount", label: "出库(研发)", defaultVisible: true },
+  { key: "outExchangeCount", label: "出库(换货)", defaultVisible: true },
 ];
 
 /** 返修管理列表存储 key 与列定义 */

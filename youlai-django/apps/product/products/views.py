@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from .models import Product, WarehouseLog
 from .constants import normalize_product_type, product_type_label, PRODUCT_TYPE_LABELS
+from apps.system.dicts.models import DictionaryItem
 from apps.product.utils.warehouse_logger import create_warehouse_log as create_log_with_operator, get_operator_info
 
 from apps.system.operation_logs.utils import (
@@ -28,6 +29,17 @@ except ImportError:
 def _log_if_available(request, **kwargs):
     if OPERATION_LOGS_AVAILABLE:
         log_operation_from_request(request, **kwargs)
+
+
+def _warehouse_type_label_map():
+    """仓库操作类型：以字典 warehouse_log_type 为准"""
+    result = {}
+    for item in DictionaryItem.objects.filter(dict_code="warehouse_log_type", status=1):
+        try:
+            result[int(item.value)] = item.label
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _alert_filter_q():
@@ -528,10 +540,11 @@ def warehouse_log_list(request):
         else:
             # 没有匹配的 material_code，返回空集
             qs = qs.filter(id__in=[])
+    warehouse_type_labels = _warehouse_type_label_map()
     if storage_status:
         try:
             storage_status_int = int(storage_status)
-            if storage_status_int in dict(WarehouseLog.STORAGE_CHOICES):
+            if storage_status_int in warehouse_type_labels:
                 qs = qs.filter(storage_status=storage_status_int)
         except (TypeError, ValueError):
             pass
@@ -632,7 +645,9 @@ def warehouse_log_list(request):
             "product_model": item.product_model or "",
             "product_type_name": _resolve_type_name(item),
             "storage_status": item.storage_status,
-            "storage_status_name": item.get_storage_status_display(),
+            "storage_status_name": warehouse_type_labels.get(
+                item.storage_status, item.get_storage_status_display()
+            ),
             "count": item.count,
             "description": item.description or "",
             "user_description": item.user_description or "",
@@ -672,8 +687,16 @@ def create_warehouse_log(request):
         action_type = (body.get("action_type") or "").strip() or None
         operation_detail = body.get("operation_detail")
 
-        valid_statuses = (WarehouseLog.STORAGE_IN, WarehouseLog.STORAGE_OUT_SALE,
-                         WarehouseLog.STORAGE_OUT_RANDD, WarehouseLog.MANUAL_ADJUST)
+        try:
+            storage_status = int(storage_status)
+        except (TypeError, ValueError):
+            return JsonResponse({"code": "400", "msg": "出入库状态无效"})
+
+        valid_statuses = set(_warehouse_type_label_map()) - {
+            WarehouseLog.BIND,
+            WarehouseLog.UNBIND,
+            WarehouseLog.ROLLBACK,
+        }
         if storage_status not in valid_statuses:
             return JsonResponse({"code": "400", "msg": "出入库状态无效"})
 
@@ -690,13 +713,8 @@ def create_warehouse_log(request):
 
         # 若未提供系统描述，自动生成操作摘要
         if not description:
-            status_names = {
-                WarehouseLog.STORAGE_IN: '入库',
-                WarehouseLog.STORAGE_OUT_SALE: '出库(外销)',
-                WarehouseLog.STORAGE_OUT_RANDD: '出库(研发)',
-                WarehouseLog.MANUAL_ADJUST: '手动调整',
-            }
-            action_name = status_names.get(storage_status, str(storage_status))
+            type_labels = _warehouse_type_label_map()
+            action_name = type_labels.get(storage_status, str(storage_status))
             description = f"产品: {name or sn_code or material_code or ''}, 操作: {action_name}, 数量: {count}"
 
         # 使用新的日志记录逻辑，自动获取操作人信息
