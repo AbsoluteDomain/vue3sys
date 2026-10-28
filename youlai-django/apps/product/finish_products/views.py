@@ -207,6 +207,7 @@ def _empty_daily_bucket(date_str):
         "stockOutCount": 0,
         "stockOutSaleCount": 0,
         "stockOutDevCount": 0,
+        "stockOutScrapCount": 0,
         "stockOutExchangeCount": 0,
     }
 
@@ -470,6 +471,7 @@ def finish_product_daily_stats(request):
         inventory_stock__in=[
             FinishProduct.INVENTORY_OUT_SALE,
             FinishProduct.INVENTORY_OUT_DEV,
+            FinishProduct.INVENTORY_OUT_SCRAP,
             FinishProduct.INVENTORY_OUT_EXCHANGE,
         ],
     )
@@ -484,6 +486,9 @@ def finish_product_daily_stats(request):
         if item.inventory_stock == FinishProduct.INVENTORY_OUT_DEV:
             bucket["stockOutDevCount"] += 1
             summary["stockOutDevCount"] += 1
+        elif item.inventory_stock == FinishProduct.INVENTORY_OUT_SCRAP:
+            bucket["stockOutScrapCount"] += 1
+            summary["stockOutScrapCount"] += 1
         elif item.inventory_stock == FinishProduct.INVENTORY_OUT_EXCHANGE:
             bucket["stockOutExchangeCount"] += 1
             summary["stockOutExchangeCount"] += 1
@@ -518,12 +523,15 @@ def finish_product_daily_stats(request):
     bom_out_map = {}
     bom_out_sale_map = {}
     bom_out_dev_map = {}
+    bom_out_scrap_map = {}
     bom_out_exchange_map = {}
     for row in stock_out_qs.values("bom_id", "inventory_stock").annotate(c=Count("id")):
         bom_key = row["bom_id"]
         bom_out_map[bom_key] = bom_out_map.get(bom_key, 0) + row["c"]
         if row["inventory_stock"] == FinishProduct.INVENTORY_OUT_DEV:
             bom_out_dev_map[bom_key] = bom_out_dev_map.get(bom_key, 0) + row["c"]
+        elif row["inventory_stock"] == FinishProduct.INVENTORY_OUT_SCRAP:
+            bom_out_scrap_map[bom_key] = bom_out_scrap_map.get(bom_key, 0) + row["c"]
         elif row["inventory_stock"] == FinishProduct.INVENTORY_OUT_EXCHANGE:
             bom_out_exchange_map[bom_key] = bom_out_exchange_map.get(bom_key, 0) + row["c"]
         else:
@@ -559,6 +567,7 @@ def finish_product_daily_stats(request):
                 "outCount": bom_out_map.get(bid, 0),
                 "outSaleCount": bom_out_sale_map.get(bid, 0),
                 "outDevCount": bom_out_dev_map.get(bid, 0),
+                "outScrapCount": bom_out_scrap_map.get(bid, 0),
                 "outExchangeCount": bom_out_exchange_map.get(bid, 0),
                 "stockCount": bom_stock_map.get(bid, 0),
             }
@@ -581,6 +590,7 @@ def finish_product_daily_stats(request):
                     "outCount": sum(bom_out_map.values()),
                     "outSaleCount": sum(bom_out_sale_map.values()),
                     "outDevCount": sum(bom_out_dev_map.values()),
+                    "outScrapCount": sum(bom_out_scrap_map.values()),
                     "outExchangeCount": sum(bom_out_exchange_map.values()),
                     "stockCount": sum(bom_stock_map.values()),
                 },
@@ -751,6 +761,7 @@ BOARD_DETAIL_CATEGORIES = {
     "stockOutCount",
     "stockOutSaleCount",
     "stockOutDevCount",
+    "stockOutScrapCount",
     "stockOutExchangeCount",
     "currentStockInCount",
     "unassembledCount",
@@ -863,6 +874,7 @@ def _apply_board_category_filter(qs, category):
             inventory_stock__in=[
                 FinishProduct.INVENTORY_OUT_SALE,
                 FinishProduct.INVENTORY_OUT_DEV,
+                FinishProduct.INVENTORY_OUT_SCRAP,
                 FinishProduct.INVENTORY_OUT_EXCHANGE,
             ],
         )
@@ -870,6 +882,8 @@ def _apply_board_category_filter(qs, category):
         return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_SALE)
     if category == "stockOutDevCount":
         return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_DEV)
+    if category == "stockOutScrapCount":
+        return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_SCRAP)
     if category == "stockOutExchangeCount":
         return qs.filter(stock_out_time__isnull=False, inventory_stock=FinishProduct.INVENTORY_OUT_EXCHANGE)
     if category == "currentStockInCount":
@@ -936,7 +950,13 @@ def finish_product_board_detail(request):
         qs = _apply_field_date_range(qs, "test_time", start_date, end_date)
     elif category == "stockInCount":
         qs = _apply_field_date_range(qs, "stock_in_time", start_date, end_date)
-    elif category == "stockOutCount" or category == "stockOutSaleCount" or category == "stockOutDevCount":
+    elif category in (
+        "stockOutCount",
+        "stockOutSaleCount",
+        "stockOutDevCount",
+        "stockOutScrapCount",
+        "stockOutExchangeCount",
+    ):
         qs = _apply_field_date_range(qs, "stock_out_time", start_date, end_date)
     elif category == "currentConsumeCount":
         # 组件消耗为当前口径，与统计一致不做日期筛选
@@ -957,7 +977,13 @@ def finish_product_board_detail(request):
         order_fields = ["-test_time", "-id"]
     elif category == "stockInCount":
         order_fields = ["-stock_in_time", "-id"]
-    elif category in ("stockOutCount", "stockOutSaleCount", "stockOutDevCount"):
+    elif category in (
+        "stockOutCount",
+        "stockOutSaleCount",
+        "stockOutDevCount",
+        "stockOutScrapCount",
+        "stockOutExchangeCount",
+    ):
         order_fields = ["-stock_out_time", "-id"]
 
     # 用户排序覆盖默认排序（服务端排序，保证分页结果正确）
@@ -1227,6 +1253,7 @@ def create_finish_product(request):
             in (
                 FinishProduct.INVENTORY_OUT_SALE,
                 FinishProduct.INVENTORY_OUT_DEV,
+                FinishProduct.INVENTORY_OUT_SCRAP,
                 FinishProduct.INVENTORY_OUT_EXCHANGE,
             )
             else None
@@ -1237,6 +1264,7 @@ def create_finish_product(request):
             FinishProduct.INVENTORY_IN,
             FinishProduct.INVENTORY_OUT_SALE,
             FinishProduct.INVENTORY_OUT_DEV,
+            FinishProduct.INVENTORY_OUT_SCRAP,
             FinishProduct.INVENTORY_OUT_EXCHANGE,
         ) and status_val != FinishProduct.STATUS_PASS:
             return JsonResponse({"code": "400", "msg": "入库或出库时，测试状态必须为测试合格"})
@@ -1270,6 +1298,7 @@ def create_finish_product(request):
                 FinishProduct.INVENTORY_IN,
                 FinishProduct.INVENTORY_OUT_SALE,
                 FinishProduct.INVENTORY_OUT_DEV,
+                FinishProduct.INVENTORY_OUT_SCRAP,
                 FinishProduct.INVENTORY_OUT_EXCHANGE,
             ):
                 inventory_action = "in" if inventory_val == FinishProduct.INVENTORY_IN else "out"
@@ -1277,6 +1306,7 @@ def create_finish_product(request):
                     FinishProduct.INVENTORY_IN: WarehouseLog.STORAGE_IN,
                     FinishProduct.INVENTORY_OUT_SALE: WarehouseLog.STORAGE_OUT_SALE,
                     FinishProduct.INVENTORY_OUT_DEV: WarehouseLog.STORAGE_OUT_RANDD,
+                    FinishProduct.INVENTORY_OUT_SCRAP: WarehouseLog.STORAGE_OUT_SCRAP,
                     FinishProduct.INVENTORY_OUT_EXCHANGE: WarehouseLog.STORAGE_OUT_EXCHANGE,
                 }[inventory_val]
                 _sync_product_inventory(bom, inventory_action)
@@ -1450,6 +1480,7 @@ def update_finish_product(request):
                 in (
                     FinishProduct.INVENTORY_OUT_SALE,
                     FinishProduct.INVENTORY_OUT_DEV,
+                    FinishProduct.INVENTORY_OUT_SCRAP,
                     FinishProduct.INVENTORY_OUT_EXCHANGE,
                 )
             ):
@@ -1495,6 +1526,7 @@ def update_finish_product(request):
             elif item.inventory_stock in (
                 FinishProduct.INVENTORY_OUT_SALE,
                 FinishProduct.INVENTORY_OUT_DEV,
+                FinishProduct.INVENTORY_OUT_SCRAP,
                 FinishProduct.INVENTORY_OUT_EXCHANGE,
             ):
                 if not item.stock_out_time:
@@ -1504,6 +1536,7 @@ def update_finish_product(request):
             FinishProduct.INVENTORY_IN,
             FinishProduct.INVENTORY_OUT_SALE,
             FinishProduct.INVENTORY_OUT_DEV,
+            FinishProduct.INVENTORY_OUT_SCRAP,
             FinishProduct.INVENTORY_OUT_EXCHANGE,
         ):
             if not item.sn_code:
@@ -1521,6 +1554,14 @@ def update_finish_product(request):
                     {"code": "400", "msg": "组件消耗状态必须填写SN码"}
                 )
 
+        # 出库类状态集合（含组件消耗）
+        out_inventory_statuses = (
+            FinishProduct.INVENTORY_OUT_SALE,
+            FinishProduct.INVENTORY_OUT_DEV,
+            FinishProduct.INVENTORY_OUT_SCRAP,
+            FinishProduct.INVENTORY_OUT_EXCHANGE,
+        )
+
         inventory_action = None
         warehouse_log_type = None
         if old_inventory_stock != item.inventory_stock:
@@ -1532,18 +1573,21 @@ def update_finish_product(request):
                 else:
                     inventory_action = "in"
                     warehouse_log_type = WarehouseLog.STORAGE_IN
-            elif item.inventory_stock in (
-                FinishProduct.INVENTORY_OUT_SALE,
-                FinishProduct.INVENTORY_OUT_DEV,
-                FinishProduct.INVENTORY_OUT_EXCHANGE,
-            ):
-                inventory_action = "out"
-                if item.inventory_stock == FinishProduct.INVENTORY_OUT_DEV:
-                    warehouse_log_type = WarehouseLog.STORAGE_OUT_RANDD
-                elif item.inventory_stock == FinishProduct.INVENTORY_OUT_EXCHANGE:
-                    warehouse_log_type = WarehouseLog.STORAGE_OUT_EXCHANGE
+            elif item.inventory_stock in out_inventory_statuses:
+                # 出库类状态之间互相切换（含组件消耗→出库）：库存已在首次出库时扣减，不再重复扣减与记账
+                if (
+                    old_inventory_stock in out_inventory_statuses
+                    or old_inventory_stock == FinishProduct.INVENTORY_CONSUME
+                ):
+                    pass
                 else:
-                    warehouse_log_type = WarehouseLog.STORAGE_OUT_SALE
+                    inventory_action = "out"
+                    warehouse_log_type = {
+                        FinishProduct.INVENTORY_OUT_SALE: WarehouseLog.STORAGE_OUT_SALE,
+                        FinishProduct.INVENTORY_OUT_DEV: WarehouseLog.STORAGE_OUT_RANDD,
+                        FinishProduct.INVENTORY_OUT_SCRAP: WarehouseLog.STORAGE_OUT_SCRAP,
+                        FinishProduct.INVENTORY_OUT_EXCHANGE: WarehouseLog.STORAGE_OUT_EXCHANGE,
+                    }[item.inventory_stock]
             # 变为组件消耗状态：减少库存
             elif item.inventory_stock == FinishProduct.INVENTORY_CONSUME:
                 inventory_action = "out"

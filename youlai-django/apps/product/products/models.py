@@ -98,6 +98,7 @@ class WarehouseLog(models.Model):
     ROLLBACK = 6          # 成品回退
     MANUAL_ADJUST = 7     # 手动调整
     STORAGE_OUT_EXCHANGE = 8  # 出库(换货)
+    STORAGE_OUT_SCRAP = 9     # 出库(报废)
     
     STORAGE_CHOICES = (
         (STORAGE_IN, '入库'),
@@ -108,6 +109,7 @@ class WarehouseLog(models.Model):
         (ROLLBACK, '成品回退'),
         (MANUAL_ADJUST, '手动调整'),
         (STORAGE_OUT_EXCHANGE, '出库(换货)'),
+        (STORAGE_OUT_SCRAP, '出库(报废)'),
     )
     
     # 操作来源模块

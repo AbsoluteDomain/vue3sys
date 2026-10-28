@@ -1514,6 +1514,8 @@ const INVENTORY_IN = 1
 
 const INVENTORY_CONSUME = 4
 
+const INVENTORY_OUT_SCRAP = 5
+
 const INVENTORY_OUT_EXCHANGE = 6
 
 // 记录关节变为组件消耗前的库存状态
@@ -1557,29 +1559,39 @@ const isStockOptionDisabled = (value) => {
   if (isJointWithParent.value && numValue !== INVENTORY_CONSUME) {
     return true
   }
-  // 未入库的成品(0)不能直接出库(2/3/6)
+  // 未入库的成品(0)不能直接出库(2/3/5/6)
   if (
     Number(originalInventoryStock.value) === 0 &&
-    (numValue === 2 || numValue === 3 || numValue === INVENTORY_OUT_EXCHANGE)
+    (numValue === 2 ||
+      numValue === 3 ||
+      numValue === INVENTORY_OUT_SCRAP ||
+      numValue === INVENTORY_OUT_EXCHANGE)
   ) {
     return true
   }
   return false
 }
 
-// 入库/出库状态(1/2/3/6)需要强制测试合格
+// 入库/出库状态(1/2/3/5/6)需要强制测试合格
 const requiresPassStatus = computed(
   () =>
     formData.inventory_stock === 1 ||
     formData.inventory_stock === 2 ||
     formData.inventory_stock === 3 ||
+    formData.inventory_stock === INVENTORY_OUT_SCRAP ||
     formData.inventory_stock === INVENTORY_OUT_EXCHANGE
 )
 
 watch(
   () => formData.inventory_stock,
   (val) => {
-    if (val === 1 || val === 2 || val === 3 || val === INVENTORY_OUT_EXCHANGE) {
+    if (
+      val === 1 ||
+      val === 2 ||
+      val === 3 ||
+      val === INVENTORY_OUT_SCRAP ||
+      val === INVENTORY_OUT_EXCHANGE
+    ) {
       formData.status = STATUS_PASS
     }
   }
