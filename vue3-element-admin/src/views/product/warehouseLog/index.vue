@@ -81,7 +81,7 @@
         <el-form-item label="状态">
           <DictSelect
             v-model="queryParams.storage_status"
-            code="storage_status"
+            code="warehouse_log_type"
             placeholder="全部"
             style="width: 140px"
             @change="handleSearch"
@@ -152,7 +152,7 @@
         </el-table-column>
         <el-table-column prop="storage_status" label="状态" width="120" align="center">
           <template #default="{ row }">
-            <DictTag :code="'storage_status'" :model-value="row.storage_status" size="small" />
+            <DictTag :code="'warehouse_log_type'" :model-value="row.storage_status" size="small" />
           </template>
         </el-table-column>
         <el-table-column prop="count" label="数量" width="80" align="center" />
@@ -318,7 +318,7 @@ const resolveDictLabel = (code, value) => {
 }
 
 const getExportCellValue = (row, key) => {
-  if (key === 'storage_status') return resolveDictLabel('storage_status', row.storage_status)
+  if (key === 'storage_status') return resolveDictLabel('warehouse_log_type', row.storage_status)
   if (key === '_merged_description') return row.user_description || row.product_description || ''
   return row[key] ?? ''
 }
@@ -403,7 +403,7 @@ const handleExportExcel = async () => {
 }
 
 onMounted(() => {
-  dictStore.loadDictItems('storage_status')
+  dictStore.loadDictItems('warehouse_log_type')
   getList()
 })
 </script>

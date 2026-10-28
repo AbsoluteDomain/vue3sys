@@ -11,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from apps.product.boms.models import AssemblyRecipe, BomList
+from apps.product.test_records.services import create_test_record_from_product
 from apps.product.utils.warehouse_logger import create_warehouse_log, log_inventory_operation
 
 logger = logging.getLogger(__name__)
@@ -1330,6 +1331,7 @@ def update_finish_product(request):
 
         old_inventory_stock = item.inventory_stock
         old_parent_sn_code = item.parent_sn_code
+        old_status = item.status
 
         logger.info(
             "[解除绑定-开始] finish_product_id=%s, sn_code=%s, old_inventory_stock=%s, old_parent_sn_code=%s, body=%s",
@@ -1598,6 +1600,32 @@ def update_finish_product(request):
             item.editor_id, item.editor_name = operator[0], operator[1] or ""
         item.update_time = timezone.now()
         item.save()
+
+        # 测试状态变更为「测试合格」/「测试不良」时，写入一条测试记录
+        if old_status != item.status and item.status in (
+            FinishProduct.STATUS_PASS,
+            FinishProduct.STATUS_FAIL,
+        ):
+            try:
+                raw_values = body.get("unqualified_values")
+                if isinstance(raw_values, list):
+                    unqualified_values = ",".join(
+                        str(value).strip()
+                        for value in raw_values
+                        if str(value).strip()
+                    )
+                else:
+                    unqualified_values = str(raw_values or "").strip()
+                create_test_record_from_product(
+                    item,
+                    item.status,
+                    unqualified_values=unqualified_values,
+                    test_desc=str(body.get("test_desc") or "").strip(),
+                )
+            except Exception:
+                logger.exception(
+                    "[测试记录] 写入失败 finish_product_id=%s", item.id
+                )
 
         after_data = _serialize_finish_product(item)
         _log_finish_product_operation(

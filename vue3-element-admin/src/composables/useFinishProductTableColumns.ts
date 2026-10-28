@@ -46,6 +46,39 @@ export const bomStockColumnOptions: FinishProductColumnOption[] = [
   { key: "outDevCount", label: "出库(研发)", defaultVisible: true },
 ];
 
+/** 返修管理列表存储 key 与列定义 */
+export const REPAIR_COLUMN_STORAGE_KEY = "repair-table-columns";
+export const repairColumnOptions: FinishProductColumnOption[] = [
+  { key: "sn_code", label: "SN码", defaultVisible: true },
+  { key: "product_model", label: "产品型号", defaultVisible: true },
+  { key: "bom_name", label: "BOM名称", defaultVisible: true },
+  { key: "repair_cnt", label: "返修次数", defaultVisible: true },
+  { key: "unqualified_labels_1", label: "不良项1", defaultVisible: true },
+  { key: "repair_desc_1", label: "描述1", defaultVisible: true },
+  { key: "unqualified_labels_2", label: "不良项2", defaultVisible: true },
+  { key: "repair_desc_2", label: "描述2", defaultVisible: true },
+  { key: "repair_status", label: "返修状态", defaultVisible: true },
+  { key: "create_time", label: "创建时间", defaultVisible: true },
+  { key: "last_repair_time", label: "最后返修时间", defaultVisible: true },
+];
+
+/** 测试记录表存储 key 与列定义 */
+export const TEST_RECORD_COLUMN_STORAGE_KEY = "test-record-table-columns";
+export const testRecordColumnOptions: FinishProductColumnOption[] = [
+  { key: "sn_code", label: "SN码", defaultVisible: true },
+  { key: "product_model", label: "产品型号", defaultVisible: true },
+  { key: "bom_name", label: "BOM名称", defaultVisible: true },
+  { key: "test_cnt", label: "测试次数", defaultVisible: true },
+  { key: "unqualified_labels_1", label: "不良项1", defaultVisible: true },
+  { key: "test_desc_1", label: "描述1", defaultVisible: true },
+  { key: "test_status_1", label: "测试状态1", defaultVisible: true },
+  { key: "unqualified_labels_2", label: "不良项2", defaultVisible: true },
+  { key: "test_desc_2", label: "描述2", defaultVisible: true },
+  { key: "test_status_2", label: "测试状态2", defaultVisible: true },
+  { key: "create_time", label: "创建时间", defaultVisible: true },
+  { key: "last_test_time", label: "最后测试时间", defaultVisible: true },
+];
+
 const getDefaultVisibleColumns = (options: FinishProductColumnOption[]) =>
   Object.fromEntries(options.map((col) => [col.key, col.defaultVisible]));
 

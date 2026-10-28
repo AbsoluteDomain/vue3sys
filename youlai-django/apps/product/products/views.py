@@ -531,7 +531,7 @@ def warehouse_log_list(request):
     if storage_status:
         try:
             storage_status_int = int(storage_status)
-            if storage_status_int in (1, 2, 3):
+            if storage_status_int in dict(WarehouseLog.STORAGE_CHOICES):
                 qs = qs.filter(storage_status=storage_status_int)
         except (TypeError, ValueError):
             pass

@@ -92,6 +92,12 @@ export const constantRoutes: RouteRecordRaw[] = [
         meta: { title: "返修管理" },
       },
       {
+        path: "testRecord",
+        name: "testRecord",
+        component: () => import("@/views/product/testRecord/index.vue"),
+        meta: { title: "测试记录表" },
+      },
+      {
         path: "warehouseLog",
         name: "warehouseLog",
         component: () => import("@/views/product/warehouseLog/index.vue"),

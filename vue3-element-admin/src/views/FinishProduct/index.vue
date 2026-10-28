@@ -639,14 +639,14 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="返修内容">
+        <el-form-item label="返修描述">
           <el-input
-            v-model="repairFormData.repair_info"
+            v-model="repairFormData.repair_desc"
             type="textarea"
             :rows="4"
             maxlength="500"
             show-word-limit
-            placeholder="请输入返修内容描述"
+            placeholder="选填，请输入返修描述"
           />
         </el-form-item>
       </el-form>
@@ -1354,7 +1354,7 @@ const assembleDialogRef = ref(null)
 const repairDialogVisible = ref(false)
 const repairSubmitting = ref(false)
 const repairFormData = reactive({
-  repair_info: '',
+  repair_desc: '',
   unqualified_values: []
 })
 const repairUnqualifiedOptions = ref([])
@@ -1908,8 +1908,11 @@ const handleViewUnqualified = async (row) => {
 const handleUnqualifiedSelectConfirm = async () => {
   unqualifiedSelectSubmitting.value = true
   try {
-    // 1. 先保存成品
-    await saveProduct()
+    // 1. 先保存成品（同时带上本次测试的不良项与描述，供测试记录快照使用）
+    await saveProduct({
+      unqualified_values: selectedUnqualifiedValues.value,
+      test_desc: unqualifiedRepairInfo.value.trim()
+    })
     // 2. 再保存不合格项
     await saveUnqualifiedItems({
       finish_product_id: formData.id,
@@ -1918,23 +1921,17 @@ const handleUnqualifiedSelectConfirm = async () => {
     })
     // 3. 勾选生成返修单时，同一次提交内创建返修单
     if (formData.status === 3 && unqualifiedGenerateRepair.value) {
-      const options = dictStore.getDictItems('unqualified_status')
-      const selectedLabels = selectedUnqualifiedValues.value.map((value) => {
-        const matched = options.find(item => Number(item.value) === Number(value))
-        return matched ? matched.label : String(value)
-      })
-      let repairInfo = unqualifiedRepairInfo.value.trim()
-      if (selectedLabels.length > 0) {
-        const prefix = `不良项：${selectedLabels.join('、')}`
-        repairInfo = repairInfo ? `${prefix}\n${repairInfo}` : prefix
-      }
-      if (!repairInfo) {
-        repairInfo = '测试不良返修'
+      const selectedValues = selectedUnqualifiedValues.value || []
+      let repairDesc = unqualifiedRepairInfo.value.trim()
+      // 不良项与描述都为空时，使用兜底描述
+      if (!selectedValues.length && !repairDesc) {
+        repairDesc = '测试不良返修'
       }
       try {
         await createRepair({
           product_id: formData.id,
-          repair_info: repairInfo,
+          unqualified_values: selectedValues.join(','),
+          repair_desc: repairDesc,
         })
         ElMessage.success('保存成功，返修单已生成')
       } catch (repairError) {
@@ -2053,7 +2050,7 @@ const handleEdit = (row) => {
   dialogVisible.value = true
 }
 
-const saveProduct = () => {
+const saveProduct = (extra = {}) => {
   submitting.value = true
   return updateFinishProduct({
     id: formData.id,
@@ -2066,7 +2063,8 @@ const saveProduct = () => {
     create_time: formData.create_time || null,
     test_time: formData.test_time || null,
     stock_in_time: formData.stock_in_time || null,
-    stock_out_time: formData.stock_out_time || null
+    stock_out_time: formData.stock_out_time || null,
+    ...extra
   })
 }
 
@@ -2100,6 +2098,22 @@ const handleSubmit = () => {
       return
     }
 
+    // 返修品 + 测试合格：无需生成返修单，改为二次确认是否保存
+    if (formData.repair === 1 && Number(formData.status) === STATUS_PASS) {
+      ElMessageBox.confirm(
+        '当前产品为「返修品」且「测试合格」，确认保存修改吗？',
+        '保存确认',
+        {
+          type: 'warning',
+          confirmButtonText: '保存',
+          cancelButtonText: '取消',
+        }
+      )
+        .then(() => doSaveProduct())
+        .catch(() => {})
+      return
+    }
+
     if (formData.repair === 1) {
       repairConfirmTip.value = '当前产品已标记为「返修品」，是否同时生成返修单？'
       repairConfirmVisible.value = true
@@ -2125,7 +2139,7 @@ const doSaveProduct = () => {
 
 const handleRepairConfirmGenerate = async () => {
   repairConfirmVisible.value = false
-  repairFormData.repair_info = ''
+  repairFormData.repair_desc = ''
   repairFormData.unqualified_values = []
 
   // 加载字典项
@@ -2168,17 +2182,11 @@ const handleRepairConfirmCancel = () => {
 }
 
 const handleRepairSubmit = () => {
-  // 构建返修内容：将选中的不良项标签拼接到返修内容中
-  const selectedLabels = repairUnqualifiedOptions.value
-    .filter(opt => repairFormData.unqualified_values.includes(opt.value))
-    .map(opt => opt.label)
-  let finalRepairInfo = repairFormData.repair_info.trim()
-  if (selectedLabels.length > 0) {
-    const prefix = `不良项：${selectedLabels.join('、')}`
-    finalRepairInfo = finalRepairInfo ? `${prefix}\n${finalRepairInfo}` : prefix
-  }
+  // 不良项与返修描述分开提交，后端负责拼接兼容展示
+  const selectedValues = repairFormData.unqualified_values || []
+  const repairDesc = repairFormData.repair_desc.trim()
 
-  if (!finalRepairInfo) {
+  if (!selectedValues.length && !repairDesc) {
     ElMessage.warning('请填写返修内容或选择不良项')
     return
   }
@@ -2187,7 +2195,8 @@ const handleRepairSubmit = () => {
     .then(() => {
       return createRepair({
         product_id: formData.id,
-        repair_info: finalRepairInfo
+        unqualified_values: selectedValues.join(','),
+        repair_desc: repairDesc
       })
     })
     .then(() => {

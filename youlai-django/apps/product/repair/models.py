@@ -21,6 +21,19 @@ class Repair(models.Model):
     )
     repair_cnt = models.IntegerField(default=1, verbose_name="返修次数")
     repair_info = models.TextField(verbose_name="返修内容")
+    unqualified_values = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="不良项值",
+        help_text="创建返修记录时从字典 unqualified_status 同步的字典值快照，逗号分隔",
+    )
+    repair_desc = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="返修描述",
+        help_text="用户在返修单中填写的补充描述",
+    )
     repair_status = models.IntegerField(
         default=STATUS_PENDING,
         choices=STATUS_CHOICES,

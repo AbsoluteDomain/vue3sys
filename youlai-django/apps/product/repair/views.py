@@ -38,6 +38,113 @@ def _get_repair_status_label(value):
     return dict(Repair.STATUS_CHOICES).get(value, str(value))
 
 
+def _get_unqualified_label(value):
+    """根据字典 unqualified_status 获取不良项文本，字典缺失时回退原值"""
+    try:
+        item = DictionaryItem.objects.filter(
+            dict_code="unqualified_status", status=1, value=str(value)
+        ).first()
+        if item:
+            return item.label
+    except Exception:
+        pass
+    return str(value)
+
+
+def _normalize_unqualified_values(raw):
+    """把列表或逗号分隔字符串统一成去重后的逗号分隔字符串"""
+    if isinstance(raw, (list, tuple)):
+        items = [str(item).strip() for item in raw]
+    else:
+        items = [item.strip() for item in str(raw or "").split(",")]
+    result = []
+    for item in items:
+        if item and item not in result:
+            result.append(item)
+    return ",".join(result)
+
+
+def _get_unqualified_label_map():
+    """一次性读取不良项字典，避免列表逐条查询数据库"""
+    return {
+        str(item.value): item.label
+        for item in DictionaryItem.objects.filter(
+            dict_code="unqualified_status", status=1
+        )
+    }
+
+
+def _get_unqualified_labels(values, label_map=None):
+    """把逗号分隔的字典值转换成中文标签，多个标签用顿号连接"""
+    if label_map is None:
+        label_map = _get_unqualified_label_map()
+    labels = [
+        label_map.get(str(value).strip(), str(value).strip())
+        for value in (values or "").split(",")
+        if value.strip()
+    ]
+    return "、".join(labels)
+
+
+def _compose_repair_info(unqualified_values, repair_desc, label_map=None):
+    """按「不良项：xxx + 描述」的旧格式拼接返修内容，兼容历史展示"""
+    parts = []
+    labels = _get_unqualified_labels(unqualified_values, label_map)
+    if labels:
+        parts.append(f"不良项：{labels}")
+    desc = (repair_desc or "").strip()
+    if desc:
+        parts.append(desc)
+    return "\n".join(parts)
+
+
+def _split_legacy_repair_info(text):
+    """解析未拆分的旧返修内容：首行「不良项：xxx」，其余为描述"""
+    text = (text or "").strip()
+    first_line, _, rest = text.partition("\n")
+    if first_line.startswith("不良项："):
+        return first_line[len("不良项："):].strip(), rest.strip()
+    return "", text
+
+
+def _build_repair_display(record, label_map=None):
+    """统一返回拆分后的不良项与描述，未回填的历史数据按旧格式兜底解析"""
+    values = record.unqualified_values or ""
+    desc = record.repair_desc or ""
+    if values or desc:
+        return {
+            "unqualified_values": values,
+            "unqualified_labels": _get_unqualified_labels(values, label_map),
+            "repair_desc": desc,
+            "repair_info": _compose_repair_info(values, desc, label_map),
+        }
+    labels, legacy_desc = _split_legacy_repair_info(record.repair_info)
+    return {
+        "unqualified_values": "",
+        "unqualified_labels": labels,
+        "repair_desc": legacy_desc,
+        "repair_info": record.repair_info or "",
+    }
+
+
+# 返修列表可排序字段及类型（排序作用于聚合后的结果，先排序再分页）
+REPAIR_SORT_FIELDS = {
+    "sn_code": "text",
+    "product_model": "text",
+    "bom_name": "text",
+    "repair_cnt": "number",
+    "unqualified_labels": "text",
+    "repair_desc": "text",
+    "unqualified_labels_1": "text",
+    "repair_desc_1": "text",
+    "unqualified_labels_2": "text",
+    "repair_desc_2": "text",
+    "repair_status": "number",
+    "create_time": "text",
+    "last_repair_time": "text",
+}
+
+
 @csrf_exempt
 @require_http_methods(["GET"])
 def list_repair_products(request):
@@ -48,6 +155,13 @@ def list_repair_products(request):
         bom_name = (request.GET.get("bom_name") or "").strip()
         start_date = _parse_date_param(request.GET.get("start_date") or request.GET.get("startDate"))
         end_date = _parse_date_param(request.GET.get("end_date") or request.GET.get("endDate"))
+        # 创建时间筛选：作用于聚合后每行的创建时间（该SN首次返修创建时间）
+        create_start_date = _parse_date_param(
+            request.GET.get("create_start_date") or request.GET.get("createStartDate")
+        )
+        create_end_date = _parse_date_param(
+            request.GET.get("create_end_date") or request.GET.get("createEndDate")
+        )
         # 分页参数
         try:
             page = int(request.GET.get("page") or 1)
@@ -61,6 +175,9 @@ def list_repair_products(request):
             page = 1
         if page_size < 1:
             page_size = 10
+        # 排序参数：sort_field 限定白名单，sort_order 支持 asc/desc
+        sort_field = (request.GET.get("sort_field") or "").strip()
+        sort_order = (request.GET.get("sort_order") or "").strip().lower()
 
         repair_qs = Repair.objects.filter(is_del=0)
         # 时间筛选（含首尾日全天），在分组聚合前过滤
@@ -98,6 +215,7 @@ def list_repair_products(request):
                 for bom in BomList.objects.filter(id__in=bom_ids, is_del=0)
             }
 
+        unqualified_label_map = _get_unqualified_label_map()
         sn_map = {}
         for record in repair_records:
             # 复合 key：product_id + sn_code，避免不同产品空 SN 码被合并
@@ -119,6 +237,13 @@ def list_repair_products(request):
                     "repair_cnt": 0,
                     "create_time": "",
                     "last_repair_time": "",
+                    # 记录列表按创建时间倒序，首条即最近一次返修的不良项与描述
+                    **_build_repair_display(record, unqualified_label_map),
+                    # 第一次/第二次返修信息，第三次及以后需进入详情查看
+                    "unqualified_labels_1": "",
+                    "repair_desc_1": "",
+                    "unqualified_labels_2": "",
+                    "repair_desc_2": "",
                     # 记录列表按创建时间倒序，首条即最近一次返修的状态
                     "repair_status": record.repair_status,
                     "repair_status_name": _get_repair_status_label(record.repair_status),
@@ -130,6 +255,12 @@ def list_repair_products(request):
                 sn_map[group_key]["repair_status_name"] = _get_repair_status_label(
                     Repair.STATUS_PENDING
                 )
+            # 按返修次序填充第 1、2 次返修的不良项与描述
+            if record.repair_cnt in (1, 2):
+                display = _build_repair_display(record, unqualified_label_map)
+                suffix = str(record.repair_cnt)
+                sn_map[group_key][f"unqualified_labels_{suffix}"] = display["unqualified_labels"]
+                sn_map[group_key][f"repair_desc_{suffix}"] = display["repair_desc"]
             # ORM 读出的时间字段是 UTC aware datetime，必须转北京时间，
             # 直接 strftime 会少 8 小时
             create_time_str = format_local_datetime(record.create_time) or ""
@@ -146,7 +277,14 @@ def list_repair_products(request):
                 sn_map[group_key]["last_repair_time"] = update_time_str
 
         result = list(sn_map.values())
-        result.sort(key=lambda x: x["last_repair_time"], reverse=True)
+        if sort_field in REPAIR_SORT_FIELDS:
+            reverse = sort_order == "desc"
+            if REPAIR_SORT_FIELDS[sort_field] == "number":
+                result.sort(key=lambda item: item.get(sort_field) or 0, reverse=reverse)
+            else:
+                result.sort(key=lambda item: item.get(sort_field) or "", reverse=reverse)
+        else:
+            result.sort(key=lambda item: item["last_repair_time"], reverse=True)
 
         # 搜索过滤（在聚合后做，保证分组计数不受搜索影响）
         if sn_code:
@@ -155,6 +293,22 @@ def list_repair_products(request):
             result = [r for r in result if product_model in (r.get("product_model") or "")]
         if bom_name:
             result = [r for r in result if bom_name in (r.get("bom_name") or "")]
+        # 创建时间筛选：按聚合行展示的创建时间过滤
+        if create_start_date or create_end_date:
+            create_start_str = create_start_date.isoformat() if create_start_date else ""
+            create_end_str = create_end_date.isoformat() if create_end_date else ""
+
+            def _created_in_range(value):
+                date_str = (value or "")[:10]
+                if not date_str:
+                    return False
+                if create_start_str and date_str < create_start_str:
+                    return False
+                if create_end_str and date_str > create_end_str:
+                    return False
+                return True
+
+            result = [r for r in result if _created_in_range(r.get("create_time"))]
 
         total = len(result)
         start = (page - 1) * page_size
@@ -184,11 +338,12 @@ def get_product_repair_history(request):
         ).order_by("repair_cnt")
         
         result = []
+        unqualified_label_map = _get_unqualified_label_map()
         for repair in repairs:
             result.append({
                 "id": repair.id,
                 "repair_cnt": repair.repair_cnt,
-                "repair_info": repair.repair_info,
+                **_build_repair_display(repair, unqualified_label_map),
                 "repair_status": repair.repair_status,
                 "repair_status_name": _get_repair_status_label(repair.repair_status),
                 "create_time": format_local_datetime(repair.create_time) or "",
@@ -205,12 +360,15 @@ def create_repair(request):
     try:
         body = json.loads(request.body or "{}")
         product_id = body.get("product_id")
-        repair_info = body.get("repair_info")
-        
+        # 新格式：不良项字典值 + 返修描述分开接收；repair_info 仅作为旧调用方式的兜底
+        unqualified_values = _normalize_unqualified_values(body.get("unqualified_values"))
+        repair_desc = str(body.get("repair_desc") or "").strip()
+        legacy_info = str(body.get("repair_info") or "").strip()
+
         if not product_id:
             return JsonResponse({"code": "400", "msg": "请选择成品"})
-        if not repair_info or str(repair_info).strip() == "":
-            return JsonResponse({"code": "400", "msg": "请输入返修内容"})
+        if not unqualified_values and not repair_desc and not legacy_info:
+            return JsonResponse({"code": "400", "msg": "请输入返修内容或选择不良项"})
         
         try:
             product = FinishProduct.objects.get(id=int(product_id))
@@ -241,7 +399,9 @@ def create_repair(request):
             sn_code=sn_code,
             product_model=product_model,
             repair_cnt=max_repair_cnt + 1,
-            repair_info=repair_info.strip(),
+            repair_info=_compose_repair_info(unqualified_values, repair_desc) or legacy_info,
+            unqualified_values=unqualified_values,
+            repair_desc=repair_desc,
             repair_status=Repair.STATUS_PENDING,
         )
         

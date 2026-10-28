@@ -99,7 +99,12 @@ export function getProductRepairHistory(params: { product_id: number }) {
   })
 }
 
-export function createRepair(data: { product_id: number; repair_info: string }) {
+export function createRepair(data: {
+  product_id: number
+  unqualified_values?: string
+  repair_desc?: string
+  repair_info?: string
+}) {
   return request({
     url: '/api/v1/repair/create/',
     method: 'post',
@@ -120,6 +125,22 @@ export function deleteRepair(data: { id: number }) {
     url: '/api/v1/repair/delete/',
     method: 'post',
     data
+  })
+}
+
+export function listTestRecords(params?: any) {
+  return request({
+    url: '/api/v1/test-record/list/',
+    method: 'get',
+    params
+  })
+}
+
+export function getTestRecordHistory(params: { product_id: number; sn_code?: string }) {
+  return request({
+    url: '/api/v1/test-record/history/',
+    method: 'get',
+    params
   })
 }
 

@@ -41,6 +41,17 @@
               style="width: 260px"
             />
           </el-form-item>
+          <el-form-item label="创建时间">
+            <el-date-picker
+              v-model="queryParams.createDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              value-format="YYYY-MM-DD"
+              style="width: 260px"
+            />
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="handleSearch">搜索</el-button>
             <el-button @click="resetSearch">重置</el-button>
@@ -50,6 +61,11 @@
     </el-card>
 
     <el-card shadow="never" class="data-card">
+      <div class="table-toolbar">
+        <el-button @click="openColumnDialog">
+          <el-icon><Setting /></el-icon> 列展示
+        </el-button>
+      </div>
       <el-table 
         :data="tableData" 
         border 
@@ -57,21 +73,99 @@
         style="width: 100%" 
         v-loading="loading"
         @row-click="handleViewDetail"
+        @sort-change="handleSortChange"
+        :default-sort="{ prop: 'last_repair_time', order: 'descending' }"
         highlight-current-row
       >
-        <el-table-column prop="sn_code" label="SN码" min-width="150" />
-        <el-table-column prop="product_model" label="产品型号" min-width="160" />
-        <el-table-column prop="bom_name" label="BOM名称" min-width="180" />
-        <el-table-column prop="repair_cnt" label="返修次数" width="100" align="center" />
-        <el-table-column label="返修状态" width="110" align="center">
+        <el-table-column
+          v-if="isColumnVisible('sn_code')"
+          prop="sn_code"
+          label="SN码"
+          min-width="150"
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('product_model')"
+          prop="product_model"
+          label="产品型号"
+          min-width="160"
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('bom_name')"
+          prop="bom_name"
+          label="BOM名称"
+          min-width="180"
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('repair_cnt')"
+          prop="repair_cnt"
+          label="返修次数"
+          width="100"
+          align="center"
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('unqualified_labels_1')"
+          prop="unqualified_labels_1"
+          label="不良项1"
+          min-width="140"
+          show-overflow-tooltip
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('repair_desc_1')"
+          prop="repair_desc_1"
+          label="描述1"
+          min-width="180"
+          show-overflow-tooltip
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('unqualified_labels_2')"
+          prop="unqualified_labels_2"
+          label="不良项2"
+          min-width="140"
+          show-overflow-tooltip
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('repair_desc_2')"
+          prop="repair_desc_2"
+          label="描述2"
+          min-width="180"
+          show-overflow-tooltip
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('repair_status')"
+          prop="repair_status"
+          label="返修状态"
+          width="110"
+          align="center"
+          sortable="custom"
+        >
           <template #default="{ row }">
             <el-tag :type="Number(row.repair_status) === 1 ? 'success' : 'warning'">
               {{ row.repair_status_name || repairStatusLabels[row.repair_status] }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="create_time" label="创建时间" min-width="170" />
-        <el-table-column prop="last_repair_time" label="最后返修时间" min-width="170" />
+        <el-table-column
+          v-if="isColumnVisible('create_time')"
+          prop="create_time"
+          label="创建时间"
+          min-width="170"
+          sortable="custom"
+        />
+        <el-table-column
+          v-if="isColumnVisible('last_repair_time')"
+          prop="last_repair_time"
+          label="最后返修时间"
+          min-width="170"
+          sortable="custom"
+        />
         <el-table-column label="操作" width="100" align="center">
           <template #default="{ row }">
             <el-button size="small" @click.stop="handleViewDetail(row)">查看</el-button>
@@ -103,7 +197,8 @@
       </div>
       <el-table :data="historyData" border stripe style="width: 100%; margin-top: 15px" v-loading="historyLoading">
         <el-table-column prop="repair_cnt" label="第几次返修" width="110" align="center" />
-        <el-table-column prop="repair_info" label="返修内容" min-width="300" />
+        <el-table-column prop="unqualified_labels" label="不良项" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="repair_desc" label="返修描述" min-width="260" show-overflow-tooltip />
         <el-table-column prop="create_time" label="返修时间" min-width="170" />
         <el-table-column label="返修状态" width="180" align="center">
           <template #default="{ row }">
@@ -132,16 +227,47 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <el-dialog v-model="columnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
+      <div class="column-setting-tip">勾选需要在表格中展示的字段（操作列始终显示）</div>
+      <el-checkbox-group v-model="columnDraftKeys" class="column-checkbox-group">
+        <el-checkbox v-for="col in columnOptions" :key="col.key" :label="col.key">
+          {{ col.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="resetColumnDraft">恢复默认</el-button>
+        <el-button @click="columnDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveColumnSettings">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Setting } from '@element-plus/icons-vue'
 import { listRepairProducts, getProductRepairHistory, deleteRepair, updateRepairStatus } from '@/api/product'
+import {
+  useFinishProductTableColumns,
+  repairColumnOptions,
+  REPAIR_COLUMN_STORAGE_KEY,
+} from '@/composables/useFinishProductTableColumns'
 import { useDictStore } from '@/store'
 
 const dictStore = useDictStore()
+
+const {
+  columnOptions,
+  columnDialogVisible,
+  columnDraftKeys,
+  isColumnVisible,
+  loadColumnSettings,
+  openColumnDialog,
+  resetColumnDraft,
+  saveColumnSettings,
+} = useFinishProductTableColumns(REPAIR_COLUMN_STORAGE_KEY, repairColumnOptions)
 
 const loading = ref(false)
 const historyDialogVisible = ref(false)
@@ -157,8 +283,11 @@ const queryParams = reactive({
   product_model: '',
   bom_name: '',
   dateRange: [],
+  createDateRange: [],
   pageNum: 1,
   pageSize: 10,
+  sortField: '',
+  sortOrder: '',
 })
 
 // 返修状态文案：优先取字典管理中的配置，字典缺失时回退默认文案
@@ -171,6 +300,7 @@ const repairStatusLabels = computed(() => {
 })
 
 onMounted(() => {
+  loadColumnSettings()
   dictStore.loadDictItems('repair_status')
   getList()
 })
@@ -179,14 +309,19 @@ async function getList() {
   loading.value = true
   try {
     const [startDate, endDate] = queryParams.dateRange || []
+    const [createStartDate, createEndDate] = queryParams.createDateRange || []
     const res = await listRepairProducts({
       sn_code: queryParams.sn_code,
       product_model: queryParams.product_model,
       bom_name: queryParams.bom_name,
       start_date: startDate || '',
       end_date: endDate || '',
+      create_start_date: createStartDate || '',
+      create_end_date: createEndDate || '',
       page: queryParams.pageNum,
       page_size: queryParams.pageSize,
+      sort_field: queryParams.sortField,
+      sort_order: queryParams.sortOrder,
     })
     tableData.value = res?.list || []
     total.value = res?.total || 0
@@ -198,6 +333,14 @@ async function getList() {
 }
 
 const handleSearch = () => {
+  queryParams.pageNum = 1
+  getList()
+}
+
+// 服务端排序：排序作用于聚合后的全部数据，避免只排当前页
+const handleSortChange = ({ prop, order }) => {
+  queryParams.sortField = prop || ''
+  queryParams.sortOrder = order === 'ascending' ? 'asc' : order === 'descending' ? 'desc' : ''
   queryParams.pageNum = 1
   getList()
 }
@@ -216,6 +359,7 @@ function resetSearch() {
   queryParams.product_model = ''
   queryParams.bom_name = ''
   queryParams.dateRange = []
+  queryParams.createDateRange = []
   handleSearch()
 }
 
@@ -314,6 +458,21 @@ async function handleDelete(row) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.column-setting-tip {
+  margin-bottom: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+.column-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 12px;
 }
 .pagination-container {
   display: flex;

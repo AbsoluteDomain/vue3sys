@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'apps.product.finish_products',
     'apps.product.production_plan',
     'apps.product.repair',
+    'apps.product.test_records',
     'apps.system.operation_logs',
     'apps.system.releases',
     'apps.order',  # 订单管理应用
