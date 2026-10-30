@@ -72,6 +72,50 @@
       </div>
     </el-card>
 
+    <div class="stat-cards">
+      <el-card shadow="never" class="stat-card">
+        <template #header>
+          <div class="stat-header">
+            <span class="stat-header-label">合格数</span>
+            <el-tooltip content="按第一次测试结果统计" placement="top">
+              <el-icon class="stat-tip"><InfoFilled /></el-icon>
+            </el-tooltip>
+          </div>
+        </template>
+        <div class="stat-body">
+          <span class="stat-value stat-success">{{ summary.first_pass_count }}</span>
+          <span class="stat-unit">件</span>
+        </div>
+      </el-card>
+      <el-card shadow="never" class="stat-card">
+        <template #header>
+          <div class="stat-header">
+            <span class="stat-header-label">不良数</span>
+            <el-tooltip content="按第一次测试结果统计" placement="top">
+              <el-icon class="stat-tip"><InfoFilled /></el-icon>
+            </el-tooltip>
+          </div>
+        </template>
+        <div class="stat-body">
+          <span class="stat-value stat-danger">{{ summary.first_fail_count }}</span>
+          <span class="stat-unit">件</span>
+        </div>
+      </el-card>
+      <el-card shadow="never" class="stat-card">
+        <template #header>
+          <div class="stat-header">
+            <span class="stat-header-label">合格率</span>
+            <el-tooltip content="首测合格数 / 当前筛选结果总数" placement="top">
+              <el-icon class="stat-tip"><InfoFilled /></el-icon>
+            </el-tooltip>
+          </div>
+        </template>
+        <div class="stat-body">
+          <span class="stat-value">{{ passRateText }}</span>
+        </div>
+      </el-card>
+    </div>
+
     <el-card shadow="never" class="data-card">
       <div class="table-toolbar">
         <el-button @click="openColumnDialog">
@@ -283,9 +327,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting } from '@element-plus/icons-vue'
+import { Setting, InfoFilled } from '@element-plus/icons-vue'
 import { listTestRecords, getTestRecordHistory } from '@/api/product'
 import {
   useFinishProductTableColumns,
@@ -318,6 +362,13 @@ const bomTypeTagType = (value) => {
 const loading = ref(false)
 const tableData = ref([])
 const total = ref(0)
+const summary = ref({
+  total: 0,
+  first_pass_count: 0,
+  first_fail_count: 0,
+  pass_rate: 0,
+})
+const passRateText = computed(() => `${summary.value.pass_rate ?? 0}%`)
 const historyDialogVisible = ref(false)
 const historyLoading = ref(false)
 const historyData = ref([])
@@ -360,6 +411,12 @@ async function getList() {
     })
     tableData.value = res?.list || []
     total.value = res?.total || 0
+    summary.value = res?.summary || {
+      total: 0,
+      first_pass_count: 0,
+      first_fail_count: 0,
+      pass_rate: 0,
+    }
   } catch (error) {
     ElMessage.error('加载失败: ' + error.message)
   } finally {
@@ -426,6 +483,65 @@ async function handleViewDetail(row) {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
+}
+.stat-cards {
+  display: flex;
+  align-items: stretch;
+  gap: 15px;
+  flex-wrap: wrap;
+  padding: 15px;
+}
+.stat-card {
+  width: 180px;
+  flex: 0 0 auto;
+}
+.stat-card :deep(.el-card__header) {
+  padding: 8px 10px;
+}
+.stat-card :deep(.el-card__body) {
+  padding: 10px 12px;
+}
+.stat-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.stat-header-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.stat-tip {
+  cursor: pointer;
+  color: var(--el-text-color-placeholder);
+  flex-shrink: 0;
+}
+.stat-body {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--el-text-color-primary);
+}
+.stat-unit {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.stat-success {
+  color: var(--el-color-success);
+}
+.stat-danger {
+  color: var(--el-color-danger);
 }
 .column-setting-tip {
   margin-bottom: 12px;

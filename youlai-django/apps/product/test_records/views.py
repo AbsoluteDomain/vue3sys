@@ -116,7 +116,16 @@ def list_test_records(request):
             return JsonResponse({
                 "code": "00000",
                 "msg": "成功",
-                "data": {"list": [], "total": 0},
+                "data": {
+                    "list": [],
+                    "total": 0,
+                    "summary": {
+                        "total": 0,
+                        "first_pass_count": 0,
+                        "first_fail_count": 0,
+                        "pass_rate": 0,
+                    },
+                },
             })
 
         product_ids = {r.product_id for r in records}
@@ -225,13 +234,28 @@ def list_test_records(request):
             row.pop("_statuses", None)
 
         total = len(result)
+        # 首测统计：合格数、不良数、合格率均按第一次测试结果计算
+        first_pass_count = sum(1 for row in result if row.get("test_status_1") == 2)
+        first_fail_count = sum(1 for row in result if row.get("test_status_1") == 3)
+        pass_rate = (
+            round(first_pass_count / total * 100, 2) if total else 0
+        )
         start = (page - 1) * page_size
         end = start + page_size
 
         return JsonResponse({
             "code": "00000",
             "msg": "成功",
-            "data": {"list": result[start:end], "total": total},
+            "data": {
+                "list": result[start:end],
+                "total": total,
+                "summary": {
+                    "total": total,
+                    "first_pass_count": first_pass_count,
+                    "first_fail_count": first_fail_count,
+                    "pass_rate": pass_rate,
+                },
+            },
         })
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"查询失败: {str(e)}"})
