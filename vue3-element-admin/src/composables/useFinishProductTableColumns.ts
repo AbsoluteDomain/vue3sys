@@ -69,6 +69,7 @@ export const TEST_RECORD_COLUMN_STORAGE_KEY = "test-record-table-columns";
 export const testRecordColumnOptions: FinishProductColumnOption[] = [
   { key: "sn_code", label: "SN码", defaultVisible: true },
   { key: "product_model", label: "产品型号", defaultVisible: true },
+  { key: "bom_type", label: "BOM类型", defaultVisible: true },
   { key: "bom_name", label: "BOM名称", defaultVisible: true },
   { key: "test_cnt", label: "测试次数", defaultVisible: true },
   { key: "unqualified_labels_1", label: "不良项1", defaultVisible: true },

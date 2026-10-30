@@ -15,6 +15,7 @@ from .models import TestRecord
 TEST_RECORD_SORT_FIELDS = {
     "sn_code": "text",
     "product_model": "text",
+    "bom_type": "number",
     "bom_name": "text",
     "test_cnt": "number",
     "unqualified_labels_1": "text",
@@ -68,6 +69,7 @@ def list_test_records(request):
     try:
         sn_code = (request.GET.get("sn_code") or "").strip()
         product_model = (request.GET.get("product_model") or "").strip()
+        bom_type = (request.GET.get("bom_type") or "").strip()
         bom_name = (request.GET.get("bom_name") or "").strip()
         test_status_raw = (request.GET.get("test_status") or "").strip()
         test_status = int(test_status_raw) if test_status_raw.isdigit() else None
@@ -143,6 +145,8 @@ def list_test_records(request):
                     "product_id": record.product_id,
                     "sn_code": record.sn_code or "",
                     "product_model": "",
+                    "bom_type": bom.type if bom else None,
+                    "bom_type_name": bom.get_type_display() if bom else "",
                     "bom_name": (bom.bom_name or "") if bom else "",
                     "test_cnt": 0,
                     "create_time": "",
@@ -209,6 +213,8 @@ def list_test_records(request):
 
         if sn_code:
             result = [r for r in result if sn_code in r["sn_code"]]
+        if bom_type in ("0", "1", "2"):
+            result = [r for r in result if str(r.get("bom_type")) == bom_type]
         if product_model:
             result = [r for r in result if product_model in r["product_model"]]
         if bom_name:

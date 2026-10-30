@@ -21,6 +21,18 @@
               @keyup.enter="handleSearch"
             />
           </el-form-item>
+          <el-form-item label="BOM类型">
+            <el-select
+              v-model="queryParams.bom_type"
+              placeholder="全部"
+              clearable
+              style="width: 120px"
+            >
+              <el-option label="关节" value="0" />
+              <el-option label="机械臂" value="1" />
+              <el-option label="其他" value="2" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="BOM名称">
             <el-input
               v-model="queryParams.bom_name"
@@ -78,6 +90,13 @@
         highlight-current-row
       >
         <el-table-column
+          type="index"
+          label="序号"
+          width="70"
+          align="center"
+          :index="indexMethod"
+        />
+        <el-table-column
           v-if="isColumnVisible('sn_code')"
           prop="sn_code"
           label="SN码"
@@ -91,6 +110,20 @@
           min-width="160"
           sortable="custom"
         />
+        <el-table-column
+          v-if="isColumnVisible('bom_type')"
+          prop="bom_type"
+          label="BOM类型"
+          width="100"
+          align="center"
+          sortable="custom"
+        >
+          <template #default="{ row }">
+            <el-tag :type="bomTypeTagType(row.bom_type)" size="small">
+              {{ row.bom_type_name || '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column
           v-if="isColumnVisible('bom_name')"
           prop="bom_name"
@@ -273,6 +306,15 @@ const {
 
 const testStatusLabels = { 2: '测试合格', 3: '测试不良' }
 
+const indexMethod = (index) =>
+  (queryParams.pageNum - 1) * queryParams.pageSize + index + 1
+
+const bomTypeTagType = (value) => {
+  if (value === 1) return 'primary'
+  if (value === 2) return 'info'
+  return 'success'
+}
+
 const loading = ref(false)
 const tableData = ref([])
 const total = ref(0)
@@ -284,6 +326,7 @@ const currentRow = ref(null)
 const queryParams = reactive({
   sn_code: '',
   product_model: '',
+  bom_type: '',
   bom_name: '',
   test_status: '',
   dateRange: [],
@@ -305,6 +348,7 @@ async function getList() {
     const res = await listTestRecords({
       sn_code: queryParams.sn_code,
       product_model: queryParams.product_model,
+      bom_type: queryParams.bom_type,
       bom_name: queryParams.bom_name,
       test_status: queryParams.test_status,
       start_date: startDate || '',
@@ -347,6 +391,7 @@ const handleCurrentChange = () => {
 function resetSearch() {
   queryParams.sn_code = ''
   queryParams.product_model = ''
+  queryParams.bom_type = ''
   queryParams.bom_name = ''
   queryParams.test_status = ''
   queryParams.dateRange = []
