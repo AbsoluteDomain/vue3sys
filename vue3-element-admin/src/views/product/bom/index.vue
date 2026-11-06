@@ -67,17 +67,17 @@
 
     <el-card shadow="never" class="table-card">
       <div class="toolbar">
-        <el-button type="success" @click="handleAdd">
+        <el-button v-hasPerm="'product:bom:create'" type="success" @click="handleAdd">
           <el-icon><Plus /></el-icon> 新增 BOM
         </el-button>
-        <el-button type="warning" @click="handleAssemble">
-          <el-icon><Box /></el-icon> 组装产品
-        </el-button>
-        <el-button type="primary" plain :loading="exporting" @click="handleExportExcel">
+        <el-button v-hasPerm="'product:bom:update'" type="primary" plain :loading="exporting" @click="handleExportExcel">
           <el-icon><Download /></el-icon> 导出 Excel
         </el-button>
-        <el-button type="primary" plain @click="handleImportExcel">
+        <el-button v-hasPerm="'product:bom:create'" type="primary" plain @click="handleImportExcel">
           <el-icon><Upload /></el-icon> 导入 Excel
+        </el-button>
+        <el-button v-hasPerm="'product:bom:urdf'" type="info" plain @click="handleShowUrdf">
+          <el-icon><View /></el-icon> URDF展示
         </el-button>
       </div>
 
@@ -108,19 +108,16 @@
         <el-table-column prop="recipe_count" label="明细条数" width="100" align="center" />
         <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="handleViewRecipes(row)">
+            <el-button v-hasPerm="'product:bom:detail'" link type="primary" size="small" @click.stop="handleViewRecipes(row)">
               查看明细
             </el-button>
-            <el-button link type="success" size="small" @click.stop="handleExportRow(row)">
+            <el-button v-hasPerm="'product:bom:update'" link type="success" size="small" @click.stop="handleExportRow(row)">
               导出
             </el-button>
-            <el-button link type="warning" size="small" @click.stop="handleAssembleRow(row)">
-              组装
-            </el-button>
-            <el-button link type="primary" size="small" @click.stop="handleEdit(row)">
+            <el-button v-hasPerm="'product:bom:update'" link type="primary" size="small" @click.stop="handleEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
-            <el-button link type="danger" size="small" @click.stop="handleDelete(row)">
+            <el-button v-hasPerm="'product:bom:delete'" link type="danger" size="small" @click.stop="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
@@ -129,8 +126,8 @@
 
       <bom-list-form ref="formRef" @success="getList" />
       <bom-recipe-dialog ref="recipeDialogRef" @edit="handleEdit" />
-      <bom-assemble-dialog ref="assembleDialogRef" @success="getList" />
       <bom-import-dialog ref="importDialogRef" @success="getList" />
+      <urdf-viewer-dialog ref="urdfDialogRef" />
 
       <div class="pagination-container">
         <el-pagination
@@ -150,13 +147,14 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getBomList, getBomExport, getBomDetail, deleteBom } from '@/api/bom'
-import { Search, Refresh, Plus, Edit, Delete, Box, Download, Upload } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, Edit, Delete, Download, Upload, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { hasPerm } from '@/utils/auth'
 // import ProductNav from '../components/ProductNav.vue'
 import BomListForm from './bomInfo/BomListForm.vue'
 import BomRecipeDialog from './bomInfo/BomRecipeDialog.vue'
-import BomAssembleDialog from './bomInfo/BomAssembleDialog.vue'
 import BomImportDialog from './bomInfo/BomImportDialog.vue'
+import UrdfViewerDialog from './bomInfo/UrdfViewerDialog.vue'
 import { exportBomItemsToExcel, exportSingleBomToExcel, formatNowForFileName } from './bomInfo/bomExcel'
 
 const queryParams = reactive({
@@ -185,8 +183,8 @@ const bomTypeTagType = (value) => {
 
 const formRef = ref(null)
 const recipeDialogRef = ref(null)
-const assembleDialogRef = ref(null)
 const importDialogRef = ref(null)
+const urdfDialogRef = ref(null)
 const tableData = ref([])
 const loading = ref(false)
 const exporting = ref(false)
@@ -255,10 +253,11 @@ const handleSortChange = ({ prop, order }) => {
 
 const handleAdd = () => formRef.value?.open()
 const handleEdit = (row) => formRef.value?.open(row)
-const handleAssemble = () => assembleDialogRef.value?.open()
-const handleAssembleRow = (row) => assembleDialogRef.value?.open(row)
 const handleViewRecipes = (row) => recipeDialogRef.value?.open(row)
-const handleRowClick = (row) => recipeDialogRef.value?.open(row)
+const handleRowClick = (row) => {
+  if (!hasPerm('product:bom:detail')) return
+  recipeDialogRef.value?.open(row)
+}
 
 const handleDelete = (row) => {
   ElMessageBox.confirm(`确定删除 BOM「${formatBomRowLabel(row)}」吗？`, '警告', { type: 'warning' })
@@ -303,6 +302,10 @@ const handleExportExcel = async () => {
 
 const handleImportExcel = () => {
   importDialogRef.value?.open()
+}
+
+const handleShowUrdf = () => {
+  urdfDialogRef.value?.open()
 }
 
 onMounted(() => getList())

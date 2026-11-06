@@ -179,13 +179,17 @@
       <div class="table-toolbar">
         <el-checkbox v-model="collapseMode">折叠模式</el-checkbox>
         <div class="toolbar-actions">
-          <el-button type="success" @click="openQuickActionDialog">
+          <el-button
+            v-hasPerm="['product:finish:test-pass', 'product:finish:test-fail', 'product:finish:batch-sn', 'product:finish:add-joint']"
+            type="success"
+            @click="openQuickActionDialog"
+          >
             <el-icon><Operation /></el-icon> 快捷操作
           </el-button>
-          <el-button type="warning" @click="handleAssemble">
+          <el-button v-hasPerm="'product:finish:assemble'" type="warning" @click="handleAssemble">
             <el-icon><Box /></el-icon> 组装产品
           </el-button>
-          <el-button type="info" :loading="exportLoading" @click="handleExportExcel">
+          <el-button v-hasPerm="'product:finish:export'" type="info" :loading="exportLoading" @click="handleExportExcel">
             <el-icon><Download /></el-icon> 导出Excel
           </el-button>
           <el-button @click="openColumnDialog">
@@ -362,16 +366,18 @@
         />
         <el-table-column label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button v-hasPerm="'product:finish:update'" link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="String(row.status) === '3' || String(row.repair) === '1'"
+              v-hasPerm="'product:finish:defect'"
               link type="warning" size="small" @click.stop="handleViewUnqualified(row)"
             >不良详情</el-button>
             <el-button
               v-if="String(row.bom_type) === '1' && row.sn_code"
+              v-hasPerm="'product:finish:bind'"
               link type="success" size="small" @click.stop="handleBindJoints(row)"
             >关节绑定</el-button>
-            <el-button link type="danger" size="small" @click.stop="handleRollback(row)">回退</el-button>
+            <el-button v-hasPerm="'product:finish:rollback'" link type="danger" size="small" @click.stop="handleRollback(row)">回退</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -986,6 +992,7 @@
     >
       <div class="quick-action-buttons">
         <el-button
+          v-hasPerm="'product:finish:test-pass'"
           type="success"
           size="large"
           @click="handleQuickActionSelect('pass')"
@@ -994,6 +1001,7 @@
           测试合格
         </el-button>
         <el-button
+          v-hasPerm="'product:finish:test-fail'"
           type="danger"
           size="large"
           @click="handleQuickActionSelect('fail')"
@@ -1002,6 +1010,7 @@
           测试不良
         </el-button>
         <el-button
+          v-hasPerm="'product:finish:batch-sn'"
           type="primary"
           size="large"
           @click="openBatchBindSnDialog"
@@ -1009,6 +1018,7 @@
           批量绑定SN码
         </el-button>
         <el-button
+          v-hasPerm="'product:finish:add-joint'"
           type="warning"
           size="large"
           @click="openBatchAddJointDialog"

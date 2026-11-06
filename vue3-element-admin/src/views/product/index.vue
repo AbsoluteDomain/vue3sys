@@ -68,7 +68,7 @@
     <!-- 表格区域 -->
     <el-card shadow="never" class="table-card">
       <div class="toolbar">
-        <el-button type="success" @click="handleAdd">
+        <el-button v-hasPerm="'product:stock:create'" type="success" @click="handleAdd">
           <el-icon><Plus /></el-icon> 新增
         </el-button>
         <el-button @click="openColumnDialog">
@@ -185,12 +185,12 @@
           fixed="right"
         >
           <template #default="{ row }">
-            <el-button link type="success" size="small" @click="handleStockIn(row)">入库</el-button>
-            <el-button link type="warning" size="small" @click="handleStockOut(row)">出库</el-button>
-            <el-button link type="primary" size="small" @click="handleEdit(row)">
+            <el-button v-hasPerm="'product:stock:inbound'" link type="success" size="small" @click="handleStockIn(row)">入库</el-button>
+            <el-button v-hasPerm="'product:stock:outbound'" link type="warning" size="small" @click="handleStockOut(row)">出库</el-button>
+            <el-button v-hasPerm="'product:stock:update'" link type="primary" size="small" @click="handleEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">
+            <el-button v-hasPerm="'product:stock:delete'" link type="danger" size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>

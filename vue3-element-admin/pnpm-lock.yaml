@@ -65,6 +65,12 @@ importers:
       sortablejs:
         specifier: ^1.15.7
         version: 1.15.7
+      three:
+        specifier: ^0.187.0
+        version: 0.187.0
+      urdf-loader:
+        specifier: ^0.13.1
+        version: 0.13.1(three@0.187.0)
       vue:
         specifier: ^3.5.30
         version: 3.5.30(typescript@5.9.3)
@@ -3739,6 +3745,9 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  three@0.187.0:
+    resolution: {integrity: sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==}
+
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
 
@@ -3907,6 +3916,11 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  urdf-loader@0.13.1:
+    resolution: {integrity: sha512-bHHoh0Yxrgrw91dPAmVnzKleA8HiVMeHy6xYqOVRw3LuZ2hDOwUiQVCbrzPZckO5S30F1Yym8zLCINN0HfcM3w==}
+    peerDependencies:
+      three: '>=0.152.0'
 
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
@@ -7845,6 +7859,8 @@ snapshots:
       commander: 2.20.3
       source-map-support: 0.5.21
 
+  three@0.187.0: {}
+
   through@2.3.8: {}
 
   tinybench@2.9.0: {}
@@ -8032,6 +8048,10 @@ snapshots:
       browserslist: 4.28.1
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  urdf-loader@0.13.1(three@0.187.0):
+    dependencies:
+      three: 0.187.0
 
   uri-js@4.4.1:
     dependencies:

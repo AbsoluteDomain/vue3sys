@@ -171,7 +171,7 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="savePlan">保存计划</el-button>
+        <el-button v-hasPerm="'production:plan:save'" type="primary" :loading="saving" @click="savePlan">保存计划</el-button>
       </template>
     </el-dialog>
   </div>

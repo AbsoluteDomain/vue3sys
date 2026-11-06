@@ -215,6 +215,7 @@
         <el-table-column label="操作" width="150" align="center">
           <template #default="{ row }">
             <el-button
+              v-hasPerm="'product:repair:save'"
               size="small"
               type="primary"
               :loading="statusSavingId === row.id"
@@ -222,7 +223,7 @@
             >
               保存
             </el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button v-hasPerm="'product:repair:delete'" size="small" type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

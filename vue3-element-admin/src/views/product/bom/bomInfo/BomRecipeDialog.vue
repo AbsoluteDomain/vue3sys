@@ -35,12 +35,12 @@
     </el-table>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="success" plain :disabled="!bomHeader" @click="handleExport">
+        <el-button v-hasPerm="'product:bom:update'" type="success" plain :disabled="!bomHeader" @click="handleExport">
           导出 Excel
         </el-button>
         <div class="dialog-footer-actions">
           <el-button @click="visible = false">关闭</el-button>
-          <el-button type="primary" @click="handleEdit">编辑 BOM</el-button>
+          <el-button v-hasPerm="'product:bom:update'" type="primary" @click="handleEdit">编辑 BOM</el-button>
         </div>
       </div>
     </template>
