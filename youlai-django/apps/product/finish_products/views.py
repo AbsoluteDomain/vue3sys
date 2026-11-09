@@ -20,6 +20,7 @@ from core.datetime import format_local_datetime, local_date_key, local_day_range
 from core.datetime import make_local_aware, parse_local_datetime_text
 
 from apps.system.dicts.models import DictionaryItem
+from apps.system.approval import services as approval_services
 from apps.system.operation_logs.request_user import get_request_operator
 from apps.system.operation_logs.utils import format_finish_product_rollback_description
 
@@ -1244,6 +1245,17 @@ def create_finish_product(request):
         except ValueError as exc:
             return JsonResponse({"code": "400", "msg": str(exc)})
 
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:finish:assemble", "product:finish:add-joint"},
+            target_id=body.get("id"),
+            target_name=sn_code,
+            summary=f"{'成品组装' if body.get('approval_perm') == 'product:finish:assemble' else '添加关节'}：{sn_code}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         create_time = create_time_val or now
         sn_code_time = sn_code_time_val or now
         stock_in_time = (stock_in_time_val or now) if inventory_val == FinishProduct.INVENTORY_IN else None
@@ -1392,6 +1404,22 @@ def update_finish_product(request):
         old_inventory_stock = item.inventory_stock
         old_parent_sn_code = item.parent_sn_code
         old_status = item.status
+
+        approval_perm = body.get("approval_perm") or "product:finish:update"
+        perm_summary = {
+            "product:finish:test-pass": "测试合格",
+            "product:finish:test-fail": "测试不良",
+        }.get(approval_perm, "成品编辑")
+        approval = approval_services.maybe_submit_approval(
+            request,
+            approval_perm,
+            {"product:finish:update", "product:finish:test-pass", "product:finish:test-fail"},
+            target_id=item.id,
+            target_name=item.sn_code or item.name or "",
+            summary=f"{perm_summary}：{item.sn_code or item.name or ''}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
 
         logger.info(
             "[解除绑定-开始] finish_product_id=%s, sn_code=%s, old_inventory_stock=%s, old_parent_sn_code=%s, body=%s",
@@ -1885,6 +1913,17 @@ def rollback_finish_product(request):
                         {"code": "400", "msg": f"该机械臂当前绑定了 {bound_joint_count} 个关节，请先解绑后再回退"}
                     )
 
+            approval = approval_services.maybe_submit_approval(
+                request,
+                body.get("approval_perm"),
+                {"product:finish:rollback"},
+                target_id=item.id,
+                target_name=item.sn_code or item.name or "",
+                summary=f"成品回退：{item.sn_code or item.name or ''}",
+            )
+            if approval:
+                return approval_services.pending_response(approval)
+
             recipes = list(AssemblyRecipe.objects.filter(bom_id=item.bom_id).order_by("id"))
             if not recipes:
                 return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法回退"})
@@ -2187,6 +2226,17 @@ def bind_joints_to_arm(request):
                 return JsonResponse({"code": "400", "msg": "目标不是机械臂类型"})
         except BomList.DoesNotExist:
             return JsonResponse({"code": "400", "msg": "机械臂关联的BOM不存在"})
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:finish:bind"},
+            target_id=arm.id,
+            target_name=arm_sn_code,
+            summary=f"关节绑定：{arm_sn_code} 绑定 {len(joint_ids)} 个关节",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
 
         bound_count = 0
         errors = []

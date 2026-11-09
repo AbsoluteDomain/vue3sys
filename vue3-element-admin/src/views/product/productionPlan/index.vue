@@ -583,12 +583,17 @@ async function savePlan() {
   const validBoms = selectedBoms.value.filter(b => b.quantity > 0)
   
   if (validBoms.length === 0) {
-    await saveProductionPlan({
+    const res = await saveProductionPlan({
       date: formatDate(selectedDate.value),
       boms: [],
       multiplier: multiplier.value,
+      approval_perm: 'production:plan:save',
     })
-    ElMessage.success('已清空该日期的生产计划')
+    if (res?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+    } else {
+      ElMessage.success('已清空该日期的生产计划')
+    }
     dialogVisible.value = false
     await loadPlanDates()
     return
@@ -603,8 +608,11 @@ async function savePlan() {
         quantity: b.quantity,
       })),
       multiplier: multiplier.value,
+      approval_perm: 'production:plan:save',
     })
-    if (res && res.has_shortage) {
+    if (res?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+    } else if (res && res.has_shortage) {
       const shortageNames = (res.shortage_bom_names || []).join('、')
       ElMessage.warning(`保存成功，但库存不足！${shortageNames ? '缺料产品：' + shortageNames : ''}`)
     } else {

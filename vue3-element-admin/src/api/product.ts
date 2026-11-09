@@ -35,7 +35,14 @@ export function deleteProduct(data: any) {
   })
 }
 
-export function adjustProductStock(data: { id: number; type: 'in' | 'out'; quantity: number }) {
+export function adjustProductStock(data: {
+  id: number;
+  type: 'in' | 'out';
+  quantity: number;
+  /** 出入库记录操作类型（字典 warehouse_log_type 值） */
+  storage_status?: number;
+  user_description?: string;
+}) {
   return request({
     url: '/api/v1/product/stock-adjust/',
     method: 'post',

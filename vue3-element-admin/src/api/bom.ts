@@ -61,6 +61,34 @@ export function deleteBom(data: { id: number }) {
   })
 }
 
+/** BOM 附件列表 */
+export function getBomAttachments(params: { bom_id: number }) {
+  return request({
+    url: '/api/v1/bom/attachments/',
+    method: 'get',
+    params
+  })
+}
+
+/** 上传 BOM 附件（multipart：bom_id + file_type + file） */
+export function uploadBomAttachment(formData: FormData) {
+  return request({
+    url: '/api/v1/bom/attachments/upload/',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 删除 BOM 附件 */
+export function deleteBomAttachment(data: { id: number }) {
+  return request({
+    url: '/api/v1/bom/attachments/delete/',
+    method: 'post',
+    data
+  })
+}
+
 export function assembleBom(data: {
   bom_id: number
   quantity: number

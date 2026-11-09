@@ -2,9 +2,11 @@
 
 """
 
+from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path, re_path
+from django.views.static import serve as static_serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 
@@ -31,6 +33,7 @@ urlpatterns = [
     re_path(r"^api/v1/logs/?", include("apps.system.logs.urls")),
     re_path(r"^api/v1/statistics/?", include("apps.system.statistics.urls")),
     re_path(r"^api/v1/operation-logs/?", include("apps.system.operation_logs.urls")),
+    re_path(r"^api/v1/approvals/?", include("apps.system.approval.urls")),
     re_path(r"^api/v1/releases/?", include("apps.system.releases.urls")),
     # 新增的路由
     re_path(r"^api/v1/product/?", include("apps.product.products.urls")),
@@ -41,3 +44,13 @@ urlpatterns = [
     re_path(r"^api/v1/test-record/?", include("apps.product.test_records.urls")),
     re_path(r"^api/v1/order/?", include("apps.order.urls")),
 ]
+
+# 本地磁盘存储模式：对外暴露上传文件访问地址
+if (getattr(settings, "OSS_TYPE", "minio") or "").lower() == "local":
+    urlpatterns += [
+        re_path(
+            r"^storage/(?P<path>.*)$",
+            static_serve,
+            {"document_root": settings.LOCAL_STORAGE_PATH},
+        ),
+    ]

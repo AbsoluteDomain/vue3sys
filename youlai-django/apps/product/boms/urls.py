@@ -11,4 +11,7 @@ urlpatterns = [
     path("update/", views.update_bom, name="update_bom"),
     path("delete/", views.delete_bom, name="delete_bom"),
     path("assemble/", views.assemble_bom, name="assemble_bom"),
+    path("attachments/", views.bom_attachment_list, name="bom_attachment_list"),
+    path("attachments/upload/", views.bom_attachment_upload, name="bom_attachment_upload"),
+    path("attachments/delete/", views.bom_attachment_delete, name="bom_attachment_delete"),
 ]

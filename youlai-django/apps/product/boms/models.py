@@ -162,3 +162,75 @@ class AssemblyRecipe(models.Model):
         return f"recipe#{self.id}"
 
 
+class BomAttachment(models.Model):
+
+    """BOM 附件表 bom_attachment，文件本体存放在 MinIO"""
+
+    TYPE_EXCEL = "excel"
+    TYPE_PDF = "pdf"
+    TYPE_URDF = "urdf"
+
+    TYPE_CHOICES = (
+        (TYPE_EXCEL, "Excel"),
+        (TYPE_PDF, "PDF"),
+        (TYPE_URDF, "URDF"),
+    )
+
+    id = models.AutoField(primary_key=True, verbose_name="主键")
+
+    bom_id = models.IntegerField(db_index=True, verbose_name="BOM ID")
+
+    file_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        db_index=True,
+        verbose_name="文件类型",
+    )
+
+    file_name = models.CharField(max_length=255, verbose_name="原始文件名")
+
+    file_url = models.CharField(max_length=500, verbose_name="访问地址")
+
+    storage_path = models.CharField(
+        max_length=500,
+        verbose_name="对象存储路径",
+        help_text="URDF 压缩包解压后存入口 urdf 文件路径，删除时按所在目录整体清理",
+    )
+
+    file_size = models.BigIntegerField(default=0, verbose_name="文件大小(字节)")
+
+    mime_type = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="MIME类型",
+    )
+
+    uploader_id = models.IntegerField(null=True, blank=True, verbose_name="上传人ID")
+
+    uploader_name = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="上传人姓名",
+    )
+
+    is_del = models.IntegerField(default=0, verbose_name="删除标记")
+
+    created_at = models.DateTimeField(null=True, blank=True, verbose_name="创建时间")
+
+    updated_at = models.DateTimeField(null=True, blank=True, verbose_name="更新时间")
+
+    class Meta:
+
+        db_table = "bom_attachment"
+
+        verbose_name = "BOM附件"
+
+        verbose_name_plural = "BOM附件"
+
+    def __str__(self):
+
+        return f"{self.file_type}:{self.file_name}"
+
+

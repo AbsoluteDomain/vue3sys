@@ -142,15 +142,23 @@ const handleSubmit = () => {
     adjustProductStock({
       id: productId.value,
       type: stockType.value,
-      quantity: formData.quantity
+      quantity: formData.quantity,
+      storage_status: storageStatus,
+      user_description: desc || undefined
     })
-      .then(() => {
-        return createWarehouseLog(warehouseLogData)
-      })
-      .then(() => {
-        ElMessage.success(stockType.value === 'in' ? '入库成功' : '出库成功')
-        emit('success')
-        visible.value = false
+      .then((result) => {
+        // 已启用审批：仅提交审批申请，库存变更待审批通过后由后端执行
+        if (result && result.pending) {
+          ElMessage.success("已提交审批，等待审核")
+          emit("success")
+          visible.value = false
+          return
+        }
+        return createWarehouseLog(warehouseLogData).then(() => {
+          ElMessage.success(stockType.value === 'in' ? '入库成功' : '出库成功')
+          emit('success')
+          visible.value = false
+        })
       })
       .catch(() => {
         ElMessage.error(stockType.value === 'in' ? '入库失败' : '出库失败')

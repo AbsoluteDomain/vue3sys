@@ -150,7 +150,16 @@ const handleImport = async () => {
 
   submitting.value = true
   try {
-    const result = await importBomBatch({ items: previewItems.value })
+    const result = await importBomBatch({
+      items: previewItems.value,
+      approval_perm: 'product:bom:create'
+    })
+    if (result?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+      emit('success')
+      visible.value = false
+      return
+    }
     const successCount = result?.success_count || 0
     const failCount = result?.fail_count || 0
     const msg = failCount

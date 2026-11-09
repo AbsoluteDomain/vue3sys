@@ -11,8 +11,14 @@ from core.datetime import format_local_datetime
 from apps.product.finish_products.models import FinishProduct
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
+from apps.system.approval import services as approval_services
 from apps.system.operation_logs.request_user import get_request_operator
-from .models import AssemblyRecipe, BomList
+from .models import AssemblyRecipe, BomAttachment, BomList
+from .attachment_service import (
+    AttachmentValidationError,
+    delete_bom_attachment,
+    save_bom_attachment,
+)
 
 from apps.system.operation_logs.utils import (
     format_bom_assemble_description,
@@ -604,6 +610,17 @@ def import_bom_batch(request):
         if not isinstance(items, list) or not items:
             return JsonResponse({"code": "400", "msg": "导入数据不能为空"})
 
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:bom:create"},
+            target_id=0,
+            target_name=f"{len(items)} 条BOM",
+            summary=f"批量导入BOM：{len(items)} 条",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         success_count = 0
         fail_list = []
         seen_models = set()
@@ -725,6 +742,17 @@ def create_bom(request):
         if bom_type is None:
             bom_type = BomList.TYPE_JOINT
 
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:bom:create"},
+            target_id=body.get("id"),
+            target_name=bom_model,
+            summary=f"新增BOM：{bom_model}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         with transaction.atomic():
             bom = BomList.objects.create(
                 bom_model=bom_model,
@@ -784,6 +812,17 @@ def update_bom(request):
 
         with transaction.atomic():
             bom = BomList.objects.get(id=int(bom_id), is_del=0)
+
+            approval = approval_services.maybe_submit_approval(
+                request,
+                body.get("approval_perm"),
+                {"product:bom:update"},
+                target_id=bom.id,
+                target_name=bom_model,
+                summary=f"编辑BOM：{bom_model}",
+            )
+            if approval:
+                return approval_services.pending_response(approval)
 
             # 保存修改前的数据
             before_data = _bom_header_snapshot(bom)
@@ -1002,6 +1041,18 @@ def assemble_bom(request):
         )
 
         bom = BomList.objects.get(id=int(bom_id), is_del=0)
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:finish:assemble"},
+            target_id=bom.id,
+            target_name=bom.bom_model or bom.bom_name or "",
+            summary=f"成品组装：{_bom_log_label(bom)} × {assemble_qty}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         recipes = list(AssemblyRecipe.objects.filter(bom_id=bom.id).order_by("id"))
         if deduct_materials and not recipes:
             return JsonResponse({"code": "400", "msg": "该 BOM 暂无零件明细，无法组装"})
@@ -1161,7 +1212,18 @@ def delete_bom(request):
 
         with transaction.atomic():
             bom = BomList.objects.get(id=int(bom_id), is_del=0)
-            
+
+            approval = approval_services.maybe_submit_approval(
+                request,
+                body.get("approval_perm"),
+                {"product:bom:delete"},
+                target_id=bom.id,
+                target_name=_bom_log_label(bom),
+                summary=f"删除BOM：{_bom_log_label(bom)}",
+            )
+            if approval:
+                return approval_services.pending_response(approval)
+
             # 保存删除前的数据
             before_data = _bom_header_snapshot(bom)
             
@@ -1188,3 +1250,92 @@ def delete_bom(request):
         return JsonResponse({"code": "404", "msg": "BOM 不存在"})
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"删除失败: {str(e)}"})
+
+
+def _serialize_attachment(attachment):
+    return {
+        "id": attachment.id,
+        "bom_id": attachment.bom_id,
+        "file_type": attachment.file_type,
+        "file_name": attachment.file_name,
+        "file_url": attachment.file_url,
+        "file_size": attachment.file_size,
+        "mime_type": attachment.mime_type or "",
+        "uploader_id": attachment.uploader_id,
+        "uploader_name": attachment.uploader_name or "",
+        "created_at": _dt_str(attachment.created_at),
+    }
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def bom_attachment_list(request):
+    bom_id = (request.GET.get("bom_id") or request.GET.get("id") or "").strip()
+    if not bom_id:
+        return JsonResponse({"code": "400", "msg": "缺少 BOM ID"})
+    try:
+        bom_id_value = int(bom_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"code": "400", "msg": "BOM ID 格式不正确"})
+
+    attachments = BomAttachment.objects.filter(
+        bom_id=bom_id_value,
+        is_del=0,
+    ).order_by("-id")
+    return JsonResponse(
+        {
+            "code": "00000",
+            "msg": "成功",
+            "data": {"list": [_serialize_attachment(item) for item in attachments]},
+        }
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def bom_attachment_upload(request):
+    bom_id = (request.POST.get("bom_id") or "").strip()
+    file_type = (request.POST.get("file_type") or "").strip()
+    upload_file = request.FILES.get("file")
+
+    creator = get_request_operator(request)
+    creator_id, creator_name = creator if creator else (None, "")
+
+    try:
+        attachment = save_bom_attachment(
+            bom_id=bom_id,
+            file_type=file_type,
+            upload_file=upload_file,
+            uploader_id=creator_id,
+            uploader_name=creator_name,
+        )
+    except AttachmentValidationError as exc:
+        return JsonResponse({"code": "400", "msg": str(exc)})
+    except Exception as exc:
+        return JsonResponse({"code": "500", "msg": f"附件上传失败: {str(exc)}"})
+
+    return JsonResponse(
+        {"code": "00000", "msg": "上传成功", "data": _serialize_attachment(attachment)}
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def bom_attachment_delete(request):
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": "400", "msg": "请求参数格式不正确"})
+
+    attachment_id = body.get("id")
+    if not attachment_id:
+        return JsonResponse({"code": "400", "msg": "缺少附件 ID"})
+
+    try:
+        delete_bom_attachment(attachment_id)
+    except AttachmentValidationError as exc:
+        return JsonResponse({"code": "404", "msg": str(exc)})
+    except Exception as exc:
+        return JsonResponse({"code": "500", "msg": f"附件删除失败: {str(exc)}"})
+
+    return JsonResponse({"code": "00000", "msg": "删除成功", "data": {"id": attachment_id}})

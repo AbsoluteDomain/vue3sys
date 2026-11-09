@@ -297,8 +297,13 @@ const handleDelete = (row) => {
   }).then(() => {
     // 调用删除接口
     // 注意：你的 deleteProduct 接收 data 对象，所以传 { id: row.id }
-    deleteProduct({ id: row.id })
-      .then(() => {
+    deleteProduct({ id: row.id, approval_perm: 'product:stock:delete' })
+      .then((res) => {
+        if (res?.pending) {
+          ElMessage.info('已提交审批，等待审核')
+          getList() // 刷新列表
+          return
+        }
         ElMessage.success('删除成功')
         getList() // 刷新列表
       })

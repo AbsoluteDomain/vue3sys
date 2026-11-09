@@ -10,6 +10,7 @@ from apps.product.boms.models import AssemblyRecipe, BomList
 from apps.product.boms.utils import build_bom_requirements
 from apps.product.products.models import Product
 from apps.product.products.constants import product_type_label
+from apps.system.approval import services as approval_services
 
 from .models import ProductionPlan
 
@@ -294,6 +295,17 @@ def save_production_plan(request):
             date_obj = datetime.strptime(plan_date, "%Y-%m-%d").date()
         except ValueError:
             return JsonResponse({"code": "400", "msg": "日期格式无效，须为 YYYY-MM-DD"})
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"production:plan:save"},
+            target_id=0,
+            target_name=plan_date,
+            summary=f"保存生产计划：{plan_date}（{len(boms)} 个BOM）",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
 
         ProductionPlan.objects.filter(plan_date=date_obj).delete()
 

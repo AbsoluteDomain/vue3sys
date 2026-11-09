@@ -106,10 +106,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="recipe_count" label="明细条数" width="100" align="center" />
-        <el-table-column label="操作" width="340" fixed="right">
+        <el-table-column label="操作" width="400" fixed="right">
           <template #default="{ row }">
             <el-button v-hasPerm="'product:bom:detail'" link type="primary" size="small" @click.stop="handleViewRecipes(row)">
               查看明细
+            </el-button>
+            <el-button v-hasPerm="'product:bom:detail'" link type="warning" size="small" @click.stop="handleShowAttachments(row)">
+              附件
             </el-button>
             <el-button v-hasPerm="'product:bom:update'" link type="success" size="small" @click.stop="handleExportRow(row)">
               导出
@@ -128,6 +131,7 @@
       <bom-recipe-dialog ref="recipeDialogRef" @edit="handleEdit" />
       <bom-import-dialog ref="importDialogRef" @success="getList" />
       <urdf-viewer-dialog ref="urdfDialogRef" />
+      <bom-attachment-dialog ref="attachmentDialogRef" />
 
       <div class="pagination-container">
         <el-pagination
@@ -155,6 +159,7 @@ import BomListForm from './bomInfo/BomListForm.vue'
 import BomRecipeDialog from './bomInfo/BomRecipeDialog.vue'
 import BomImportDialog from './bomInfo/BomImportDialog.vue'
 import UrdfViewerDialog from './bomInfo/UrdfViewerDialog.vue'
+import BomAttachmentDialog from './bomInfo/BomAttachmentDialog.vue'
 import { exportBomItemsToExcel, exportSingleBomToExcel, formatNowForFileName } from './bomInfo/bomExcel'
 
 const queryParams = reactive({
@@ -261,9 +266,13 @@ const handleRowClick = (row) => {
 
 const handleDelete = (row) => {
   ElMessageBox.confirm(`确定删除 BOM「${formatBomRowLabel(row)}」吗？`, '警告', { type: 'warning' })
-    .then(() => deleteBom({ id: row.id }))
-    .then(() => {
-      ElMessage.success('删除成功')
+    .then(() => deleteBom({ id: row.id, approval_perm: 'product:bom:delete' }))
+    .then((res) => {
+      if (res?.pending) {
+        ElMessage.info('已提交审批，等待审核')
+      } else {
+        ElMessage.success('删除成功')
+      }
       getList()
     })
     .catch(() => {})
@@ -306,6 +315,10 @@ const handleImportExcel = () => {
 
 const handleShowUrdf = () => {
   urdfDialogRef.value?.open()
+}
+
+const handleShowAttachments = (row) => {
+  attachmentDialogRef.value?.open(row)
 }
 
 onMounted(() => getList())

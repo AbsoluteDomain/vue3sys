@@ -362,10 +362,17 @@ const handleSubmit = () => {
         return assembleBom({
           bom_id: formData.bom_id,
           quantity: formData.quantity,
-          deduct_materials: formData.deduct_materials
+          deduct_materials: formData.deduct_materials,
+          approval_perm: 'product:finish:assemble'
         })
       })
       .then((res) => {
+        if (res?.pending) {
+          ElMessage.info('已提交审批，等待审核')
+          emit('success')
+          visible.value = false
+          return
+        }
         const pending = res?.pending_binding || []
         if (pending.length) {
           const summary = pending

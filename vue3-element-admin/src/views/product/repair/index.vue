@@ -437,15 +437,19 @@ async function handleDelete(row) {
     return
   }
   try {
-    await deleteRepair({ id: row.id })
-    ElMessage.success('删除成功')
-    if (historyData.value) {
-      historyData.value = historyData.value.filter(r => r.id !== row.id)
-    }
-    if (historyData.value.length === 0 && currentRow.value) {
-      historyDialogVisible.value = false
-    } else if (currentRow.value) {
-      currentRow.value.repair_cnt = historyData.value.length
+    const res = await deleteRepair({ id: row.id, approval_perm: 'product:repair:delete' })
+    if (res?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+    } else {
+      ElMessage.success('删除成功')
+      if (historyData.value) {
+        historyData.value = historyData.value.filter(r => r.id !== row.id)
+      }
+      if (historyData.value.length === 0 && currentRow.value) {
+        historyDialogVisible.value = false
+      } else if (currentRow.value) {
+        currentRow.value.repair_cnt = historyData.value.length
+      }
     }
     await getList()
   } catch (error) {

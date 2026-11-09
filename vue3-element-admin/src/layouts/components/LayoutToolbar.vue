@@ -40,21 +40,32 @@
 
     <!-- 用户菜单 -->
     <div class="navbar-actions__item">
-      <el-dropdown trigger="click">
+      <el-dropdown trigger="click" @visible-change="handleDropdownVisible">
         <div class="user-profile">
-          <div style="width: 28px; height: 28px; overflow: hidden; border-radius: 50%">
-            <img
-              :src="userStore.userInfo.avatar"
+          <el-badge
+            :value="pendingApprovalCount"
+            :hidden="pendingApprovalCount === 0"
+            :max="99"
+            class="user-profile__badge"
+          >
+            <el-avatar
+              :size="28"
+              :src="userStore.userInfo.avatar || undefined"
               class="user-profile__avatar"
-              style="width: 100%; height: 100%; object-fit: cover; object-position: center"
-            />
-          </div>
+            >
+              {{ userInitial }}
+            </el-avatar>
+          </el-badge>
           <span class="user-profile__name">{{ userStore.userInfo.nickname }}</span>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item @click="handleProfileClick">
               {{ t("navbar.profile") }}
+            </el-dropdown-item>
+            <el-dropdown-item @click="handleMyApprovalClick">
+              我的审批
+              <span v-if="pendingApprovalCount > 0" class="approval-count">{{ pendingApprovalCount }}</span>
             </el-dropdown-item>
             <el-dropdown-item divided @click="logout">
               {{ t("navbar.logout") }}
@@ -87,6 +98,7 @@ import NoticeDropdown from "@/components/NoticeDropdown/index.vue";
 import ReleaseDropdown from "@/components/ReleaseDropdown/index.vue";
 import TenantSwitcher from "@/components/TenantSwitcher/index.vue";
 import { useTenantStoreHook } from "@/store/modules/tenant";
+import ApprovalAPI from "@/api/approval";
 
 const { t } = useI18n();
 const appStore = useAppStore();
@@ -96,6 +108,12 @@ const tenantStore = useTenantStoreHook();
 
 const route = useRoute();
 const router = useRouter();
+
+// 用户名首字，用作头像未设置或加载失败时的兜底显示
+const userInitial = computed(() => {
+  const name = userStore.userInfo.nickname || userStore.userInfo.username || "";
+  return name.charAt(0).toUpperCase();
+});
 
 // 是否为桌面设备
 const isDesktop = computed(() => appStore.device === DeviceEnum.DESKTOP);
@@ -128,6 +146,73 @@ function handleTenantChange(tenantId: number) {
 function handleProfileClick() {
   router.push({ name: "Profile" });
 }
+
+// 待我审批数量
+const pendingApprovalCount = ref(0);
+// 已提示过的最新审批申请 ID，用于识别「是否有新申请到达」
+let lastSeenRequestId = 0;
+let approvalPollTimer: ReturnType<typeof setInterval> | undefined;
+
+async function loadPendingApprovalCount(notify = true) {
+  try {
+    const result = await ApprovalAPI.getMyTaskCount();
+    const count = result?.count || 0;
+    const latest = result?.latest || null;
+    pendingApprovalCount.value = count;
+
+    // 申请 ID 自增，出现更大的 ID 说明有新的待审批申请
+    const latestId = latest?.id || 0;
+    if (notify && latestId > lastSeenRequestId) {
+      ElNotification({
+        title: "新的待审批消息",
+        message: latest
+          ? `${latest.applicant_name || "有用户"} 提交了「${latest.name}」审批：${latest.summary}，共 ${count} 条待处理`
+          : `您有 ${count} 条待审批申请需要处理`,
+        type: "warning",
+        position: "bottom-right",
+        duration: 8000,
+        onClick: () => handleMyApprovalClick(),
+      });
+    }
+    if (latestId > lastSeenRequestId) {
+      lastSeenRequestId = latestId;
+    }
+  } catch {
+    pendingApprovalCount.value = 0;
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    loadPendingApprovalCount();
+  }
+}
+
+function handleDropdownVisible(visible: boolean) {
+  if (visible) {
+    loadPendingApprovalCount();
+  }
+}
+
+function handleMyApprovalClick() {
+  router.push({ name: "MyApprovalTasks" });
+}
+
+onMounted(() => {
+  // 首次加载只记录基线，不弹提示，避免历史待办重复打扰
+  loadPendingApprovalCount(false);
+  // 轮询待审批数量：有新申请到达时弹出通知提示
+  approvalPollTimer = setInterval(() => loadPendingApprovalCount(), 30000);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+
+onBeforeUnmount(() => {
+  if (approvalPollTimer) {
+    clearInterval(approvalPollTimer);
+    approvalPollTimer = undefined;
+  }
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+});
 
 // 根据主题和侧边栏配色方案选择样式类
 const navbarActionsClass = computed(() => {
@@ -252,6 +337,20 @@ function handleSettingsClick() {
       width: 28px;
       height: 28px;
       border-radius: 50%;
+      background-color: var(--el-color-primary);
+      color: var(--el-color-white);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    &__badge {
+      display: flex;
+      align-items: center;
+
+      :deep(.el-badge__content) {
+        top: 5px;
+        right: 6px;
+      }
     }
 
     &__name {
@@ -260,6 +359,21 @@ function handleSettingsClick() {
       white-space: nowrap;
       transition: color 0.3s;
     }
+  }
+
+  .approval-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    margin-left: 6px;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--el-color-white);
+    background: var(--el-color-danger);
+    border-radius: 9px;
   }
 }
 

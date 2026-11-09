@@ -126,6 +126,48 @@ export const constantRoutes: RouteRecordRaw[] = [
       },
     ],
   },
+
+  // 文件管理静态路由（保证菜单未配好时也能跳转）
+  {
+    path: "/file",
+    component: Layout,
+    meta: { hidden: true },
+    children: [
+      {
+        path: "index",
+        name: "FileManager",
+        component: () => import("@/views/file/index.vue"),
+        meta: { title: "文件管理" },
+      },
+    ],
+  },
+
+  // 审核管理静态路由（保证菜单未配好时也能跳转）
+  {
+    path: "/approval",
+    component: Layout,
+    meta: { hidden: true },
+    children: [
+      {
+        path: "index",
+        name: "ApprovalManager",
+        component: () => import("@/views/approval/index.vue"),
+        meta: { title: "审核管理" },
+      },
+      {
+        path: "my-tasks",
+        name: "MyApprovalTasks",
+        component: () => import("@/views/approval/myTasks.vue"),
+        meta: { title: "我的审批", hidden: true },
+      },
+      {
+        path: "records",
+        name: "ApprovalRecordsStatic",
+        component: () => import("@/views/approval/records.vue"),
+        meta: { title: "审批记录", hidden: true },
+      },
+    ],
+  },
 ];
 
 /**

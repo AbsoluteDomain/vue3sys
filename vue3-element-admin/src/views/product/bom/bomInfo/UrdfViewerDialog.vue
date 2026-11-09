@@ -10,11 +10,17 @@
     @closed="handleClosed"
   >
     <div class="urdf-toolbar">
-      <el-radio-group v-model="currentModelKey" size="small" @change="handleModelChange">
+      <el-radio-group
+        v-if="!externalModel"
+        v-model="currentModelKey"
+        size="small"
+        @change="handleModelChange"
+      >
         <el-radio-button v-for="item in urdfModels" :key="item.key" :value="item.key">
           {{ item.label }}
         </el-radio-button>
       </el-radio-group>
+      <span v-else class="urdf-external-label">{{ externalModel.label }}</span>
       <div class="urdf-toolbar-right">
         <el-switch
           v-model="showFrames"
@@ -95,6 +101,8 @@ const visible = ref(false)
 const loading = ref(false)
 const loadError = ref(false)
 const currentModelKey = ref(urdfModels[0].key)
+// 上传的 URDF 附件，设置后优先于内置模型列表
+const externalModel = ref(null)
 const viewportRef = ref(null)
 const joints = ref([])
 const selectedLinkName = ref('')
@@ -404,7 +412,7 @@ const handleJointChange = (joint, value) => {
 
 const loadModel = (modelKey) => {
   if (!scene) return
-  const model = urdfModels.find((item) => item.key === modelKey) || urdfModels[0]
+  const model = externalModel.value || urdfModels.find((item) => item.key === modelKey) || urdfModels[0]
   const token = ++loadToken
 
   loading.value = true
@@ -436,9 +444,11 @@ const loadModel = (modelKey) => {
   }
 
   const loader = new URDFLoader(manager)
-  loader.packages = { fdr2: `${baseUrl()}urdf/${packageDir}` }
+  if (!externalModel.value) {
+    loader.packages = { fdr2: `${baseUrl()}urdf/${packageDir}` }
+  }
   loader.load(
-    resolveUrl(model.file),
+    externalModel.value ? externalModel.value.url : resolveUrl(model.file),
     (robot) => {
       if (token !== loadToken) {
         disposeObject(robot)
@@ -508,16 +518,24 @@ const cleanup = () => {
 
 const handleClosed = () => {
   cleanup()
+  externalModel.value = null
 }
 
 const open = (modelKey) => {
+  externalModel.value = null
   if (modelKey && urdfModels.some((item) => item.key === modelKey)) {
     currentModelKey.value = modelKey
   }
   visible.value = true
 }
 
-defineExpose({ open })
+const openUrl = (url, label = 'URDF 附件') => {
+  if (!url) return
+  externalModel.value = { key: 'external', label, url }
+  visible.value = true
+}
+
+defineExpose({ open, openUrl })
 </script>
 
 <style scoped>
@@ -526,6 +544,16 @@ defineExpose({ open })
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.urdf-external-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 480px;
 }
 
 .urdf-toolbar-right {

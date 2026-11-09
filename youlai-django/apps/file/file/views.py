@@ -13,7 +13,7 @@ from core.openapi import resp
 from core.response import error, success
 
 from .selectors import extract_file_path
-from .services import MinioFileService
+from .services import get_file_service
 
 
 @extend_schema(tags=["10.文件接口"])
@@ -50,7 +50,7 @@ class FileViewSet(ViewSet):
 
         try:
             # 交给对象存储服务处理
-            svc = MinioFileService()
+            svc = get_file_service()
             file_info = svc.upload_file(upload_file)
             return success({"name": file_info.name, "url": file_info.url}, status=status.HTTP_200_OK)
         except Exception as e:
@@ -85,7 +85,7 @@ class FileViewSet(ViewSet):
 
         try:
             # 删除对象存储中的文件
-            svc = MinioFileService()
+            svc = get_file_service()
             svc.delete_file(file_path)
             return success(None, status=status.HTTP_200_OK)
         except Exception as e:

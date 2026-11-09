@@ -159,10 +159,20 @@ const handleSubmit = () => {
       const apiMethod = isEdit.value ? editProduct : createProduct
       const actionName = isEdit.value ? '修改' : '新增'
 
-      // 调用接口
-      apiMethod(formData)
-        .then(() => {
+      // 调用接口（携带审批权限标识，后端据此判断是否走审批）
+      const payload = {
+        ...formData,
+        approval_perm: isEdit.value ? 'product:stock:update' : 'product:stock:create'
+      }
+      apiMethod(payload)
+        .then((res) => {
           // request.ts 在 code=00000 时会直接 resolve data
+          if (res?.pending) {
+            ElMessage.info('已提交审批，等待审核')
+            emit('success')
+            visible.value = false
+            return
+          }
           ElMessage.success(`${actionName}成功`)
           emit('success') // 通知父组件刷新列表
           visible.value = false // 关闭抽屉

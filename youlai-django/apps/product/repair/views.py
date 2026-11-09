@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods
 from core.datetime import format_local_datetime, local_day_range_datetimes
 from apps.product.finish_products.models import FinishProduct
 from apps.system.dicts.models import DictionaryItem
+from apps.system.approval import services as approval_services
 from apps.system.operation_logs.request_user import get_request_operator
 
 from .models import Repair
@@ -383,7 +384,18 @@ def create_repair(request):
             sn_code = (body.get("sn_code") or "").strip()
         else:
             sn_code = product.sn_code or ""
-        
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:repair:save"},
+            target_id=product.id,
+            target_name=sn_code,
+            summary=f"创建返修单：{sn_code or product.name or ''}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         max_repair_cnt = Repair.objects.filter(
             product_id=product.id,
             is_del=0
@@ -450,6 +462,18 @@ def delete_repair(request):
             return JsonResponse({"code": "400", "msg": "请提供返修记录ID"})
         
         repair = Repair.objects.get(id=int(repair_id))
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:repair:delete"},
+            target_id=repair.id,
+            target_name=repair.sn_code or "",
+            summary=f"删除返修单：{repair.sn_code or repair.id}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         repair.is_del = 1
         repair.save()
         

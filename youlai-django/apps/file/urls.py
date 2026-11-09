@@ -6,4 +6,5 @@ from django.urls import include, path
 
 urlpatterns = [
     path('', include('apps.file.file.urls')),
+    path('manager/', include('apps.file.file.manager_urls')),
 ]

@@ -1895,11 +1895,17 @@ const handleUnbindJoint = async (row) => {
 
   row._unbinding = true
   try {
-    await updateFinishProduct({
+    const res = await updateFinishProduct({
       id: row.id,
       sn_code: row.sn_code || '',
       parent_sn_code: '',
+      approval_perm: 'product:finish:update'
     })
+    if (res?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+      getList()
+      return
+    }
     ElMessage.success('解除绑定成功')
     // 从列表中移除已解绑的关节
     jointDetailChildren.value = jointDetailChildren.value.filter(item => item.id !== row.id)
@@ -1940,10 +1946,18 @@ const handleUnqualifiedSelectConfirm = async () => {
   unqualifiedSelectSubmitting.value = true
   try {
     // 1. 先保存成品（同时带上本次测试的不良项与描述，供测试记录快照使用）
-    await saveProduct({
+    const saveResult = await saveProduct({
       unqualified_values: selectedUnqualifiedValues.value,
       test_desc: unqualifiedRepairInfo.value.trim()
     })
+    if (saveResult?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+      unqualifiedSelectVisible.value = false
+      dialogVisible.value = false
+      getList()
+      checkJointConsistency()
+      return
+    }
     // 2. 再保存不合格项
     await saveUnqualifiedItems({
       finish_product_id: formData.id,
@@ -1959,12 +1973,13 @@ const handleUnqualifiedSelectConfirm = async () => {
         repairDesc = '测试不良返修'
       }
       try {
-        await createRepair({
+        const repairRes = await createRepair({
           product_id: formData.id,
           unqualified_values: selectedValues.join(','),
           repair_desc: repairDesc,
+          approval_perm: 'product:repair:save'
         })
-        ElMessage.success('保存成功，返修单已生成')
+        ElMessage.success(repairRes?.pending ? '已提交审批，等待审核' : '保存成功，返修单已生成')
       } catch (repairError) {
         // 成品与不良项已保存，返修单失败不回滚，仅提示
         ElMessage.error('成品与不良项已保存，返修单生成失败：' + (repairError.message || repairError))
@@ -2027,6 +2042,9 @@ const handleAddUnqualified = async () => {
   }
 }
 
+// 当前操作对应的审批权限标识（成品编辑/测试合格/测试不良）
+const currentApprovalPerm = ref('product:finish:update')
+
 const getRowClassName = ({ row }) => {
   if (collapseMode.value && String(row.bom_type) === '1' && row.sn_code) {
     return 'row-clickable'
@@ -2035,6 +2053,7 @@ const getRowClassName = ({ row }) => {
 }
 
 const handleEdit = (row) => {
+  currentApprovalPerm.value = 'product:finish:update'
   formData.id = row.id
   editingOriginalSnCode.value = row.sn_code || ''
   formData.sn_code = row.sn_code
@@ -2095,6 +2114,7 @@ const saveProduct = (extra = {}) => {
     test_time: formData.test_time || null,
     stock_in_time: formData.stock_in_time || null,
     stock_out_time: formData.stock_out_time || null,
+    approval_perm: currentApprovalPerm.value,
     ...extra
   })
 }
@@ -2156,8 +2176,12 @@ const handleSubmit = () => {
 
 const doSaveProduct = () => {
   saveProduct()
-    .then(() => {
-      ElMessage.success('保存成功')
+    .then((res) => {
+      if (res?.pending) {
+        ElMessage.info('已提交审批，等待审核')
+      } else {
+        ElMessage.success('保存成功')
+      }
       dialogVisible.value = false
       getList()
       checkJointConsistency()
@@ -2223,15 +2247,25 @@ const handleRepairSubmit = () => {
   }
   repairSubmitting.value = true
   saveProduct()
-    .then(() => {
+    .then((res) => {
+      if (res?.pending) {
+        ElMessage.info('已提交审批，等待审核')
+        repairDialogVisible.value = false
+        dialogVisible.value = false
+        getList()
+        checkJointConsistency()
+        return null
+      }
       return createRepair({
         product_id: formData.id,
         unqualified_values: selectedValues.join(','),
-        repair_desc: repairDesc
+        repair_desc: repairDesc,
+        approval_perm: 'product:repair:save'
       })
     })
-    .then(() => {
-      ElMessage.success('保存成功，返修单已生成')
+    .then((repairRes) => {
+      if (repairRes === null) return
+      ElMessage.success(repairRes?.pending ? '已提交审批，等待审核' : '保存成功，返修单已生成')
       repairDialogVisible.value = false
       dialogVisible.value = false
       getList()
@@ -2257,9 +2291,13 @@ const handleRollback = (row) => {
       dangerouslyUseHTMLString: false
     }
   )
-    .then(() => rollbackFinishProduct({ id: row.id }))
-    .then(() => {
-      ElMessage.success('回退成功，零件库存已恢复')
+    .then(() => rollbackFinishProduct({ id: row.id, approval_perm: 'product:finish:rollback' }))
+    .then((res) => {
+      if (res?.pending) {
+        ElMessage.info('已提交审批，等待审核')
+      } else {
+        ElMessage.success('回退成功，零件库存已恢复')
+      }
       getList()
     })
     .catch((err) => {
@@ -2321,7 +2359,7 @@ const handleAddJoint = async () => {
   }
   addJointSubmitting.value = true
   try {
-    await createFinishProduct({
+    const res = await createFinishProduct({
       bom_id: addJointBomId.value,
       sn_code: addJointSnCode.value.trim(),
       description: '非计划添加',
@@ -2329,9 +2367,14 @@ const handleAddJoint = async () => {
       inventory_stock: INVENTORY_IN,
       create_time: addJointCreateTime.value || null,
       sn_code_time: addJointSnCodeTime.value || null,
-      stock_in_time: addJointStockInTime.value || null
+      stock_in_time: addJointStockInTime.value || null,
+      approval_perm: 'product:finish:add-joint'
     })
-    ElMessage.success('关节创建成功')
+    if (res?.pending) {
+      ElMessage.info('已提交审批，等待审核')
+    } else {
+      ElMessage.success('关节创建成功')
+    }
     addJointVisible.value = false
     addJointBomId.value = null
     addJointSnCode.value = ''
@@ -2361,10 +2404,15 @@ const handleBindSubmit = () => {
   bindJointsToArm({
     arm_id: bindJointRow.value.id,
     arm_sn_code: bindJointRow.value.sn_code,
-    joint_ids: selectedJoints.value.map(j => j.id)
+    joint_ids: selectedJoints.value.map(j => j.id),
+    approval_perm: 'product:finish:bind'
   })
-    .then(() => {
-      ElMessage.success(`已绑定 ${selectedJoints.value.length} 个关节到机械臂`)
+    .then((res) => {
+      if (res?.pending) {
+        ElMessage.info('已提交审批，等待审核')
+      } else {
+        ElMessage.success(`已绑定 ${selectedJoints.value.length} 个关节到机械臂`)
+      }
       bindJointVisible.value = false
       getList()
       checkJointConsistency()
@@ -2466,7 +2514,7 @@ const handleBatchAddJoint = async () => {
   try {
     for (const sn of snCodes) {
       try {
-        await createFinishProduct({
+        const res = await createFinishProduct({
           bom_id: batchAddJointBomId.value,
           sn_code: sn,
           description: '非计划添加',
@@ -2474,9 +2522,10 @@ const handleBatchAddJoint = async () => {
           inventory_stock: INVENTORY_IN,
           create_time: batchAddJointCreateTime.value || null,
           sn_code_time: batchAddJointSnCodeTime.value || null,
-          stock_in_time: batchAddJointStockInTime.value || null
+          stock_in_time: batchAddJointStockInTime.value || null,
+          approval_perm: 'product:finish:add-joint'
         })
-        results.push({ sn, ok: true })
+        results.push({ sn, ok: true, pending: !!res?.pending })
       } catch (e) {
         results.push({ sn, ok: false, reason: '创建失败（SN码可能已存在）' })
       }
@@ -2501,6 +2550,7 @@ const findProductBySn = async (snCode) => {
 const fillQuickPassForm = (product) => {
   handleEdit(product)
   dialogVisible.value = false
+  currentApprovalPerm.value = 'product:finish:test-pass'
   const now = nowStr()
   formData.inventory_stock = INVENTORY_IN
   formData.status = STATUS_PASS
@@ -2513,6 +2563,7 @@ const fillQuickPassForm = (product) => {
 const fillQuickFailForm = (product) => {
   handleEdit(product)
   dialogVisible.value = false
+  currentApprovalPerm.value = 'product:finish:test-fail'
   const now = nowStr()
   formData.inventory_stock = 0
   formData.status = 3
@@ -2580,8 +2631,8 @@ const handleQuickActionSnConfirm = async () => {
           continue
         }
         fillQuickPassForm(product)
-        await saveProduct()
-        results.push({ sn, ok: true })
+        const res = await saveProduct()
+        results.push({ sn, ok: true, pending: !!res?.pending })
       } catch {
         results.push({ sn, ok: false, reason: '保存失败' })
       }
@@ -2606,14 +2657,16 @@ const escapeHtml = (str) =>
 // 展示批量操作结果汇总
 const showBatchResult = (results) => {
   const okCount = results.filter((r) => r.ok).length
+  const pendingCount = results.filter((r) => r.pending).length
   const failList = results.filter((r) => !r.ok)
+  const pendingTip = pendingCount ? `（其中 ${pendingCount} 个已提交审批，等待审核）` : ''
   if (!failList.length) {
-    ElMessage.success(`批量操作完成：成功 ${okCount} 个`)
+    ElMessage.success(`批量操作完成：成功 ${okCount} 个${pendingTip}`)
     return
   }
   const lines = failList.map((f) => `${escapeHtml(f.sn)}（${f.reason}）`).join('<br/>')
   ElMessageBox.alert(
-    `成功 ${okCount} 个，失败 ${failList.length} 个：<br/>${lines}`,
+    `成功 ${okCount} 个${pendingTip}，失败 ${failList.length} 个：<br/>${lines}`,
     '批量操作结果',
     { type: 'warning', dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
   )
@@ -2709,16 +2762,22 @@ const handleBatchBindSave = async () => {
   try {
     const results = await Promise.allSettled(
       changedRows.map(row =>
-        updateFinishProduct({ id: row.id, sn_code: row.sn_code.trim() })
+        updateFinishProduct({
+          id: row.id,
+          sn_code: row.sn_code.trim(),
+          approval_perm: 'product:finish:batch-sn'
+        })
       )
     )
     const failed = results.filter(r => r.status === 'rejected')
+    const pendingCount = results.filter(r => r.status === 'fulfilled' && r.value?.pending).length
+    const pendingTip = pendingCount ? `（其中 ${pendingCount} 条已提交审批，等待审核）` : ''
     if (failed.length === 0) {
-      ElMessage.success(`成功保存 ${changedRows.length} 条SN码`)
+      ElMessage.success(`成功保存 ${changedRows.length} 条SN码${pendingTip}`)
       batchBindSnVisible.value = false
       getList()
     } else {
-      ElMessage.warning(`保存完成：成功 ${changedRows.length - failed.length} 条，失败 ${failed.length} 条`)
+      ElMessage.warning(`保存完成：成功 ${changedRows.length - failed.length} 条${pendingTip}，失败 ${failed.length} 条`)
       // 刷新已保存的行，保留失败的行继续编辑
       getList()
     }

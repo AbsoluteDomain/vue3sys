@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="profile-container">
     <el-row :gutter="20">
       <!-- 左侧个人信息卡片 -->
@@ -13,13 +13,14 @@
                 circle
                 :icon="Camera"
                 size="small"
+                :loading="avatarUploading"
                 @click="triggerFileUpload"
               />
               <input
                 ref="fileInput"
                 type="file"
                 style="display: none"
-                accept="image/*"
+                accept=".png,.jpg,.jpeg,.webp"
                 @change="handleFileChange"
               />
             </div>
@@ -283,6 +284,7 @@ import { useUserStoreHook } from "@/store";
 import { redirectToLogin } from "@/utils/auth";
 
 import { Camera } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 
 const userStore = useUserStoreHook();
 
@@ -578,6 +580,9 @@ const handleCancel = () => {
 };
 
 const fileInput = ref<HTMLInputElement | null>(null);
+const avatarUploading = ref(false);
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
+const AVATAR_ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 const triggerFileUpload = () => {
   fileInput.value?.click();
@@ -586,7 +591,21 @@ const triggerFileUpload = () => {
 const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   const file = target.files ? target.files[0] : null;
-  if (file) {
+  if (!file) return;
+
+  if (!AVATAR_ALLOWED_TYPES.includes(file.type)) {
+    ElMessage.warning("头像仅支持 PNG、JPG、WEBP 格式");
+    target.value = "";
+    return;
+  }
+  if (file.size > AVATAR_MAX_SIZE) {
+    ElMessage.warning("头像大小不能超过 2MB");
+    target.value = "";
+    return;
+  }
+
+  avatarUploading.value = true;
+  try {
     // 调用文件上传API
     const data = await FileAPI.uploadFile(file);
     // 更新用户信息
@@ -595,6 +614,12 @@ const handleFileChange = async (event: Event) => {
     });
     // 更新用户头像
     userStore.userInfo.avatar = data.url;
+    ElMessage.success("头像更新成功");
+  } catch {
+    // 请求层已统一提示错误
+  } finally {
+    avatarUploading.value = false;
+    target.value = "";
   }
 };
 

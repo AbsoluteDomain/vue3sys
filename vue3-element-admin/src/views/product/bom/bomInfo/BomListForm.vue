@@ -408,10 +408,15 @@ const handleSubmit = () => {
     submitting.value = true
     const apiMethod = isEdit.value ? updateBom : createBom
     const actionName = isEdit.value ? '保存' : '新增'
+    const approvalPerm = isEdit.value ? 'product:bom:update' : 'product:bom:create'
 
-    apiMethod(payload)
-      .then(() => {
-        ElMessage.success(`${actionName}成功`)
+    apiMethod({ ...payload, approval_perm: approvalPerm })
+      .then((res) => {
+        if (res?.pending) {
+          ElMessage.info('已提交审批，等待审核')
+        } else {
+          ElMessage.success(`${actionName}成功`)
+        }
         emit('success')
         visible.value = false
       })

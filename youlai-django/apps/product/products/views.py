@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods
 from .models import Product, WarehouseLog
 from .constants import normalize_product_type, product_type_label, PRODUCT_TYPE_LABELS
 from apps.system.dicts.models import DictionaryItem
+from apps.system.approval import services as approval_services
 from apps.product.utils.warehouse_logger import create_warehouse_log as create_log_with_operator, get_operator_info
 
 from apps.system.operation_logs.utils import (
@@ -240,6 +241,17 @@ def create_product(request):
             product_id=body.get("id"),
         )
 
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:stock:create"},
+            target_id=body.get("id"),
+            target_name=name,
+            summary=f"新增产品：{name}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         create_kwargs = {
             "name": name,
             "type": product_type,
@@ -303,6 +315,17 @@ def update_product(request):
             exclude_id=product.id,
         )
 
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:stock:update"},
+            target_id=product.id,
+            target_name=name,
+            summary=f"编辑产品：{name}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         product.name = name
         product.type = product_type
         product.draw_code = _optional_text(body.get("draw_code") or body.get("drawCode"))
@@ -340,11 +363,100 @@ def update_product(request):
     except Exception as e:
         return JsonResponse({"code": '500', "msg": f"更新失败: {str(e)}"})
 
+def apply_stock_adjust(
+    product_id,
+    adjust_type,
+    delta,
+    request=None,
+    storage_status=None,
+    user_description="",
+    write_warehouse_log=False,
+):
+    """执行产品库存变更并记录日志。
+
+    供普通出入库接口与审批通过后的业务执行共用，保证两条路径行为一致。
+
+    Args:
+        product_id: 产品 ID
+        adjust_type: in 入库 / out 出库
+        delta: 变更数量（正整数）
+        request: 触发执行的请求对象，用于解析操作人；为 None 时不写日志
+        storage_status: 出入库记录的操作类型（字典 warehouse_log_type 值）
+        user_description: 用户填写的出入库描述
+        write_warehouse_log: 是否同时写入出入库记录（审批执行时由后端补写）
+
+    Returns:
+        (product, action, before_quantity)
+
+    Raises:
+        Product.DoesNotExist: 产品不存在
+        ValueError: 库存不足等业务校验失败
+    """
+    if adjust_type not in ("in", "out"):
+        raise ValueError("type 须为 in（入库）或 out（出库）")
+    if delta < 1:
+        raise ValueError("数量必须大于 0")
+
+    product = Product.objects.get(id=product_id, is_del=0)
+    current = product.quantity if product.quantity is not None else 0
+    if adjust_type == "out" and current < delta:
+        raise ValueError(f"库存不足：当前 {current}，出库 {delta}")
+
+    product.quantity = current + delta if adjust_type == "in" else current - delta
+    product.save(update_fields=["quantity", "updated_at"])
+    action = "入库" if adjust_type == "in" else "出库"
+
+    if request is not None:
+        _log_if_available(
+            request,
+            module='productStock',
+            module_name='库存',
+            operation_type='stock_in' if adjust_type == 'in' else 'stock_out',
+            target_id=product.id,
+            target_name=product.name,
+            before_data={"quantity": current},
+            after_data={"quantity": product.quantity},
+            description=format_stock_adjust_description(action, product.name, delta),
+        )
+
+        if write_warehouse_log:
+            from apps.product.utils.warehouse_logger import create_warehouse_log
+
+            if storage_status is None:
+                storage_status = 1 if adjust_type == "in" else 2
+            create_warehouse_log(
+                request,
+                storage_status=storage_status,
+                name=product.name,
+                material_code=product.material_code or "",
+                count=delta,
+                description=format_stock_adjust_description(action, product.name, delta),
+                user_description=user_description or "",
+                module="inventory",
+                action_type="stock_in" if adjust_type == "in" else "stock_out",
+                operation_detail=[
+                    {
+                        "product_name": product.name,
+                        "material_code": product.material_code or "",
+                        "quantity_change": delta if adjust_type == "in" else -delta,
+                        "before_stock": current,
+                        "after_stock": product.quantity,
+                    }
+                ],
+            )
+
+    return product, action, current
+
+
 # --- 4. 产品出入库 ---
 @csrf_exempt
 @require_http_methods(["POST"])
 def stock_adjust_product(request):
-    """产品出入库：type=in 入库，type=out 出库"""
+    """产品出入库：type=in 入库，type=out 出库
+
+    若对应业务（入库/出库）已启用审批，则仅创建审批申请单并返回「已提交审批」，
+    库存变更延迟到审批通过后由审批服务执行。
+    """
     try:
         body = json.loads(request.body or "{}")
         product_id = body.get("id")
@@ -361,35 +473,46 @@ def stock_adjust_product(request):
             return JsonResponse({"code": "400", "msg": "数量必须大于 0"})
 
         product = Product.objects.get(id=product_id, is_del=0)
-        current = product.quantity if product.quantity is not None else 0
-        if adjust_type == "out" and current < delta:
-            return JsonResponse(
-                {"code": "400", "msg": f"库存不足：当前 {current}，出库 {delta}"}
+
+        # 审批拦截：已启用审批的业务只登记申请单，不直接修改库存
+        from apps.system.approval import services as approval_services
+
+        biz_type = "inbound" if adjust_type == "in" else "outbound"
+        approval_config = approval_services.get_active_config(biz_type)
+        if approval_config:
+            storage_status = body.get("storage_status")
+            try:
+                storage_status = int(storage_status)
+            except (TypeError, ValueError):
+                storage_status = 1 if adjust_type == "in" else 2
+            approval_request = approval_services.submit_stock_request(
+                request,
+                approval_config,
+                product,
+                adjust_type,
+                delta,
+                storage_status,
+                (body.get("user_description") or "").strip(),
             )
-        
-        # 保存修改前的数据
-        before_data = {"quantity": current}
-        
-        product.quantity = current + delta if adjust_type == "in" else current - delta
-        product.save(update_fields=["quantity", "updated_at"])
-        action = "入库" if adjust_type == "in" else "出库"
-        
-        # 保存修改后的数据
-        after_data = {"quantity": product.quantity}
-        
-        # 记录操作日志
-        _log_if_available(
-            request,
-            module='productStock',
-            module_name='库存',
-            operation_type='stock_in' if adjust_type == 'in' else 'stock_out',
-            target_id=product.id,
-            target_name=product.name,
-            before_data=before_data,
-            after_data=after_data,
-            description=format_stock_adjust_description(action, product.name, delta),
+            if approval_request:
+                return JsonResponse(
+                    {
+                        "code": "00000",
+                        "msg": "已提交审批，等待审核",
+                        "data": {
+                            "pending": True,
+                            "request_id": approval_request.id,
+                        },
+                    }
+                )
+
+        product, action, _before = apply_stock_adjust(
+            product_id=product.id,
+            adjust_type=adjust_type,
+            delta=delta,
+            request=request,
         )
-        
+
         return JsonResponse(
             {
                 "code": "00000",
@@ -404,6 +527,8 @@ def stock_adjust_product(request):
         )
     except Product.DoesNotExist:
         return JsonResponse({"code": "404", "msg": "产品不存在"})
+    except ValueError as e:
+        return JsonResponse({"code": "400", "msg": str(e)})
     except Exception as e:
         return JsonResponse({"code": "500", "msg": f"操作失败: {str(e)}"})
 
@@ -445,7 +570,18 @@ def delete_product(request):
 
         # 保存删除前的数据
         before_data = _product_snapshot(product)
-        
+
+        approval = approval_services.maybe_submit_approval(
+            request,
+            body.get("approval_perm"),
+            {"product:stock:delete"},
+            target_id=product.id,
+            target_name=product.name,
+            summary=f"删除库存：{product.name}",
+        )
+        if approval:
+            return approval_services.pending_response(approval)
+
         product.is_del = 1
         product.save(update_fields=["is_del", "updated_at"])
         

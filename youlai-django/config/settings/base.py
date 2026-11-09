@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.product.repair',
     'apps.product.test_records',
     'apps.system.operation_logs',
+    'apps.system.approval',
     'apps.system.releases',
     'apps.order',  # 订单管理应用
 ]
@@ -213,6 +214,7 @@ ALIYUN_OSS_ACCESS_KEY_SECRET = env_str('ALIYUN_OSS_ACCESS_KEY_SECRET', '')
 ALIYUN_OSS_BUCKET_NAME = env_str('ALIYUN_OSS_BUCKET_NAME', 'default')
 
 LOCAL_STORAGE_PATH = env_str('LOCAL_STORAGE_PATH', str(BASE_DIR / 'storage'))
+LOCAL_STORAGE_BASE_URL = env_str('LOCAL_STORAGE_BASE_URL', 'http://127.0.0.1:8000/storage')
 
 # ================================
 # 短信配置
