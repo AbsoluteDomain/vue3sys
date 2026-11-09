@@ -2,7 +2,10 @@
 -- 线上数据库变更脚本（自提交 f5a5893 之后）
 -- 内容：审批模块（审批配置/申请单/审核人明细）、BOM 附件、文件管理
 -- 说明：项目不使用 migrations，数据库结构由本脚本手动维护
--- 执行方式：mysql -u<user> -p <db_name> < approval_and_file_manager.sql
+-- 执行方式（必须指定数据库，否则会报 No database selected）：
+--   mysql -u<user> -p -D <db_name> < approval_and_file_manager.sql
+-- 或在脚本开头手动加入：USE `<db_name>`;
+-- 脚本可重复执行（建表用 IF NOT EXISTS，菜单/授权用 INSERT IGNORE）
 -- 执行前请先备份数据库
 -- ==============================================================
 
@@ -95,24 +98,66 @@ CREATE INDEX `bom_attachment_bom_id_4cee33fe` ON `bom_attachment` (`bom_id`);
 CREATE INDEX `bom_attachment_file_type_f269ee36` ON `bom_attachment` (`file_type`);
 
 -- ---------------- 6. 新增菜单 ----------------
-INSERT INTO `sys_menu` VALUES
+INSERT IGNORE INTO `sys_menu` VALUES
 (2938, 0, '0', '文件管理', 'C', NULL, '/file', 'Layout', NULL, 0, 0, 1, 1, 'file', NULL, NOW(), NOW(), NULL);
 
-INSERT INTO `sys_menu` VALUES
+INSERT IGNORE INTO `sys_menu` VALUES
 (2939, 2938, '0,2938', '文件管理', 'M', 'FileManager', 'index', 'file/index', NULL, 0, 1, 1, 1, 'el-icon-Folder', NULL, NOW(), NOW(), NULL);
 
-INSERT INTO `sys_menu` VALUES
+INSERT IGNORE INTO `sys_menu` VALUES
 (2940, 0, '0', '审核管理', 'C', NULL, '/approval', 'Layout', NULL, 0, 0, 1, 1, 'el-icon-Checked', NULL, NOW(), NOW(), NULL);
 
-INSERT INTO `sys_menu` VALUES
+INSERT IGNORE INTO `sys_menu` VALUES
 (2941, 2940, '0,2940', '审核管理', 'M', 'ApprovalManager', 'index', 'approval/index', NULL, 0, 1, 1, 1, 'el-icon-Checked', NULL, NOW(), NOW(), NULL);
 
-INSERT INTO `sys_menu` VALUES
+INSERT IGNORE INTO `sys_menu` VALUES
 (2942, 2912, '0,2912', '审批记录', 'M', 'ApprovalRecords', 'approvalRecord', 'approval/records', NULL, 0, 0, 1, 5, 'Document', NULL, NOW(), NOW(), NULL);
 
 -- ---------------- 7. 角色菜单授权 ----------------
 -- 系统管理员（role_id=2）：文件管理、审核管理、审批记录
 -- 部门成员（role_id=5）：仅审批记录
-INSERT INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES
+INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES
 (2, 2938), (2, 2939), (2, 2940), (2, 2941), (2, 2942),
 (5, 2942);
+
+-- ---------------- 8. 产品管理按钮权限菜单（缺失时补齐） ----------------
+-- 审核管理页按「模块 -> 按钮权限」树展示，按钮菜单缺失会导致审核项不显示、无法点击
+INSERT IGNORE INTO `sys_menu` VALUES (2915,2813,'0,2807,2813','成品组装','B',NULL,'','','product:finish:assemble',0,0,1,1,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2916,2813,'0,2807,2813','成品编辑','B',NULL,'','','product:finish:update',0,0,1,2,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2917,2813,'0,2807,2813','成品回退','B',NULL,'','','product:finish:rollback',0,0,1,3,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2918,2813,'0,2807,2813','关节绑定','B',NULL,'','','product:finish:bind',0,0,1,4,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2919,2813,'0,2807,2813','不良详情','B',NULL,'','','product:finish:defect',0,0,1,5,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2920,2813,'0,2807,2813','导出Excel','B',NULL,'','','product:finish:export',0,0,1,6,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2921,2813,'0,2807,2813','快捷操作-测试合格','B',NULL,'','','product:finish:test-pass',0,0,1,7,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2922,2813,'0,2807,2813','快捷操作-测试不良','B',NULL,'','','product:finish:test-fail',0,0,1,8,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2923,2813,'0,2807,2813','快捷操作-批量绑定SN码','B',NULL,'','','product:finish:batch-sn',0,0,1,9,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2924,2813,'0,2807,2813','快捷操作-添加关节','B',NULL,'','','product:finish:add-joint',0,0,1,10,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2925,2808,'0,2807,2808','库存新增','B',NULL,'','','product:stock:create',0,0,1,1,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2926,2808,'0,2807,2808','库存编辑','B',NULL,'','','product:stock:update',0,0,1,2,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2927,2808,'0,2807,2808','库存删除','B',NULL,'','','product:stock:delete',0,0,1,3,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2928,2808,'0,2807,2808','入库','B',NULL,'','','product:stock:inbound',0,0,1,4,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2929,2808,'0,2807,2808','出库','B',NULL,'','','product:stock:outbound',0,0,1,5,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2930,203,'0,2807,203','保存计划','B',NULL,'','','production:plan:save',0,0,1,1,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2931,2809,'0,2807,2809','查看BOM明细','B',NULL,'','','product:bom:detail',0,0,1,1,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2932,2809,'0,2807,2809','新增/导入BOM','B',NULL,'','','product:bom:create',0,0,1,2,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2933,2809,'0,2807,2809','导出/编辑BOM','B',NULL,'','','product:bom:update',0,0,1,3,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2934,2809,'0,2807,2809','删除BOM','B',NULL,'','','product:bom:delete',0,0,1,4,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2935,2907,'0,2807,2907','返修保存','B',NULL,'','','product:repair:save',0,0,1,1,NULL,NULL,NOW(),NOW(),NULL);
+INSERT IGNORE INTO `sys_menu` VALUES (2936,2907,'0,2807,2907','返修删除','B',NULL,'','','product:repair:delete',0,0,1,2,NULL,NULL,NOW(),NOW(),NULL);
+
+-- 按钮权限授权：系统管理员、部门成员均保留原有业务操作能力
+INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES
+(2,2915),(5,2915),(2,2916),(5,2916),(2,2917),(5,2917),(2,2918),(5,2918),
+(2,2919),(5,2919),(2,2920),(5,2920),(2,2921),(5,2921),(2,2922),(5,2922),
+(2,2923),(5,2923),(2,2924),(5,2924),(2,2925),(5,2925),(2,2926),(5,2926),
+(2,2927),(5,2927),(2,2928),(5,2928),(2,2929),(5,2929),(2,2930),(5,2930),
+(2,2931),(5,2931),(2,2932),(5,2932),(2,2933),(5,2933),(2,2934),(5,2934),
+(2,2935),(5,2935),(2,2936),(5,2936);
+
+-- ---------------- 9. 修复出入库审批配置的业务类型 ----------------
+-- 出入库接口按 biz_type=inbound/outbound 匹配配置；
+-- 若配置保存时把 perm_code 写进了 biz_type，会导致审批不拦截
+UPDATE `approval_config` SET `biz_type`='inbound'
+WHERE `perm_code`='product:stock:inbound' AND `biz_type`<>'inbound';
+UPDATE `approval_config` SET `biz_type`='outbound'
+WHERE `perm_code`='product:stock:outbound' AND `biz_type`<>'outbound';

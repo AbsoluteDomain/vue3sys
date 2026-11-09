@@ -260,8 +260,8 @@ def config_create(request):
     else:
         config = ApprovalConfig(
             perm_code=perm_code,
-            # biz_type 唯一，首次创建时以权限标识填充
-            biz_type=perm_code,
+            # biz_type 唯一；出入库需写成 inbound/outbound 供业务接口匹配
+            biz_type=services.BIZ_TYPE_BY_PERM.get(perm_code, perm_code),
             menu_id=button.id,
             name=name,
         )

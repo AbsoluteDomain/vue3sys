@@ -81,6 +81,12 @@ class ActiveConfigTests(ApprovalTestBase):
     def test_unknown_perm_returns_none(self):
         self.assertIsNone(services.get_active_config_by_perm("product:not-exists"))
 
+    def test_stock_config_biz_type_falls_back_to_perm(self):
+        """历史配置行把 perm_code 写入 biz_type 时，出入库接口仍能匹配到。"""
+        config = self.make_config("product:stock:inbound")
+
+        self.assertEqual(services.get_active_config("inbound"), config)
+
 
 class MaybeSubmitApprovalTests(ApprovalTestBase):
     def test_perm_outside_whitelist_is_ignored(self):
@@ -645,3 +651,18 @@ class ApprovalConfigCreateTests(ApprovalTestBase):
 
         self.assertEqual(data["code"], "A0400")
         self.assertEqual(ApprovalConfig.objects.count(), 0)
+
+    def test_inbound_perm_creates_biz_type_inbound(self):
+        """出入库配置的 biz_type 必须写成 inbound/outbound，否则业务接口识别不到。"""
+        button = Menu.objects.create(
+            parent_id=0, tree_path="0", name="入库", type="B",
+            perm="product:stock:inbound", visible=1, sort=0,
+        )
+        data = self.create_config(
+            {"perm_code": "product:stock:inbound", "menu_id": button.id, "name": button.name}
+        )
+
+        self.assertEqual(data["code"], "00000")
+        self.assertEqual(
+            ApprovalConfig.objects.get(perm_code="product:stock:inbound").biz_type, "inbound"
+        )

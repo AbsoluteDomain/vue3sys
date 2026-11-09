@@ -19,11 +19,27 @@ STATUS_NAMES = {0: "待审批", 1: "已通过", 2: "已驳回", 3: "执行失败
 DECISION_NAMES = {0: "待处理", 1: "同意", 2: "拒绝"}
 APPROVAL_MODES = {"single": "单人审批", "multi": "多人审批"}
 BIZ_ACTIONS = {"inbound": "入库", "outbound": "出库"}
+# 出入库审批按 biz_type 匹配，前端保存配置时不传 biz_type，
+# 需按权限标识兜底，避免配置写成 perm_code 后识别不到
+BIZ_TYPE_BY_PERM = {
+    "product:stock:inbound": "inbound",
+    "product:stock:outbound": "outbound",
+}
+BIZ_PERM_BY_TYPE = {v: k for k, v in BIZ_TYPE_BY_PERM.items()}
 
 
 def get_active_config(biz_type: str):
-    """获取已启用的业务审批配置，未启用返回 None。"""
-    return ApprovalConfig.objects.filter(biz_type=biz_type, enabled=1).first()
+    """获取已启用的业务审批配置，未启用返回 None。
+
+    biz_type 直接匹配，兼容历史上把 perm_code 写入 biz_type 的配置行。
+    """
+    from django.db.models import Q
+
+    perm_code = BIZ_PERM_BY_TYPE.get(biz_type)
+    condition = Q(biz_type=biz_type)
+    if perm_code:
+        condition |= Q(perm_code=perm_code)
+    return ApprovalConfig.objects.filter(condition, enabled=1).first()
 
 
 def get_active_config_by_perm(perm_code: str):
