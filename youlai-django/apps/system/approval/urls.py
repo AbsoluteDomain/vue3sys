@@ -7,6 +7,7 @@ from . import views
 
 urlpatterns = [
     path("configs", views.config_list, name="approval_config_list"),
+    path("configs/create", views.config_create, name="approval_config_create"),
     path("configs/<int:config_id>", views.config_update, name="approval_config_update"),
     path("enabled-perms", views.enabled_perms, name="approval_enabled_perms"),
     path("submit", views.submit_request, name="approval_submit"),

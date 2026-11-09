@@ -19,7 +19,13 @@ from apps.system.approval.models import (
     ApprovalRequest,
     ApprovalRequestApprover,
 )
-from apps.system.approval.views import my_tasks, request_history, submit_request
+from apps.system.approval.views import (
+    config_create,
+    my_tasks,
+    request_history,
+    submit_request,
+)
+from apps.system.menus.models import Menu
 from apps.system.operation_logs.views import approval_record_list
 from apps.system.users.models import User
 
@@ -592,3 +598,50 @@ class ApprovalSubmitApiTests(ApprovalTestBase):
 
         self.assertEqual(data["code"], "A0400")
         self.assertEqual(ApprovalRequest.objects.count(), 0)
+
+
+class ApprovalConfigCreateTests(ApprovalTestBase):
+    """按钮权限首次保存审核配置（配置行尚不存在时创建）。"""
+
+    def setUp(self):
+        self.button = Menu.objects.create(
+            parent_id=0, tree_path="0", name="库存-新增", type="B",
+            perm="product:stock:create", visible=1, sort=0,
+        )
+
+    def create_config(self, body=None):
+        payload = {
+            "perm_code": "product:stock:create",
+            "menu_id": self.button.id,
+            "name": self.button.name,
+            "enabled": 1,
+            "approval_mode": "single",
+            "approver_ids": [self.approver1.id],
+        }
+        payload.update(body or {})
+        return json.loads(
+            config_create(make_request(self.applicant, body=payload)).content.decode("utf-8")
+        )
+
+    def test_create_config_when_not_exists(self):
+        data = self.create_config()
+
+        self.assertEqual(data["code"], "00000")
+        self.assertEqual(data["data"]["approver_names"], "审核人1")
+        config = ApprovalConfig.objects.get(perm_code="product:stock:create")
+        self.assertEqual(config.biz_type, "product:stock:create")
+        self.assertEqual(config.enabled, 1)
+
+    def test_save_again_reuses_existing_row(self):
+        self.create_config()
+        data = self.create_config({"enabled": 0, "approver_ids": []})
+
+        self.assertEqual(data["code"], "00000")
+        self.assertEqual(ApprovalConfig.objects.count(), 1)
+        self.assertEqual(ApprovalConfig.objects.get().enabled, 0)
+
+    def test_perm_code_must_match_menu(self):
+        data = self.create_config({"perm_code": "product:stock:delete"})
+
+        self.assertEqual(data["code"], "A0400")
+        self.assertEqual(ApprovalConfig.objects.count(), 0)

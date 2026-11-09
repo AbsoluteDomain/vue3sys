@@ -44,6 +44,13 @@ export interface ApprovalConfigForm {
   approver_ids: number[];
 }
 
+/** 审批配置首次保存参数（配置行尚未创建时使用） */
+export interface ApprovalConfigCreateForm extends ApprovalConfigForm {
+  perm_code: string;
+  menu_id: number;
+  name: string;
+}
+
 /** 审批申请单审核人 */
 export interface ApprovalTaskApprover {
   approver_id: number;
@@ -137,6 +144,15 @@ const ApprovalAPI = {
     return request<any, ApprovalConfig[]>({
       url: `${BASE_URL}/configs`,
       method: "get",
+    });
+  },
+
+  /** 首次保存审批配置（配置行尚不存在时创建） */
+  createConfig(data: ApprovalConfigCreateForm) {
+    return request<any, ApprovalConfig>({
+      url: `${BASE_URL}/configs/create`,
+      method: "post",
+      data,
     });
   },
 

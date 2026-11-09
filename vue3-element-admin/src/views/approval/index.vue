@@ -76,7 +76,7 @@
         <el-table-column label="操作" width="100" align="center">
           <template #default="{ row }">
             <el-button
-              v-if="row.node_type === 'button' && row.id"
+              v-if="row.node_type === 'button' && row.perm_code"
               type="primary"
               link
               @click.stop="openDialog(row)"
@@ -188,6 +188,8 @@ function openDialog(row: ApprovalConfig) {
 }
 
 function handleRowClick(row: ApprovalConfig) {
+  // 仅按钮权限行可配置，目录/模块行只展示汇总信息
+  if (row.node_type !== "button" || !row.perm_code) return;
   openDialog(row);
 }
 
@@ -206,11 +208,22 @@ async function handleSave() {
   }
   submitting.value = true;
   try {
-    await ApprovalAPI.updateConfig(currentConfig.value.id, {
+    const payload = {
       enabled: form.enabled,
       approval_mode: form.approval_mode,
       approver_ids: form.approver_ids,
-    });
+    };
+    if (currentConfig.value.id) {
+      await ApprovalAPI.updateConfig(currentConfig.value.id, payload);
+    } else {
+      // 首次配置该按钮权限时后端还没有配置记录，走创建接口
+      await ApprovalAPI.createConfig({
+        perm_code: currentConfig.value.perm_code,
+        menu_id: currentConfig.value.menu_id as number,
+        name: currentConfig.value.name,
+        ...payload,
+      });
+    }
     ElMessage.success("保存成功");
     dialogVisible.value = false;
     fetchConfigs();

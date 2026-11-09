@@ -170,6 +170,106 @@ def config_list(request):
     return _ok(_build_config_tree())
 
 
+def _parse_config_form(body, config=None):
+    """校验审核配置表单，返回 (错误消息, 清洗后的数据)。"""
+    enabled = body.get("enabled", config.enabled if config else 0)
+    try:
+        enabled = int(enabled)
+    except (TypeError, ValueError):
+        return "审核状态参数不正确", None
+    if enabled not in (0, 1):
+        return "审核状态参数不正确", None
+
+    approval_mode = body.get("approval_mode", config.approval_mode if config else "single")
+    if approval_mode not in APPROVAL_MODES:
+        return "审批模式参数不正确", None
+
+    raw_ids = body.get("approver_ids", [])
+    if not isinstance(raw_ids, list):
+        return "审核人参数不正确", None
+    approver_ids = []
+    for item in raw_ids:
+        try:
+            approver_ids.append(int(item))
+        except (TypeError, ValueError):
+            return "审核人参数不正确", None
+
+    users = User.objects.filter(id__in=approver_ids, is_deleted=0)
+    user_map = {user.id: (user.nickname or user.username) for user in users}
+    missing_ids = [str(i) for i in approver_ids if i not in user_map]
+    if missing_ids:
+        return f"审核人不存在：{','.join(missing_ids)}", None
+
+    if enabled == 1 and not approver_ids:
+        return "启用审核时必须至少选择一名审核人", None
+
+    return None, {
+        "enabled": enabled,
+        "approval_mode": approval_mode,
+        "approver_ids": approver_ids,
+        "user_map": user_map,
+    }
+
+
+def _apply_config(config, values, request):
+    """将校验后的表单值写入配置对象并保存。"""
+    operator = get_request_operator(request)
+    user_id, user_name = operator if operator else (None, "")
+
+    config.enabled = values["enabled"]
+    config.approval_mode = values["approval_mode"]
+    config.approver_ids = ",".join(str(i) for i in values["approver_ids"])
+    config.approver_names = ",".join(values["user_map"][i] for i in values["approver_ids"])
+    config.editor_id = user_id
+    config.editor_name = user_name or ""
+    config.updated_at = timezone.now()
+    config.save()
+    return config
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def config_create(request):
+    """首次保存按钮权限的审核配置（配置行尚不存在时创建）。"""
+    body = _parse_body(request)
+    perm_code = (body.get("perm_code") or "").strip()
+    if not perm_code:
+        return _error("权限标识不能为空")
+
+    try:
+        menu_id = int(body.get("menu_id"))
+    except (TypeError, ValueError):
+        return _error("权限项参数不正确")
+
+    button = Menu.objects.filter(id=menu_id, type="B").first()
+    if not button or (button.perm or "") != perm_code:
+        return _error("权限项不存在或权限标识不匹配")
+
+    name = (body.get("name") or button.name or "").strip()
+    if not name:
+        return _error("功能名称不能为空")
+
+    error_msg, values = _parse_config_form(body)
+    if error_msg:
+        return _error(error_msg)
+
+    config = ApprovalConfig.objects.filter(perm_code=perm_code).first()
+    if config:
+        config.menu_id = button.id
+        config.name = name
+    else:
+        config = ApprovalConfig(
+            perm_code=perm_code,
+            # biz_type 唯一，首次创建时以权限标识填充
+            biz_type=perm_code,
+            menu_id=button.id,
+            name=name,
+        )
+
+    _apply_config(config, values, request)
+    return _ok(_serialize(config), msg="保存成功")
+
+
 @csrf_exempt
 @require_http_methods(["POST", "PUT"])
 def config_update(request, config_id):
@@ -178,51 +278,11 @@ def config_update(request, config_id):
     if not config:
         return _error("审批配置不存在", code="A0400", status=404)
 
-    body = _parse_body(request)
+    error_msg, values = _parse_config_form(_parse_body(request), config)
+    if error_msg:
+        return _error(error_msg)
 
-    enabled = body.get("enabled", config.enabled)
-    try:
-        enabled = int(enabled)
-    except (TypeError, ValueError):
-        return _error("审核状态参数不正确")
-    if enabled not in (0, 1):
-        return _error("审核状态参数不正确")
-
-    approval_mode = body.get("approval_mode", config.approval_mode)
-    if approval_mode not in APPROVAL_MODES:
-        return _error("审批模式参数不正确")
-
-    raw_ids = body.get("approver_ids", [])
-    if not isinstance(raw_ids, list):
-        return _error("审核人参数不正确")
-    approver_ids = []
-    for item in raw_ids:
-        try:
-            approver_ids.append(int(item))
-        except (TypeError, ValueError):
-            return _error("审核人参数不正确")
-
-    users = User.objects.filter(id__in=approver_ids, is_deleted=0)
-    user_map = {user.id: (user.nickname or user.username) for user in users}
-    missing_ids = [str(i) for i in approver_ids if i not in user_map]
-    if missing_ids:
-        return _error(f"审核人不存在：{','.join(missing_ids)}")
-
-    if enabled == 1 and not approver_ids:
-        return _error("启用审核时必须至少选择一名审核人")
-
-    operator = get_request_operator(request)
-    user_id, user_name = operator if operator else (None, "")
-
-    config.enabled = enabled
-    config.approval_mode = approval_mode
-    config.approver_ids = ",".join(str(i) for i in approver_ids)
-    config.approver_names = ",".join(user_map[i] for i in approver_ids)
-    config.editor_id = user_id
-    config.editor_name = user_name or ""
-    config.updated_at = timezone.now()
-    config.save()
-
+    _apply_config(config, values, request)
     return _ok(_serialize(config), msg="保存成功")
 
 
