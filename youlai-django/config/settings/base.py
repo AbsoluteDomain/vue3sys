@@ -217,6 +217,15 @@ LOCAL_STORAGE_PATH = env_str('LOCAL_STORAGE_PATH', str(BASE_DIR / 'storage'))
 LOCAL_STORAGE_BASE_URL = env_str('LOCAL_STORAGE_BASE_URL', 'http://127.0.0.1:8000/storage')
 
 # ================================
+# AI 助手配置（DeepSeek 开放对话接口）
+# ================================
+
+DEEPSEEK_API_KEY = env_str('DEEPSEEK_API_KEY', '')
+DEEPSEEK_API_BASE = env_str('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
+DEEPSEEK_MODEL = env_str('DEEPSEEK_MODEL', 'deepseek-chat')
+DEEPSEEK_TIMEOUT = env_int('DEEPSEEK_TIMEOUT', 60)
+
+# ================================
 # 短信配置
 # ================================
 

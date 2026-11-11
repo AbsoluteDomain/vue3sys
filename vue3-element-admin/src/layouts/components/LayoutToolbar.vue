@@ -32,6 +32,11 @@
         <ReleaseDropdown />
       </div>
 
+      <!-- AI 助手 -->
+      <div class="navbar-actions__item">
+        <AiAssistant />
+      </div>
+
       <!-- 租户选择（如果启用多租户）-->
       <div v-if="showTenantSwitcher" class="navbar-actions__item">
         <TenantSwitcher @change="handleTenantChange" />
@@ -96,6 +101,7 @@ import SizeSelect from "@/components/SizeSelect/index.vue";
 import LangSelect from "@/components/LangSelect/index.vue";
 import NoticeDropdown from "@/components/NoticeDropdown/index.vue";
 import ReleaseDropdown from "@/components/ReleaseDropdown/index.vue";
+import AiAssistant from "@/components/AiAssistant/index.vue";
 import TenantSwitcher from "@/components/TenantSwitcher/index.vue";
 import { useTenantStoreHook } from "@/store/modules/tenant";
 import ApprovalAPI from "@/api/approval";
@@ -397,6 +403,15 @@ function handleSettingsClick() {
     color: color-mix(in srgb, var(--el-color-white) 85%, transparent);
   }
 
+  // AI 助手图标跟随白色文字模式
+  :deep(.ai-assistant__icon) {
+    color: color-mix(in srgb, var(--el-color-white) 85%, transparent);
+  }
+
+  .navbar-actions__item:hover :deep(.ai-assistant__icon) {
+    color: var(--el-color-white);
+  }
+
   // 租户选择器在白色文字模式下的样式
   ::v-deep(.tenant-switcher__trigger) {
     color: color-mix(in srgb, var(--el-color-white) 85%, transparent);
@@ -431,6 +446,15 @@ function handleSettingsClick() {
 
   .user-profile__name {
     color: var(--el-text-color-regular) !important;
+  }
+
+  // AI 助手图标跟随深色文字模式
+  :deep(.ai-assistant__icon) {
+    color: var(--el-text-color-regular) !important;
+  }
+
+  .navbar-actions__item:hover :deep(.ai-assistant__icon) {
+    color: var(--el-color-primary) !important;
   }
 
   // 租户选择器在深色文字模式下的样式
