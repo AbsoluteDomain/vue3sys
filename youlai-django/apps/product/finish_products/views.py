@@ -538,6 +538,50 @@ def finish_product_daily_stats(request):
         else:
             bom_out_sale_map[bom_key] = bom_out_sale_map.get(bom_key, 0) + row["c"]
 
+    # 当日（固定为今天）入库/出库汇总：不受日期筛选条件影响，便于与所选区间数据对照
+    today = timezone.now().date()
+    today_start_dt, today_end_dt = local_day_range_datetimes(today, today)
+
+    today_in_qs = FinishProduct.active_queryset().filter(
+        stock_in_time__isnull=False,
+        stock_in_time__gte=today_start_dt,
+        stock_in_time__lte=today_end_dt,
+        inventory_stock=FinishProduct.INVENTORY_IN,
+    )
+    today_in_qs = _filter_finish_scope(today_in_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
+    today_in_map = {}
+    for row in today_in_qs.values("bom_id").annotate(c=Count("id")):
+        today_in_map[row["bom_id"]] = row["c"]
+
+    today_out_qs = FinishProduct.active_queryset().filter(
+        stock_out_time__isnull=False,
+        stock_out_time__gte=today_start_dt,
+        stock_out_time__lte=today_end_dt,
+        inventory_stock__in=[
+            FinishProduct.INVENTORY_OUT_SALE,
+            FinishProduct.INVENTORY_OUT_DEV,
+            FinishProduct.INVENTORY_OUT_SCRAP,
+            FinishProduct.INVENTORY_OUT_EXCHANGE,
+        ],
+    )
+    today_out_qs = _filter_finish_scope(today_out_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
+    today_out_map = {}
+    today_out_sale_map = {}
+    today_out_dev_map = {}
+    today_out_scrap_map = {}
+    today_out_exchange_map = {}
+    for row in today_out_qs.values("bom_id", "inventory_stock").annotate(c=Count("id")):
+        bom_key = row["bom_id"]
+        today_out_map[bom_key] = today_out_map.get(bom_key, 0) + row["c"]
+        if row["inventory_stock"] == FinishProduct.INVENTORY_OUT_DEV:
+            today_out_dev_map[bom_key] = today_out_dev_map.get(bom_key, 0) + row["c"]
+        elif row["inventory_stock"] == FinishProduct.INVENTORY_OUT_SCRAP:
+            today_out_scrap_map[bom_key] = today_out_scrap_map.get(bom_key, 0) + row["c"]
+        elif row["inventory_stock"] == FinishProduct.INVENTORY_OUT_EXCHANGE:
+            today_out_exchange_map[bom_key] = today_out_exchange_map.get(bom_key, 0) + row["c"]
+        else:
+            today_out_sale_map[bom_key] = today_out_sale_map.get(bom_key, 0) + row["c"]
+
     # 当前剩余库存（时点口径，与「成品库存」卡片一致，不受日期筛选影响）
     stock_qs = _filter_finish_scope(
         FinishProduct.active_queryset().filter(inventory_stock=FinishProduct.INVENTORY_IN),
@@ -547,8 +591,18 @@ def finish_product_daily_stats(request):
     for row in stock_qs.values("bom_id").annotate(c=Count("id")):
         bom_stock_map[row["bom_id"]] = row["c"]
 
-    # 行集合 = 本期有入库或出库记录 的型号 ∪ 当前有剩余库存 的型号
-    breakdown_bom_ids = {bid for bid in (set(bom_in_map) | set(bom_out_map) | set(bom_stock_map)) if bid}
+    # 行集合 = 本期有入库或出库记录 的型号 ∪ 当前有剩余库存 的型号 ∪ 当日有出入库的型号
+    breakdown_bom_ids = {
+        bid
+        for bid in (
+            set(bom_in_map)
+            | set(bom_out_map)
+            | set(bom_stock_map)
+            | set(today_in_map)
+            | set(today_out_map)
+        )
+        if bid
+    }
     bom_meta_map = {}
     if breakdown_bom_ids:
         bom_meta_map = {
@@ -571,6 +625,12 @@ def finish_product_daily_stats(request):
                 "outScrapCount": bom_out_scrap_map.get(bid, 0),
                 "outExchangeCount": bom_out_exchange_map.get(bid, 0),
                 "stockCount": bom_stock_map.get(bid, 0),
+                "todayInCount": today_in_map.get(bid, 0),
+                "todayOutCount": today_out_map.get(bid, 0),
+                "todayOutSaleCount": today_out_sale_map.get(bid, 0),
+                "todayOutDevCount": today_out_dev_map.get(bid, 0),
+                "todayOutScrapCount": today_out_scrap_map.get(bid, 0),
+                "todayOutExchangeCount": today_out_exchange_map.get(bid, 0),
             }
         )
     bom_breakdown.sort(key=lambda row: (-(row["inCount"] + row["outCount"]), row["bom_model"]))

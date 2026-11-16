@@ -46,6 +46,12 @@ export const bomStockColumnOptions: FinishProductColumnOption[] = [
   { key: "outDevCount", label: "出库(研发)", defaultVisible: true },
   { key: "outScrapCount", label: "出库(报废)", defaultVisible: true },
   { key: "outExchangeCount", label: "出库(换货)", defaultVisible: true },
+  { key: "todayInCount", label: "当日入库数", defaultVisible: true },
+  { key: "todayOutCount", label: "当日出库数", defaultVisible: true },
+  { key: "todayOutSaleCount", label: "当日出库(外销)", defaultVisible: true },
+  { key: "todayOutDevCount", label: "当日出库(研发)", defaultVisible: true },
+  { key: "todayOutScrapCount", label: "当日出库(报废)", defaultVisible: true },
+  { key: "todayOutExchangeCount", label: "当日出库(换货)", defaultVisible: true },
 ];
 
 /** 返修管理列表存储 key 与列定义 */

@@ -746,12 +746,13 @@
               </el-col>
             </el-row>
             <div v-if="showStockTable" class="mt-4 mb-2 flex items-center justify-end">
-              <el-button size="small" @click="openBomColumnDialog">
+              <el-button size="small" @click="openBomColumnSettings">
                 <el-icon><Setting /></el-icon> 列展示
               </el-button>
             </div>
             <el-table
               v-if="showStockTable"
+              class="bom-stock-table"
               ref="bomStockTableRef"
               :data="bomStockTableRows"
               size="default"
@@ -761,102 +762,23 @@
               empty-text="当前筛选条件下暂无出入库数据"
             >
               <el-table-column
-                v-if="isBomColumnVisible('bom_model')"
-                prop="bom_model"
+                v-for="col in bomStockDisplayColumns"
+                :key="col.key"
+                :prop="col.key"
                 sortable
-                label="BOM型号"
-                min-width="140"
-                show-overflow-tooltip
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('bom_name')"
-                prop="bom_name"
-                sortable
-                label="名称"
-                min-width="140"
-                show-overflow-tooltip
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('stockCount')"
-                prop="stockCount"
-                sortable
-                label="当前剩余库存"
-                width="150"
-                align="right"
+                :label="col.label"
+                :width="bomColumnMeta[col.key]?.width"
+                :min-width="bomColumnMeta[col.key]?.minWidth"
+                :align="bomColumnMeta[col.key]?.align || 'left'"
+                :show-overflow-tooltip="bomColumnMeta[col.key]?.overflowTooltip"
               >
-                <template #default="{ row }">
+                <template v-if="col.key === 'stockCount'" #default="{ row }">
                   <span class="bom-stock-value">{{ row.stockCount }}</span>
                 </template>
+                <template v-else-if="bomColumnMeta[col.key]?.percent" #default="{ row }">
+                  {{ Number(row[col.key] ?? 0).toFixed(1) }}%
+                </template>
               </el-table-column>
-              <el-table-column
-                v-if="isBomColumnVisible('inCount')"
-                prop="inCount"
-                sortable
-                label="入库数"
-                width="100"
-                align="right"
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('inPercent')"
-                prop="inPercent"
-                sortable
-                label="入库占比"
-                width="110"
-                align="right"
-              >
-                <template #default="{ row }">{{ row.inPercent.toFixed(1) }}%</template>
-              </el-table-column>
-              <el-table-column
-                v-if="isBomColumnVisible('outCount')"
-                prop="outCount"
-                sortable
-                label="出库数"
-                width="100"
-                align="right"
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('outPercent')"
-                prop="outPercent"
-                sortable
-                label="出库占比"
-                width="110"
-                align="right"
-              >
-                <template #default="{ row }">{{ row.outPercent.toFixed(1) }}%</template>
-              </el-table-column>
-              <el-table-column
-                v-if="isBomColumnVisible('outSaleCount')"
-                prop="outSaleCount"
-                sortable
-                label="出库(外销)"
-                width="120"
-                align="right"
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('outDevCount')"
-                prop="outDevCount"
-                sortable
-                label="出库(研发)"
-                width="120"
-                align="right"
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('outScrapCount')"
-                prop="outScrapCount"
-                sortable
-                label="出库(报废)"
-                width="120"
-                align="right"
-              />
-              <el-table-column
-                v-if="isBomColumnVisible('outExchangeCount')"
-                prop="outExchangeCount"
-                sortable
-                label="出库(换货)"
-                width="120"
-                align="right"
-              />
-              
             </el-table>
           </el-card>
         </el-col>
@@ -1288,17 +1210,32 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="bomColumnDialogVisible" title="列展示设置" width="480px" destroy-on-close>
-      <div class="column-setting-tip">勾选需要在 BOM 型号出入库明细表中展示的字段</div>
-      <el-checkbox-group v-model="bomColumnDraftKeys" class="column-checkbox-group">
-        <el-checkbox v-for="col in bomStockColumnOptions" :key="col.key" :label="col.key">
-          {{ col.label }}
-        </el-checkbox>
+    <el-dialog v-model="bomColumnDialogVisible" title="列展示设置" width="520px" destroy-on-close>
+      <div class="column-setting-tip">
+        勾选需要展示的字段，并通过 ↑ ↓ 调整顺序（列表从上到下即表格从左到右）
+      </div>
+      <el-checkbox-group v-model="bomColumnDraftKeys" class="column-order-list">
+        <div v-for="(col, index) in bomColumnDraftOrderedOptions" :key="col.key" class="column-order-item">
+          <el-checkbox :label="col.key">{{ col.label }}</el-checkbox>
+          <div class="column-order-actions">
+            <el-button link size="small" :disabled="index === 0" @click="moveBomColumnDraft(index, -1)">
+              ↑
+            </el-button>
+            <el-button
+              link
+              size="small"
+              :disabled="index === bomColumnDraftOrder.length - 1"
+              @click="moveBomColumnDraft(index, 1)"
+            >
+              ↓
+            </el-button>
+          </div>
+        </div>
       </el-checkbox-group>
       <template #footer>
-        <el-button @click="resetBomColumnDraft">恢复默认</el-button>
+        <el-button @click="resetBomColumnSettings">恢复默认</el-button>
         <el-button @click="bomColumnDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveBomColumnSettings">确定</el-button>
+        <el-button type="primary" @click="saveBomColumnSettingsWithOrder">确定</el-button>
       </template>
     </el-dialog>
 
@@ -1533,6 +1470,104 @@ const {
   saveColumnSettings: saveBomColumnSettings,
 } = useFinishProductTableColumns(BOM_STOCK_COLUMN_STORAGE_KEY, bomStockColumnOptions);
 
+/** BOM 明细表各列的宽度/对齐/百分比等渲染元数据 */
+const bomColumnMeta: Record<
+  string,
+  {
+    width?: string;
+    minWidth?: string;
+    align?: "left" | "right" | "center";
+    percent?: boolean;
+    overflowTooltip?: boolean;
+  }
+> = {
+  bom_model: { minWidth: "140", overflowTooltip: true },
+  bom_name: { minWidth: "140", overflowTooltip: true },
+  stockCount: { width: "150", align: "right" },
+  inCount: { width: "100", align: "right" },
+  inPercent: { width: "110", align: "right", percent: true },
+  outCount: { width: "100", align: "right" },
+  outPercent: { width: "110", align: "right", percent: true },
+  outSaleCount: { width: "120", align: "right" },
+  outDevCount: { width: "120", align: "right" },
+  outScrapCount: { width: "120", align: "right" },
+  outExchangeCount: { width: "120", align: "right" },
+  todayInCount: { width: "120", align: "right" },
+  todayOutCount: { width: "120", align: "right" },
+  todayOutSaleCount: { width: "140", align: "right" },
+  todayOutDevCount: { width: "140", align: "right" },
+  todayOutScrapCount: { width: "140", align: "right" },
+  todayOutExchangeCount: { width: "140", align: "right" },
+};
+
+const BOM_STOCK_ORDER_STORAGE_KEY = "bom-stock-table-column-order";
+const DEFAULT_BOM_COLUMN_ORDER = bomStockColumnOptions.map((col) => col.key);
+
+/** BOM 明细表列顺序 */
+const bomColumnOrder = ref<string[]>([...DEFAULT_BOM_COLUMN_ORDER]);
+/** 「列展示设置」弹窗内的顺序草稿 */
+const bomColumnDraftOrder = ref<string[]>([...DEFAULT_BOM_COLUMN_ORDER]);
+
+/** 按给定顺序排列列定义 */
+const sortBomColumnOptionsByOrder = (order: string[]) => {
+  const orderMap = new Map(order.map((key, index) => [key, index]));
+  return bomStockColumnOptions
+    .filter((col) => orderMap.has(col.key))
+    .sort((a, b) => (orderMap.get(a.key) ?? 0) - (orderMap.get(b.key) ?? 0));
+};
+
+/** 表格实际渲染列：按顺序排除隐藏列 */
+const bomStockDisplayColumns = computed(() =>
+  sortBomColumnOptionsByOrder(bomColumnOrder.value).filter((col) => isBomColumnVisible(col.key))
+);
+
+/** 弹窗内展示的列（按草稿顺序） */
+const bomColumnDraftOrderedOptions = computed(() => sortBomColumnOptionsByOrder(bomColumnDraftOrder.value));
+
+/** 读取已保存的列顺序，新增列自动追加到末尾 */
+const loadBomColumnOrder = () => {
+  const saved = localStorage.getItem(BOM_STOCK_ORDER_STORAGE_KEY);
+  if (!saved) return;
+  try {
+    const parsed = JSON.parse(saved) as string[];
+    if (!Array.isArray(parsed)) return;
+    const valid = parsed.filter((key) => DEFAULT_BOM_COLUMN_ORDER.includes(key));
+    const missing = DEFAULT_BOM_COLUMN_ORDER.filter((key) => !valid.includes(key));
+    bomColumnOrder.value = [...valid, ...missing];
+  } catch {
+    bomColumnOrder.value = [...DEFAULT_BOM_COLUMN_ORDER];
+  }
+};
+
+const openBomColumnSettings = () => {
+  bomColumnDraftOrder.value = [...bomColumnOrder.value];
+  openBomColumnDialog();
+};
+
+const moveBomColumnDraft = (index: number, delta: number) => {
+  const target = index + delta;
+  if (target < 0 || target >= bomColumnDraftOrder.value.length) return;
+  const list = [...bomColumnDraftOrder.value];
+  [list[index], list[target]] = [list[target], list[index]];
+  bomColumnDraftOrder.value = list;
+};
+
+const resetBomColumnSettings = () => {
+  bomColumnDraftOrder.value = [...DEFAULT_BOM_COLUMN_ORDER];
+  resetBomColumnDraft();
+};
+
+const saveBomColumnSettingsWithOrder = () => {
+  if (!bomColumnDraftKeys.value.length) {
+    // 复用 hook 内的「请至少勾选一列」校验提示
+    saveBomColumnSettings();
+    return;
+  }
+  bomColumnOrder.value = [...bomColumnDraftOrder.value];
+  localStorage.setItem(BOM_STOCK_ORDER_STORAGE_KEY, JSON.stringify(bomColumnOrder.value));
+  saveBomColumnSettings();
+};
+
 type BoardType = "material" | "finish";
 
 /** 成品看板折叠面板展开项：前两组默认展开，其余默认收起 */
@@ -1583,6 +1618,12 @@ interface BomStockStat {
   outDevCount: number;
   outScrapCount: number;
   outExchangeCount: number;
+  todayInCount: number;
+  todayOutCount: number;
+  todayOutSaleCount: number;
+  todayOutDevCount: number;
+  todayOutScrapCount: number;
+  todayOutExchangeCount: number;
 }
 
 const finishChartSeries = [
@@ -2188,6 +2229,12 @@ const bomStockTableTotals = computed(() => {
     outScrapCount: pick("outScrapCount"),
     outExchangeCount: pick("outExchangeCount"),
     stockCount: pick("stockCount"),
+    todayInCount: pick("todayInCount"),
+    todayOutCount: pick("todayOutCount"),
+    todayOutSaleCount: pick("todayOutSaleCount"),
+    todayOutDevCount: pick("todayOutDevCount"),
+    todayOutScrapCount: pick("todayOutScrapCount"),
+    todayOutExchangeCount: pick("todayOutExchangeCount"),
   };
 });
 
@@ -2215,15 +2262,27 @@ const bomStockSummaryMethod = ({ columns }: { columns: any[] }) => {
         return String(totals.outExchangeCount);
       case "stockCount":
         return String(totals.stockCount);
+      case "todayInCount":
+        return String(totals.todayInCount);
+      case "todayOutCount":
+        return String(totals.todayOutCount);
+      case "todayOutSaleCount":
+        return String(totals.todayOutSaleCount);
+      case "todayOutDevCount":
+        return String(totals.todayOutDevCount);
+      case "todayOutScrapCount":
+        return String(totals.todayOutScrapCount);
+      case "todayOutExchangeCount":
+        return String(totals.todayOutExchangeCount);
       default:
         return "";
     }
   });
 };
 
-/** 列显隐变化后重新计算列宽，避免表头、表体与合计行错位 */
+/** 列显隐或顺序变化后重新计算列宽，避免表头、表体与合计行错位 */
 watch(
-  () => JSON.stringify(bomVisibleColumns.value),
+  () => JSON.stringify(bomVisibleColumns.value) + JSON.stringify(bomColumnOrder.value),
   () => nextTick(() => bomStockTableRef.value?.doLayout())
 );
 
@@ -2815,6 +2874,7 @@ const fetchJointReport = async () => {
 onMounted(() => {
   loadColumnSettings();
   loadBomColumnSettings();
+  loadBomColumnOrder();
   dictStore.loadDictItems('storage_status', true);
   periodType.value = "30d";
   finishDateRange.value = computeDateRangeByPeriod("30d");
@@ -2935,7 +2995,43 @@ onMounted(() => {
   gap: 8px 12px;
 }
 
+/* BOM 明细表：列展示设置中的顺序调整列表 */
+.column-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.column-order-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+.column-order-item:hover {
+  background: var(--el-fill-color-light);
+}
+
+.column-order-actions {
+  display: flex;
+  align-items: center;
+}
+
+.column-order-actions .el-button {
+  margin-left: 0;
+  padding: 0 6px;
+}
+
 /* ==================== BOM 型号出入库明细表 ==================== */
+
+/* 明细表字号（行高由 Element Plus 固定 line-height 决定，改字号不影响表格高度） */
+.bom-stock-table {
+  font-size: 20px;
+}
 
 /* 当前剩余库存：绿色标注（时点口径，与上方日期筛选无关） */
 .bom-stock-value {
