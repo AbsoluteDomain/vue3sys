@@ -454,11 +454,12 @@ def finish_product_daily_stats(request):
             bucket["repairCount"] += 1
             summary["repairCount"] += 1
 
+    # 入库数按「入库动作」统计：只要入库时间落在区间内即计入，
+    # 不再要求当前仍处于入库状态，避免「先入库后出库」的成品被漏统计
     stock_in_qs = FinishProduct.active_queryset().filter(
         stock_in_time__isnull=False,
         stock_in_time__gte=start_dt,
         stock_in_time__lte=end_dt,
-        inventory_stock=FinishProduct.INVENTORY_IN,
     )
     stock_in_qs = _filter_finish_scope(stock_in_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
     for item in stock_in_qs:
@@ -546,7 +547,6 @@ def finish_product_daily_stats(request):
         stock_in_time__isnull=False,
         stock_in_time__gte=today_start_dt,
         stock_in_time__lte=today_end_dt,
-        inventory_stock=FinishProduct.INVENTORY_IN,
     )
     today_in_qs = _filter_finish_scope(today_in_qs, bom_type, bom_ids_param, creator_name, editor_name, sn_code_binder)
     today_in_map = {}
